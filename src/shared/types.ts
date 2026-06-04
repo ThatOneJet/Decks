@@ -1,0 +1,92 @@
+/**
+ * Decks — shared domain types.
+ *
+ * This file is the single source of truth for the data model. Both the main
+ * process and the renderer import from here (alias: `@shared/types`).
+ * Do not redefine these shapes anywhere else.
+ */
+
+export type WorkspaceId = string
+export type PanelId = string
+
+/** A single embedded web view inside a workspace. */
+export interface Panel {
+  id: PanelId
+  title: string
+  url: string
+  /** Last known favicon URL (updated by main via panel:navigated events). */
+  favicon?: string
+  /** Navigation capabilities, kept fresh from the live WebContents. */
+  canGoBack?: boolean
+  canGoForward?: boolean
+  /** True while the panel is loading. */
+  loading?: boolean
+}
+
+/**
+ * Split-view layout. A workspace's panels are arranged as a binary-ish tree:
+ * either a single leaf panel, or a row/column split of child nodes.
+ * `sizes` are fractional weights (sum ~1) parallel to `children`.
+ */
+export type LayoutNode =
+  | { type: 'leaf'; panelId: PanelId }
+  | { type: 'split'; direction: 'row' | 'column'; sizes: number[]; children: LayoutNode[] }
+
+/** Live state shown on the workspace rail (the colored dot + subtitle). */
+export type WorkspaceStatus = 'active' | 'idle' | 'paused' | 'unread'
+
+export interface WorkspaceLiveState {
+  status: WorkspaceStatus
+  /** For status='unread'. */
+  unread?: number
+  /** For status='paused' — epoch ms when it was paused (rail shows "paused HH:MM"). */
+  pausedAt?: number
+}
+
+export interface Workspace {
+  id: WorkspaceId
+  name: string
+  /** Short descriptor under the name, e.g. "2 panels · term", "chat · code". */
+  subtitle?: string
+  /** Accent color for the active state / icon chip. */
+  color?: string
+  /** Optional emoji or short glyph shown in the rail chip. */
+  glyph?: string
+  panels: Panel[]
+  layout: LayoutNode
+  live: WorkspaceLiveState
+  /**
+   * Electron session partition. Always `persist:<id>` so cookies / logins
+   * survive restarts. Set once at creation; never change it.
+   */
+  partition: string
+}
+
+export type Theme = 'dark' | 'light'
+
+/** A target reachable from the Cmd+K palette. */
+export interface CommandItem {
+  id: string
+  kind: 'workspace' | 'pinned-site' | 'command'
+  label: string
+  hint?: string
+  /** For pinned-site: the URL to open. For workspace: the workspace id. */
+  value?: string
+  glyph?: string
+}
+
+/** Pixel rectangle used to position a WebContentsView over the panel slot. */
+export interface PanelBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** Full app snapshot persisted to disk and hydrated on launch. */
+export interface PersistedState {
+  version: number
+  theme: Theme
+  workspaces: Workspace[]
+  activeWorkspaceId: WorkspaceId | null
+}
