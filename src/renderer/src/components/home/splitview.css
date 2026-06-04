@@ -1,0 +1,29 @@
+/**
+ * SplitView entrance motion. Colocated under home/ to keep this work inside the
+ * components/ scope (it's the workspace-switch transition, not a Home anim).
+ *
+ * A short (~180ms), NON-looping fade + scale-in. The SplitView container is
+ * keyed on the active workspace id, so React remounts it on every switch and
+ * this one-shot animation replays. No looping animation ever sits behind the
+ * live native web panels.
+ */
+.splitview-enter {
+  animation: splitview-enter 180ms ease-out both;
+}
+
+@keyframes splitview-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splitview-enter {
+    animation: none;
+  }
+}

@@ -1,0 +1,86 @@
+/**
+ * Aurora background styles (Home only). Colocated with AnimatedBackground.tsx
+ * to keep this work inside the components/ scope. Pure CSS, no deps.
+ * Animates only `transform` (compositor-friendly).
+ */
+
+.aurora-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(80px);
+  opacity: 0.5;
+  will-change: transform;
+  mix-blend-mode: screen;
+}
+
+.aurora-blob--a {
+  top: -10%;
+  left: 10%;
+  width: 46vw;
+  height: 46vw;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(124, 92, 255, 0.55),
+    rgba(124, 92, 255, 0) 70%
+  );
+  animation: aurora-drift-a 24s ease-in-out infinite alternate;
+}
+
+.aurora-blob--b {
+  bottom: -20%;
+  right: 5%;
+  width: 52vw;
+  height: 52vw;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(61, 220, 151, 0.28),
+    rgba(61, 220, 151, 0) 70%
+  );
+  animation: aurora-drift-b 30s ease-in-out infinite alternate;
+}
+
+.aurora-blob--c {
+  top: 25%;
+  left: 40%;
+  width: 38vw;
+  height: 38vw;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(90, 120, 255, 0.3),
+    rgba(90, 120, 255, 0) 70%
+  );
+  animation: aurora-drift-c 36s ease-in-out infinite alternate;
+}
+
+@keyframes aurora-drift-a {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(8vw, 6vh, 0) scale(1.15);
+  }
+}
+
+@keyframes aurora-drift-b {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1.1);
+  }
+  100% {
+    transform: translate3d(-10vw, -4vh, 0) scale(0.95);
+  }
+}
+
+@keyframes aurora-drift-c {
+  0% {
+    transform: translate3d(0, 0, 0) scale(0.9);
+  }
+  100% {
+    transform: translate3d(6vw, -8vh, 0) scale(1.2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-blob {
+    animation: none;
+  }
+}
