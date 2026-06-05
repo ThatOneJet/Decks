@@ -1,23 +1,27 @@
 /**
- * SplitView — the floating page card the chrome wraps around.
+ * SplitView — the floating page card the chrome wraps around, now dressed in the
+ * "Console" workspace chrome: a TAB STRIP across the top of the card, an explicit
+ * open-beside / split affordance, and a contextual ACTION SHELF below it.
  *
- * The active workspace's layout tree renders as deck PANES inside one rounded,
- * glowing `.page-card`. Each leaf = a `.deck-pane` with a `.deck-head` (icon +
- * name + Native/Web chip + pop-out / focus / reload / close) over a `.deck-body`.
- * WEB panes: the body is an empty slot whose pixel rect is measured and reported
- * via panel.showOnly so the native WebContentsView sits under the chrome. NATIVE
- * panes: the body renders our React deck (NativeDeckHost) — no view, not measured.
+ * The active workspace's layout tree still renders as deck PANES inside one
+ * rounded, glowing `.page-card`. Each leaf = a `.deck-pane` with a `.deck-head`
+ * (icon + name + Native/Web chip + pop-out / focus / reload / close) over a
+ * `.deck-body`. WEB panes: the body is an empty slot whose pixel rect is measured
+ * and reported via panel.showOnly so the native WebContentsView sits under the
+ * chrome. NATIVE panes: the body renders our React deck (NativeDeckHost).
  *
- * Drag a rail tile onto the card and glowing Split-left / Split-right zones appear
- * (the redesign's discoverability win). All behaviors — the layout tree, the
- * discard/measure pipeline, native vs web, pop-out, reload, close — are preserved.
+ * Drag a rail tile onto the card and glowing Split-left / Split-right zones appear.
+ * All behaviors — the layout tree, the discard/measure pipeline, native vs web,
+ * pop-out, reload, close, drop zones, the split-ghost hint — are preserved; the
+ * Console chrome is layered ON TOP.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
-import type { LayoutNode, PanelBounds, PanelId, Workspace } from '@shared/types'
+import type { LayoutNode, Panel, PanelBounds, PanelId, Workspace } from '@shared/types'
 import { faviconFor } from '../lib/favicon'
 import { DECKS_WS_DND } from './sidebar/WorkspaceItem'
 import NativeDeckHost from '../native/NativeDeckHost'
+import { modCombo } from '../lib/platform'
 import './home/splitview.css'
 
 /** Max decks a single workspace's split can hold (drag-into-page cap). */
@@ -29,6 +33,44 @@ function collectPanelIds(node: LayoutNode, out: PanelId[]): void {
     return
   }
   for (const child of node.children) collectPanelIds(child, out)
+}
+
+/** Per-panel handlers shared by the pane head, the tab strip, and the shelf. */
+function usePanelActions(ws: Workspace) {
+  const removePanel = useStore((s) => s.removePanel)
+  const popPanelOut = useStore((s) => s.popPanelOut)
+  const toggleFocusMode = useStore((s) => s.toggleFocusMode)
+  const bumpPanelReload = useStore((s) => s.bumpPanelReload)
+
+  // Native decks have no main-process view: reload = remount the React subtree
+  // (bump the per-panel nonce) rather than calling panel.reload. Web decks reload
+  // the view.
+  const reload = useCallback(
+    (deck: Panel | undefined): void => {
+      if (!deck) return
+      if (deck.kind === 'native') bumpPanelReload(deck.id)
+      else void window.decks?.panel.reload(deck.id)
+    },
+    [bumpPanelReload]
+  )
+
+  const close = useCallback(
+    (deck: Panel | undefined): void => {
+      if (!deck) return
+      if (deck.kind !== 'native') window.decks?.panel.destroy(deck.id)
+      removePanel(ws.id, deck.id)
+    },
+    [removePanel, ws.id]
+  )
+
+  const pop = useCallback(
+    (deck: Panel | undefined): void => {
+      if (deck) popPanelOut(ws.id, deck.id)
+    },
+    [popPanelOut, ws.id]
+  )
+
+  return { reload, close, pop, toggleFocusMode }
 }
 
 function HeadBtn({
@@ -49,19 +91,177 @@ function HeadBtn({
   )
 }
 
+/** Tab strip across the top of the page card — one tab per pane in the layout. */
+function TabStrip({
+  ws,
+  panelIds,
+  activeTab,
+  onActivate,
+  onClose,
+  onSplit,
+  onAdd
+}: {
+  ws: Workspace
+  panelIds: PanelId[]
+  activeTab: PanelId | null
+  onActivate: (id: PanelId) => void
+  onClose: (deck: Panel | undefined) => void
+  onSplit: () => void
+  onAdd: () => void
+}): JSX.Element {
+  const decks = panelIds.map((id) => ws.panels.find((p) => p.id === id)).filter(Boolean) as Panel[]
+  const splitCount = decks.length
+  const canSplit = splitCount < MAX_PANELS
+
+  return (
+    <div className="tabstrip no-drag">
+      {decks.map((deck) => {
+        const isNative = deck.kind === 'native'
+        const icon = !isNative ? deck.favicon || faviconFor(deck.url) : ''
+        const active = deck.id === activeTab
+        return (
+          <div
+            key={deck.id}
+            className={`tab ${active ? 'active' : ''}`}
+            onClick={() => onActivate(deck.id)}
+            title={deck.title}
+          >
+            <span className="tfav">
+              {icon ? <img src={icon} alt="" draggable={false} /> : <span>{ws.glyph ?? '◻'}</span>}
+            </span>
+            <span className="tnm">{deck.title || deck.id}</span>
+            <span className={`tkind ${isNative ? 'native' : 'web'}`}>
+              {isNative ? 'native' : 'web'}
+            </span>
+            {decks.length > 1 && (
+              <span
+                className="tx"
+                title="Close deck"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onClose(deck)
+                }}
+              >
+                <svg viewBox="0 0 24 24" width={12} height={12} stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+              </span>
+            )}
+          </div>
+        )
+      })}
+      <button
+        className="tab-add"
+        title={canSplit ? 'Open another deck beside (split view)' : 'Max 4 decks — close one first'}
+        onClick={canSplit ? onSplit : undefined}
+        disabled={!canSplit}
+      >
+        <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="8" height="16" rx="1" />
+          <rect x="13" y="4" width="8" height="16" rx="1" strokeDasharray="3 3" />
+          <path d="M17 8v6M14 11h6" />
+        </svg>
+      </button>
+      <button className="tab-add" title="Open command palette (⌘K)" onClick={onAdd}>
+        <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </button>
+      <span className="tsp" />
+      {splitCount > 1 && (
+        <span className="layout-hint">
+          <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="4" width="8" height="16" rx="1" />
+            <rect x="13" y="4" width="8" height="16" rx="1" />
+          </svg>
+          {splitCount}-up split · drag a deck in for more
+        </span>
+      )}
+    </div>
+  )
+}
+
+/** Contextual action shelf below the card — labeled actions for the active deck. */
+function ActionShelf({
+  ws,
+  primary,
+  splitCount,
+  actions
+}: {
+  ws: Workspace
+  primary: Panel | undefined
+  splitCount: number
+  actions: ReturnType<typeof usePanelActions>
+}): JSX.Element | null {
+  if (!primary) return null
+  const isNative = primary.kind === 'native'
+  const icon = !isNative ? primary.favicon || faviconFor(primary.url) : ''
+
+  return (
+    <div className="shelf no-drag">
+      <div className="ctx">
+        <span className="cfav">
+          {icon ? <img src={icon} alt="" draggable={false} /> : <span>{ws.glyph ?? '◻'}</span>}
+        </span>
+        <span className="ctt">
+          <b>{primary.title || primary.id}</b> · {isNative ? 'native deck' : 'web deck'}
+        </span>
+      </div>
+      <span className="ssep" />
+      <div className="shelf-actions">
+        <button className="sact" onClick={() => actions.reload(primary)}>
+          <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+            <path d="M21 3v5h-5" />
+          </svg>
+          Reload
+          <span className="kbd sk">{modCombo('R')}</span>
+        </button>
+        <button className="sact" onClick={actions.toggleFocusMode}>
+          <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4" />
+          </svg>
+          Focus
+          <span className="kbd sk">{modCombo('.')}</span>
+        </button>
+        {splitCount > 1 && (
+          <button className="sact" onClick={() => actions.pop(primary)}>
+            <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 3h6v6M10 14L21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+            </svg>
+            Pop out
+          </button>
+        )}
+        <button className="sact" onClick={() => actions.close(primary)}>
+          <svg viewBox="0 0 24 24" width={14} height={14} stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+          Close
+        </button>
+      </div>
+      <span className="shint">
+        <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="9" /><path d="M12 16v-4M12 8h.01" />
+        </svg>
+        Drag a deck onto the card to split
+      </span>
+    </div>
+  )
+}
+
 function DeckCard({
   panelId,
   ws,
+  active,
+  onActivate,
+  actions,
   registerContent
 }: {
   panelId: PanelId
   ws: Workspace
+  active: boolean
+  onActivate: (id: PanelId) => void
+  actions: ReturnType<typeof usePanelActions>
   registerContent: (id: PanelId, el: HTMLElement | null) => void
 }): JSX.Element {
-  const removePanel = useStore((s) => s.removePanel)
-  const popPanelOut = useStore((s) => s.popPanelOut)
-  const toggleFocusMode = useStore((s) => s.toggleFocusMode)
-  // Bumped by the rail "Reset decks" action to force a native deck to remount.
+  // Bumped by the rail "Reset decks" action / shelf reload to force a native
+  // deck to remount.
   const reloadNonce = useStore((s) => s.panelReloadNonce[panelId] ?? 0)
   const deck = ws.panels.find((p) => p.id === panelId)
   const title = deck?.title || panelId
@@ -71,20 +271,11 @@ function DeckCard({
   const inSplit = ws.panels.length > 1
   const single = ws.panels.length === 1
 
-  // Native decks have no main-process view: reload = remount the React subtree
-  // (bump a key) rather than calling panel.reload. Web decks reload the view.
-  const [nativeReloadKey, setNativeReloadKey] = useState(0)
-  const onReload = (): void => {
-    if (isNative) setNativeReloadKey((k) => k + 1)
-    else void window.decks?.panel.reload(panelId)
-  }
-  const onDelete = (): void => {
-    if (!isNative) window.decks?.panel.destroy(panelId)
-    removePanel(ws.id, panelId)
-  }
-
   return (
-    <div className="deck-pane">
+    <div
+      className={`deck-pane${active && inSplit ? ' active' : ''}`}
+      onMouseDown={() => onActivate(panelId)}
+    >
       <div className="deck-head">
         <span className="fav">
           {icon ? <img src={icon} alt="" draggable={false} /> : <span>{ws.glyph ?? '◻'}</span>}
@@ -104,24 +295,24 @@ function DeckCard({
         </span>
         <span className="sp" />
         {inSplit && (
-          <HeadBtn title="Make this its own deck" onClick={() => popPanelOut(ws.id, panelId)}>
+          <HeadBtn title="Make this its own deck" onClick={() => actions.pop(deck)}>
             <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 3h6v6M10 14L21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
             </svg>
           </HeadBtn>
         )}
-        <HeadBtn title="Focus this deck (Ctrl/⌘+.)" onClick={toggleFocusMode}>
+        <HeadBtn title="Focus this deck (Ctrl/⌘+.)" onClick={actions.toggleFocusMode}>
           <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4" />
           </svg>
         </HeadBtn>
-        <HeadBtn title="Reload" onClick={onReload}>
+        <HeadBtn title="Reload" onClick={() => actions.reload(deck)}>
           <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
             <path d="M21 3v5h-5" />
           </svg>
         </HeadBtn>
-        <HeadBtn title="Close deck" onClick={onDelete} danger>
+        <HeadBtn title="Close deck" onClick={() => actions.close(deck)} danger>
           <svg viewBox="0 0 24 24" width={14} height={14} stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
         </HeadBtn>
       </div>
@@ -131,7 +322,7 @@ function DeckCard({
       {isNative && deck?.provider ? (
         <div className="deck-body">
           <NativeDeckHost
-            key={`${nativeReloadKey}-${reloadNonce}`}
+            key={reloadNonce}
             provider={deck.provider}
             accountId={deck.accountId ?? 'default'}
             panelId={panelId}
@@ -162,6 +353,9 @@ function DeckCard({
 function renderNode(
   node: LayoutNode,
   ws: Workspace,
+  activeTab: PanelId | null,
+  onActivate: (id: PanelId) => void,
+  actions: ReturnType<typeof usePanelActions>,
   registerContent: (id: PanelId, el: HTMLElement | null) => void
 ): JSX.Element {
   if (node.type === 'leaf') {
@@ -172,7 +366,17 @@ function renderNode(
         </div>
       )
     }
-    return <DeckCard key={node.panelId} panelId={node.panelId} ws={ws} registerContent={registerContent} />
+    return (
+      <DeckCard
+        key={node.panelId}
+        panelId={node.panelId}
+        ws={ws}
+        active={node.panelId === activeTab}
+        onActivate={onActivate}
+        actions={actions}
+        registerContent={registerContent}
+      />
+    )
   }
   const isRow = node.direction === 'row'
   // 1px gap over the line color renders a hairline divider between panes.
@@ -187,7 +391,7 @@ function renderNode(
           className="flex min-h-0 min-w-0"
           style={{ flexGrow: node.sizes[i] ?? 1 / node.children.length, flexShrink: 1, flexBasis: 0 }}
         >
-          {renderNode(child, ws, registerContent)}
+          {renderNode(child, ws, activeTab, onActivate, actions, registerContent)}
         </div>
       ))}
     </div>
@@ -200,23 +404,41 @@ function SplitView(): JSX.Element {
   const view = useStore((s) => s.view)
   const dragging = useStore((s) => s.dragging)
   const addPanel = useStore((s) => s.addPanel)
+  const openPalette = useStore((s) => s.openPalette)
   const workspaces = useStore((s) => s.workspaces)
 
   const [hotZone, setHotZone] = useState<'left' | 'right' | null>(null)
+  // Visual emphasis only — which tab/pane is "current". Does not change layout.
+  const [activeTab, setActiveTab] = useState<PanelId | null>(null)
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const contentRefs = useRef<Map<PanelId, HTMLElement>>(new Map())
 
   const layout = ws?.layout
-  // Only WEB panels get a WebContentsView in main, so only they are reported via
-  // showOnly/bounds. Native panels render entirely in the renderer.
-  const panelIds = useMemo(() => {
+
+  // Every pane in the layout (web + native), in tree order — drives the tab strip.
+  const allLayoutIds = useMemo(() => {
     if (!layout) return [] as PanelId[]
     const ids: PanelId[] = []
     collectPanelIds(layout, ids)
+    return ids.filter(Boolean)
+  }, [layout])
+
+  // Only WEB panels get a WebContentsView in main, so only they are reported via
+  // showOnly/bounds. Native panels render entirely in the renderer.
+  const panelIds = useMemo(() => {
     const nativeIds = new Set((ws?.panels ?? []).filter((p) => p.kind === 'native').map((p) => p.id))
-    return ids.filter((id) => !nativeIds.has(id))
-  }, [layout, ws?.panels])
+    return allLayoutIds.filter((id) => !nativeIds.has(id))
+  }, [allLayoutIds, ws?.panels])
+
+  // Keep the active-tab selection valid as panes come and go.
+  useEffect(() => {
+    if (allLayoutIds.length === 0) {
+      if (activeTab !== null) setActiveTab(null)
+      return
+    }
+    if (!activeTab || !allLayoutIds.includes(activeTab)) setActiveTab(allLayoutIds[0])
+  }, [allLayoutIds, activeTab])
 
   const registerContent = useCallback((id: PanelId, el: HTMLElement | null) => {
     if (el) contentRefs.current.set(id, el)
@@ -263,14 +485,9 @@ function SplitView(): JSX.Element {
     }
   }, [measureAndReport, activeWorkspaceId])
 
-  // Count ALL decks (web + native) for the cap.
-  const allLayoutIds = useMemo(() => {
-    if (!layout) return [] as PanelId[]
-    const ids: PanelId[] = []
-    collectPanelIds(layout, ids)
-    return ids
-  }, [layout])
-  const atMax = allLayoutIds.filter(Boolean).length >= MAX_PANELS
+  const atMax = allLayoutIds.length >= MAX_PANELS
+
+  const actions = usePanelActions(ws ?? ({ id: '', panels: [] } as unknown as Workspace))
 
   // Drop a rail deck onto a split zone → add it to the ACTIVE workspace split.
   const onDropZone = (e: React.DragEvent, zone: 'left' | 'right'): void => {
@@ -299,16 +516,27 @@ function SplitView(): JSX.Element {
 
   // Only expose the drop zones while a rail tile is being dragged onto a workspace.
   const armed = dragging && view === 'workspace'
+  const primary = ws.panels.find((p) => p.id === activeTab) ?? ws.panels.find((p) => allLayoutIds.includes(p.id))
 
   return (
-    <div className="page-area">
+    <div className="page-area workspace">
+      <TabStrip
+        ws={ws}
+        panelIds={allLayoutIds}
+        activeTab={activeTab}
+        onActivate={setActiveTab}
+        onClose={actions.close}
+        onSplit={openPalette}
+        onAdd={openPalette}
+      />
+
       <div className="page-card">
         <div
           key={activeWorkspaceId ?? 'none'}
           ref={containerRef}
           className="splitview-enter flex min-h-0 min-w-0 flex-1"
         >
-          {renderNode(layout, ws, registerContent)}
+          {renderNode(layout, ws, activeTab, setActiveTab, actions, registerContent)}
         </div>
 
         {/* drag-to-split drop zones (appear while dragging a tile) */}
@@ -336,6 +564,8 @@ function SplitView(): JSX.Element {
           ))}
         </div>
       </div>
+
+      <ActionShelf ws={ws} primary={primary} splitCount={allLayoutIds.length} actions={actions} />
     </div>
   )
 }

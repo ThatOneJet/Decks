@@ -48,6 +48,9 @@ function App(): JSX.Element {
   const closeConsolePanel = useStore((s) => s.closeConsolePanel)
   const [welcomeOpen, setWelcomeOpen] = useState(() => welcomeUnseen())
 
+  // ── Console dock: collapse to a slim rail (⌘/Ctrl+B). ──
+  const [dockCollapsed, setDockCollapsed] = useState(false)
+
   const hydrated = useRef(false)
   const createdPanels = useRef<Set<string>>(new Set())
 
@@ -228,6 +231,9 @@ function App(): JSX.Element {
       } else if (mod && (e.key.toLowerCase() === 'n' || e.key === '+' || e.key === '=')) {
         e.preventDefault()
         openAddDeck()
+      } else if (mod && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        setDockCollapsed((v) => !v)
       } else if (mod && e.key === '.') {
         e.preventDefault()
         toggleFocusMode()
@@ -257,11 +263,12 @@ function App(): JSX.Element {
     }
   }, [paletteOpen])
 
-  // Re-measure deck views when focus mode collapses/expands the sidebar.
+  // Re-measure deck views when focus mode or the dock rail collapses/expands
+  // the workspace (the grid column width changes, so slot rects shift).
   useEffect(() => {
     const id = setTimeout(() => window.dispatchEvent(new Event('resize')), 0)
     return () => clearTimeout(id)
-  }, [focusMode])
+  }, [focusMode, dockCollapsed])
 
   const showSplit = view === 'workspace' && workspaces.length > 0
   const inFocus = focusMode && showSplit
@@ -294,26 +301,34 @@ function App(): JSX.Element {
   ) : null
 
   return (
-    <div className="app-root text-txt-1">
+    <div
+      className={'console' + (dockCollapsed ? ' rail' : '')}
+      // Focus mode / portrait hide the dock, so collapse its grid column to 0.
+      style={inFocus || dockMode ? { gridTemplateColumns: '0 1fr' } : undefined}
+    >
+      {/* HEADER — full-width Console chrome (brand + command bar + controls). */}
+      <Titlebar />
+
       {dockMode ? (
-        // Portrait: vertical stack — chrome (topbar + page) above, dock below.
-        <div className="flex h-full w-full flex-col">
-          <div className="main-col relative flex-1">
-            <Titlebar />
+        // Portrait: dock becomes a horizontal taskbar below the workspace.
+        <>
+          <div className="workspace relative" style={{ gridColumn: '1 / -1' }}>
             {surface}
           </div>
           <Sidebar orientation="horizontal" />
+        </>
+      ) : inFocus ? (
+        // Focus mode: dock hidden, workspace spans the full width.
+        <div className="workspace relative" style={{ gridColumn: '1 / -1' }}>
+          {surface}
+          {focusHandle}
         </div>
       ) : (
-        // Landscape: rail (left) + topbar/page-card wrap (right). Focus hides rail.
-        <div className={`shell ${inFocus ? 'no-rail' : ''}`}>
-          {!inFocus && <Sidebar />}
-          <div className="main-col relative">
-            <Titlebar />
-            {surface}
-            {focusHandle}
-          </div>
-        </div>
+        // Landscape Console: [dock | workspace] below the header.
+        <>
+          <Sidebar collapsed={dockCollapsed} onToggleCollapse={() => setDockCollapsed((v) => !v)} />
+          <div className="workspace relative">{surface}</div>
+        </>
       )}
       <CommandPalette />
 

@@ -1,29 +1,53 @@
 /**
- * Topbar — the redesign chrome bar above the floating page card.
+ * Header — the full-width Console chrome bar across the top of the shell.
  *
- * Left: back/forward for the active deck. Center: an "omni" context pill showing
- * the active deck's icon, name·url, and a Native/Web kind chip. Right: an always-
- * visible ⌘K search affordance and the window controls. The bar is the OS drag
- * region; interactive bits opt out via `.no-drag`.
+ * Left: the brand mark + "Decks" name. Center: the always-visible command bar
+ * (`.cmdbar`) that opens the palette and shows the active deck context. Right:
+ * a Focus toggle, the Memory pill (opens the memory manager), Help, and the OS
+ * window controls. The whole bar is the OS drag region; interactive bits opt
+ * out via `.no-drag` (and `-webkit-app-region` via the Console CSS classes).
  *
- * Functionality preserved from the old titlebar (nav, window controls); the look
- * and the omni/⌘K/kind-chip discoverability come from the redesign.
+ * All real wiring is preserved: openPalette, openMemory, openHelp,
+ * window.decks.window.*, deck back/forward nav, and the Native/Web kind chip.
  */
+import { useEffect, useState } from 'react'
 import { useStore } from '../store'
-import { faviconFor, hostOf } from '../lib/favicon'
+import { hostOf } from '../lib/favicon'
 import { modCombo } from '../lib/platform'
+import Logo from './Logo'
 
-function Topbar(): JSX.Element {
+/** Tiny animated equaliser for the memory pill — purely decorative. */
+function MemSpark(): JSX.Element {
+  const [bars, setBars] = useState([7, 11, 6, 13, 9])
+  useEffect(() => {
+    const id = setInterval(
+      () => setBars((b) => b.map(() => 5 + Math.round(Math.random() * 11))),
+      1600
+    )
+    return () => clearInterval(id)
+  }, [])
+  return (
+    <span className="spark">
+      {bars.map((h, i) => (
+        <i key={i} style={{ height: h }} />
+      ))}
+    </span>
+  )
+}
+
+function Header(): JSX.Element {
   const view = useStore((s) => s.view)
   const ws = useStore((s) => s.activeWorkspace())
   const openPalette = useStore((s) => s.openPalette)
   const openHelp = useStore((s) => s.openHelp)
   const openMemory = useStore((s) => s.openMemory)
+  const focusMode = useStore((s) => s.focusMode)
+  const toggleFocusMode = useStore((s) => s.toggleFocusMode)
+
   const primary = ws?.panels[0]
   const onWorkspace = view === 'workspace' && !!primary
   const isNative = primary?.kind === 'native'
 
-  const icon = primary && !isNative ? primary.favicon || faviconFor(primary.url) : ''
   const urlText = isNative ? (primary?.provider ?? 'native') : hostOf(primary?.url ?? '')
 
   const back = (): void => {
@@ -34,16 +58,23 @@ function Topbar(): JSX.Element {
   }
 
   return (
-    <header className="topbar drag">
-      {/* Left: nav arrows */}
-      <div className="row no-drag" style={{ gap: 2 }}>
+    <header className="header drag">
+      {/* Brand */}
+      <div className="brand no-drag">
+        <Logo size={28} />
+        <span className="bname">Decks</span>
+      </div>
+
+      {/* Left: nav arrows for the active deck */}
+      <div className="row no-drag" style={{ display: 'flex', gap: 2 }}>
         <button
           onClick={back}
           disabled={!onWorkspace}
           aria-label="Back"
-          className={`nav-btn ${!primary?.canGoBack ? 'dim' : ''}`}
+          className={`winbtn ${!primary?.canGoBack ? 'dim' : ''}`}
+          title="Back"
         >
-          <svg viewBox="0 0 24 24" width={17} height={17} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M15 18l-6-6 6-6" />
           </svg>
         </button>
@@ -51,33 +82,37 @@ function Topbar(): JSX.Element {
           onClick={fwd}
           disabled={!onWorkspace}
           aria-label="Forward"
-          className={`nav-btn ${!primary?.canGoForward ? 'dim' : ''}`}
+          className={`winbtn ${!primary?.canGoForward ? 'dim' : ''}`}
+          title="Forward"
         >
-          <svg viewBox="0 0 24 24" width={17} height={17} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M9 18l6-6-6-6" />
           </svg>
         </button>
       </div>
 
-      {/* Omni / context pill */}
-      <div className="omni">
-        <span className="fav">
-          {icon ? (
-            <img src={icon} alt="" draggable={false} />
-          ) : (
-            <span className="grid h-full w-full place-items-center text-xs">{ws?.glyph ?? '▦'}</span>
-          )}
-        </span>
-        <span className="url">
-          {view === 'home' ? (
-            <b>Home</b>
-          ) : view === 'settings' ? (
-            <b>Settings</b>
-          ) : (
+      {/* Command bar — the centerpiece; opens the palette. */}
+      <div className="cmdbar no-drag" onClick={openPalette} title="Search · run command">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m21 21-4.3-4.3" />
+        </svg>
+        <span className="ph">
+          {view === 'workspace' && primary ? (
             <>
               <b>{ws?.name}</b>
-              {urlText ? <> · {urlText}</> : null}
+              {urlText ? ` · ${urlText}` : ''} — search decks or run a command
             </>
+          ) : view === 'settings' ? (
+            <>
+              <b>Settings</b> — search decks or run a command
+            </>
+          ) : view === 'home' ? (
+            <>
+              <b>Home</b> — search decks or run a command
+            </>
+          ) : (
+            'Search decks or run a command…'
           )}
         </span>
         {onWorkspace && (
@@ -88,52 +123,56 @@ function Topbar(): JSX.Element {
                 ? 'Native deck — Decks renders its own UI on the app’s API. No browser engine = far less RAM.'
                 : 'Web deck — a sandboxed embedded page with persistent login.'
             }
+            style={{ flex: 'none' }}
           >
             <span className="dot" />
             {isNative ? 'Native' : 'Web'}
           </span>
         )}
+        <span className="kbd-grp">
+          <span className="kbd">{modCombo('K')}</span>
+        </span>
       </div>
 
-      {/* ⌘K affordance — always visible so the palette is never hidden */}
-      <button className="cmdk no-drag" onClick={openPalette} title="Search · run command">
-        <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="11" cy="11" r="7" />
-          <path d="m21 21-4.3-4.3" />
-        </svg>
-        <span>Search</span>
-        <span className="kbd">{modCombo('K')}</span>
-      </button>
+      {/* Right: focus toggle, memory pill, help, window controls */}
+      <div className="head-right no-drag">
+        <button
+          className={`hbtn ${focusMode ? 'on' : ''}`}
+          onClick={toggleFocusMode}
+          title={`Focus mode (${modCombo('.')})`}
+        >
+          <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
+          </svg>
+          <span>Focus</span>
+        </button>
 
-      {/* Memory manager + Help (Console) */}
-      <button className="cmdk no-drag" onClick={openMemory} title="Memory manager" style={{ paddingRight: 12 }}>
-        <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="6" y="6" width="12" height="12" rx="2" />
-          <path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" />
-        </svg>
-        <span>Memory</span>
-      </button>
-      <button className="win-btn no-drag" onClick={openHelp} title="Help & shortcuts (?)" aria-label="Help">
-        <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M9.5 9a2.5 2.5 0 1 1 3 2.4c-.6.2-1 .8-1 1.6M12 17h.01" />
-        </svg>
-      </button>
+        <button className="mempill" onClick={openMemory} title="Memory manager">
+          <MemSpark />
+          <span className="mtxt">Memory</span>
+        </button>
 
-      {/* Window controls */}
-      <div className="win-ctrl no-drag">
-        <button onClick={() => window.decks?.window.minimize()} aria-label="Minimize" className="win-btn">
-          <svg viewBox="0 0 24 24" width={15} height={15} stroke="currentColor" strokeWidth="2"><path d="M5 12h14" /></svg>
+        <button className="hbtn icon" onClick={openHelp} title="Help & shortcuts (?)" aria-label="Help">
+          <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M9.5 9a2.5 2.5 0 1 1 3 2.4c-.6.2-1 .8-1 1.6M12 17h.01" />
+          </svg>
         </button>
-        <button onClick={() => window.decks?.window.maximize()} aria-label="Maximize" className="win-btn">
-          <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="2"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
-        </button>
-        <button onClick={() => window.decks?.window.close()} aria-label="Close" className="win-btn close">
-          <svg viewBox="0 0 24 24" width={15} height={15} stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
-        </button>
+
+        <div className="winbtns">
+          <button className="winbtn" onClick={() => window.decks?.window.minimize()} aria-label="Minimize" title="Minimize">
+            <svg viewBox="0 0 24 24" width={14} height={14} stroke="currentColor" strokeWidth="2"><path d="M5 12h14" /></svg>
+          </button>
+          <button className="winbtn" onClick={() => window.decks?.window.maximize()} aria-label="Maximize" title="Maximize">
+            <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+          </button>
+          <button className="winbtn x" onClick={() => window.decks?.window.close()} aria-label="Close" title="Close">
+            <svg viewBox="0 0 24 24" width={14} height={14} stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+          </button>
+        </div>
       </div>
     </header>
   )
 }
 
-export default Topbar
+export default Header
