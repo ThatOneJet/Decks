@@ -65,6 +65,11 @@ export interface DecksState {
   goHome: () => void
   /** Open the dedicated settings surface. */
   openSettings: () => void
+  /** Which Console slide-over panel is open (memory / help / none). */
+  consolePanel: 'none' | 'help' | 'memory'
+  openHelp: () => void
+  openMemory: () => void
+  closeConsolePanel: () => void
   updateWorkspaceLive: (id: WorkspaceId, live: Partial<Workspace['live']>) => void
   renameWorkspace: (id: WorkspaceId, name: string) => void
   setNotes: (id: WorkspaceId, notes: string) => void
@@ -142,6 +147,10 @@ export const useStore = create<DecksState>((set, get) => ({
   activateWorkspace: (id) => set({ activeWorkspaceId: id, view: 'workspace' }),
   goHome: () => set({ view: 'home' }),
   openSettings: () => set({ view: 'settings' }),
+  consolePanel: 'none',
+  openHelp: () => set({ consolePanel: 'help' }),
+  openMemory: () => set({ consolePanel: 'memory' }),
+  closeConsolePanel: () => set({ consolePanel: 'none' }),
   updateWorkspaceLive: (id, live) =>
     set((s) => ({
       workspaces: s.workspaces.map((w) =>

@@ -17,6 +17,7 @@ import Home from './components/Home'
 import SplitView from './components/SplitView'
 import SettingsDeck from './components/Settings/SettingsDeck'
 import CommandPalette from './components/CommandPalette'
+import { Welcome, HelpPanel, MemoryPanel, welcomeUnseen } from './components/ConsolePanels'
 import { seedWorkspaces } from '@shared/seed'
 import type { PersistedState } from '@shared/types'
 
@@ -39,6 +40,13 @@ function App(): JSX.Element {
   const closeAddDeck = useStore((s) => s.closeAddDeck)
   const focusMode = useStore((s) => s.focusMode)
   const toggleFocusMode = useStore((s) => s.toggleFocusMode)
+  const goHome = useStore((s) => s.goHome)
+  const openPalette = useStore((s) => s.openPalette)
+  const consolePanel = useStore((s) => s.consolePanel)
+  const openHelp = useStore((s) => s.openHelp)
+  const openMemory = useStore((s) => s.openMemory)
+  const closeConsolePanel = useStore((s) => s.closeConsolePanel)
+  const [welcomeOpen, setWelcomeOpen] = useState(() => welcomeUnseen())
 
   const hydrated = useRef(false)
   const createdPanels = useRef<Set<string>>(new Set())
@@ -223,15 +231,22 @@ function App(): JSX.Element {
       } else if (mod && e.key === '.') {
         e.preventDefault()
         toggleFocusMode()
+      } else if (!mod && e.key === '?') {
+        const tag = (document.activeElement as HTMLElement | null)?.tagName
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+          e.preventDefault()
+          openHelp()
+        }
       } else if (e.key === 'Escape') {
         closePalette()
         closeAddDeck()
+        if (useStore.getState().consolePanel !== 'none') closeConsolePanel()
         if (useStore.getState().focusMode) toggleFocusMode()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [togglePalette, closePalette, openAddDeck, closeAddDeck, toggleFocusMode])
+  }, [togglePalette, closePalette, openAddDeck, closeAddDeck, toggleFocusMode, openHelp, closeConsolePanel])
 
   // Hide native web views while the palette is open so it isn't covered by them.
   useEffect(() => {
@@ -301,6 +316,25 @@ function App(): JSX.Element {
         </div>
       )}
       <CommandPalette />
+
+      {/* Console redesign — slide-over panels + first-run tutorial */}
+      {consolePanel === 'help' && (
+        <HelpPanel
+          onClose={closeConsolePanel}
+          onAction={(id) => {
+            closeConsolePanel()
+            if (id === 'palette') openPalette()
+            else if (id === 'home') goHome()
+            else if (id === 'focus') toggleFocusMode()
+            else if (id === 'add') openAddDeck()
+            else if (id === 'memory') openMemory()
+          }}
+        />
+      )}
+      {consolePanel === 'memory' && <MemoryPanel onClose={closeConsolePanel} />}
+      {welcomeOpen && !paletteOpen && (
+        <Welcome onClose={() => setWelcomeOpen(false)} onHelp={() => { setWelcomeOpen(false); openHelp() }} />
+      )}
     </div>
   )
 }

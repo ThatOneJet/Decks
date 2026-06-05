@@ -17,6 +17,8 @@ function Topbar(): JSX.Element {
   const view = useStore((s) => s.view)
   const ws = useStore((s) => s.activeWorkspace())
   const openPalette = useStore((s) => s.openPalette)
+  const openHelp = useStore((s) => s.openHelp)
+  const openMemory = useStore((s) => s.openMemory)
   const primary = ws?.panels[0]
   const onWorkspace = view === 'workspace' && !!primary
   const isNative = primary?.kind === 'native'
@@ -101,6 +103,21 @@ function Topbar(): JSX.Element {
         </svg>
         <span>Search</span>
         <span className="kbd">{modCombo('K')}</span>
+      </button>
+
+      {/* Memory manager + Help (Console) */}
+      <button className="cmdk no-drag" onClick={openMemory} title="Memory manager" style={{ paddingRight: 12 }}>
+        <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="6" y="6" width="12" height="12" rx="2" />
+          <path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" />
+        </svg>
+        <span>Memory</span>
+      </button>
+      <button className="win-btn no-drag" onClick={openHelp} title="Help & shortcuts (?)" aria-label="Help">
+        <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M9.5 9a2.5 2.5 0 1 1 3 2.4c-.6.2-1 .8-1 1.6M12 17h.01" />
+        </svg>
       </button>
 
       {/* Window controls */}

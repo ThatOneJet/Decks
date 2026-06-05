@@ -13,11 +13,11 @@ module.exports = {
         },
         line: 'rgba(255,255,255,0.07)',
         accent: {
-          DEFAULT: '#35e3ff',
-          soft: 'rgba(53,227,255,0.14)',
-          ring: 'rgba(53,227,255,0.45)'
+          DEFAULT: '#45d6e8',
+          soft: 'rgba(69,214,232,0.14)',
+          ring: 'rgba(69,214,232,0.34)'
         },
-        live: '#ff5bd0',
+        live: '#ffb454',
         ok: '#4ef0a6',
         warn: '#ffc25c',
         err: '#ff5d6c',

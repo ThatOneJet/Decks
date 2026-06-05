@@ -20,13 +20,34 @@
   --line-2: rgba(255, 255, 255, 0.12);
   --line-bright: rgba(110, 240, 255, 0.3);
 
-  --accent: #35e3ff;
-  --accent-dim: #189fc4;
-  --accent-soft: rgba(53, 227, 255, 0.14);
-  --accent-ring: rgba(53, 227, 255, 0.45);
-  --accent-glow: rgba(53, 227, 255, 0.55);
-  --live: #ff5bd0;
-  --live-soft: rgba(255, 91, 208, 0.16);
+  /* Console palette — iced cyan accent, amber "live". */
+  --accent: #45d6e8;
+  --accent-dim: #2aa7c4;
+  --accent-2: #2aa7c4;
+  --accent-soft: rgba(69, 214, 232, 0.12);
+  --accent-ring: rgba(69, 214, 232, 0.34);
+  --accent-line: rgba(69, 214, 232, 0.34);
+  --accent-glow: rgba(69, 214, 232, 0.5);
+  --live: #ffb454;
+  --live-soft: rgba(255, 180, 84, 0.14);
+
+  /* Console surface + text scale (used by the Console shell + panels). */
+  --void: #06070b;
+  --panel: #0e1118;
+  --panel-2: #12151e;
+  --elev: #181c27;
+  --elev-2: #1e2330;
+  --glass-hi: rgba(24, 29, 41, 0.9);
+  --line-3: rgba(255, 255, 255, 0.16);
+  --native: #45d6e8;
+  --web: #7e8aa0;
+  --ok: #54e0a0;
+  --warn: #ffcf5c;
+  --danger: #ff6470;
+  --t1: #f0f3f8;
+  --t2: #aeb7c7;
+  --t3: #717c90;
+  --t4: #4a5364;
   --ok: #4ef0a6;
   --warn: #ffc25c;
   --err: #ff5d6c;
@@ -1183,6 +1204,343 @@ html.overlay-mode #root {
   display: inline-flex;
   gap: 7px;
   align-items: center;
+}
+
+/* ============================================================
+   CONSOLE redesign — slide-over panels (memory, help), welcome,
+   hover tip. Additive: drops in over the current shell.
+   ============================================================ */
+.panel-over {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(400px, 92vw);
+  z-index: 101;
+  display: flex;
+  flex-direction: column;
+  animation: slideR 0.22s var(--ease, cubic-bezier(0.32, 0.72, 0.28, 1)) both;
+  border-left: 1px solid var(--line-2);
+}
+@keyframes slideR {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.panel-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.panel-head h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 16px;
+}
+.panel-head .pclose {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--t3);
+}
+.panel-head .pclose:hover {
+  background: var(--elev);
+  color: var(--t1);
+}
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px;
+  scrollbar-width: thin;
+}
+.psec {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--t4);
+  padding: 11px 11px 5px;
+}
+
+/* memory panel */
+.mem-gauge {
+  border-radius: 13px;
+  padding: 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  margin-bottom: 16px;
+}
+.mem-gauge .big {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 600;
+}
+.mem-gauge .big s {
+  font-size: 14px;
+  color: var(--t3);
+  text-decoration: none;
+  font-family: var(--font-mono);
+  margin-left: 4px;
+}
+.mem-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--elev-2);
+  overflow: hidden;
+  margin: 12px 0 8px;
+  display: flex;
+}
+.mem-bar i {
+  height: 100%;
+}
+.mem-legend {
+  display: flex;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--t3);
+}
+.mem-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mem-legend .ld {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+}
+.mem-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  margin-bottom: 7px;
+}
+.mem-row .mi {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  overflow: hidden;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: var(--elev-2);
+}
+.mem-row .mi img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.mem-row .mm {
+  flex: 1;
+  min-width: 0;
+}
+.mem-row .mm .l {
+  font-size: 12.5px;
+  color: var(--t1);
+  font-weight: 500;
+}
+.mem-row .mm .d {
+  font-size: 11px;
+  color: var(--t3);
+  margin-top: 1px;
+}
+.mem-row .mv {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+.mem-row .mv.zero {
+  color: var(--ok);
+}
+.mem-row .mv.live {
+  color: var(--live);
+}
+
+/* help cheatsheet */
+.help-grp {
+  margin-bottom: 18px;
+}
+.help-grp h4 {
+  margin: 0 0 9px;
+  font-size: 12px;
+  color: var(--t3);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.help-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 11px;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  margin-bottom: 8px;
+  width: 100%;
+  text-align: left;
+}
+.help-item:hover {
+  border-color: var(--accent-line);
+}
+.help-item .hicon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex: none;
+}
+.help-item .ht {
+  flex: 1;
+  min-width: 0;
+}
+.help-item .ht .l {
+  font-size: 13px;
+  color: var(--t1);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+.help-item .ht .d {
+  font-size: 11.5px;
+  color: var(--t3);
+  margin-top: 3px;
+  line-height: 1.45;
+}
+
+/* welcome (first-run) */
+.welcome {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 102;
+  width: min(560px, 92vw);
+  border-radius: 16px;
+  padding: 18px 20px;
+  animation: pop 0.25s var(--ease, cubic-bezier(0.32, 0.72, 0.28, 1)) both;
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.welcome .wtop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.welcome .wbadge {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  flex: none;
+}
+.welcome h3 {
+  margin: 0;
+  font-size: 16px;
+  font-family: var(--font-display);
+}
+.welcome .wsub {
+  font-size: 12px;
+  color: var(--t3);
+  margin-top: 2px;
+}
+.welcome .wclose {
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  color: var(--t4);
+}
+.welcome .wclose:hover {
+  background: var(--elev);
+  color: var(--t1);
+}
+.welcome .wgrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.wcell {
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+.wcell .wi {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  margin-bottom: 9px;
+}
+.wcell .wl {
+  font-size: 12.5px;
+  color: var(--t1);
+  font-weight: 600;
+}
+.wcell .wd {
+  font-size: 11px;
+  color: var(--t3);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
+/* hover explainer tip */
+.tip {
+  position: fixed;
+  z-index: 130;
+  max-width: 260px;
+  border-radius: 12px;
+  padding: 13px 15px;
+  pointer-events: none;
+  animation: pop 0.14s ease both;
+}
+.tip .tl {
+  font-size: 12.5px;
+  color: var(--t1);
+  font-weight: 600;
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.tip .td {
+  font-size: 11.5px;
+  color: var(--t2);
+  line-height: 1.5;
 }
 
 /* ── Hand-rolled animations (overlay window) ── */
