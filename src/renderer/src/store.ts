@@ -81,6 +81,9 @@ export interface DecksState {
   removePanel: (workspaceId: WorkspaceId, panelId: PanelId) => void
   /** Move a panel out of a split into its own new workspace (rail tile). */
   popPanelOut: (workspaceId: WorkspaceId, panelId: PanelId) => void
+  /** Per-panel reload counter — bump to remount a native deck (force refresh). */
+  panelReloadNonce: Record<PanelId, number>
+  bumpPanelReload: (panelId: PanelId) => void
   patchPanel: (panelId: PanelId, patch: Partial<Panel>) => void
   setLayout: (workspaceId: WorkspaceId, layout: LayoutNode) => void
 
@@ -108,6 +111,7 @@ export const useStore = create<DecksState>((set, get) => ({
   addDeckOpen: false,
   focusMode: false,
   dragging: false,
+  panelReloadNonce: {},
 
   activeWorkspace: () => {
     const { workspaces, activeWorkspaceId } = get()
@@ -232,6 +236,10 @@ export const useStore = create<DecksState>((set, get) => ({
         view: 'workspace'
       }
     }),
+  bumpPanelReload: (panelId) =>
+    set((s) => ({
+      panelReloadNonce: { ...s.panelReloadNonce, [panelId]: (s.panelReloadNonce[panelId] ?? 0) + 1 }
+    })),
   patchPanel: (panelId, patch) =>
     set((s) => ({
       workspaces: s.workspaces.map((w) => ({

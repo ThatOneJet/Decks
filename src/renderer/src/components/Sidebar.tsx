@@ -16,8 +16,7 @@ import FolderRenameModal from './sidebar/FolderRenameModal'
 import AddDeckModal from './AddDeckModal'
 import Logo from './Logo'
 import { MOD } from '../lib/platform'
-import { templateFor, workspaceFromTemplate } from '@shared/seed'
-import type { Workspace, LayoutNode } from '@shared/types'
+import type { Workspace } from '@shared/types'
 
 type RailEntry =
   | { kind: 'tile'; ws: Workspace }
@@ -41,8 +40,6 @@ function buildRail(workspaces: Workspace[]): RailEntry[] {
   }
   return entries
 }
-
-const EMPTY_LAYOUT: LayoutNode = { type: 'leaf', panelId: '' }
 
 /** RAM/process readout. Vertical → redesign `.ram`; horizontal → compact chip. */
 function RamMeter({ compact = false }: { compact?: boolean } = {}): JSX.Element | null {
@@ -117,7 +114,6 @@ function Sidebar({
   const goHome = useStore((s) => s.goHome)
   const openSettings = useStore((s) => s.openSettings)
   const removeWorkspace = useStore((s) => s.removeWorkspace)
-  const setDecks = useStore((s) => s.setDecks)
   const addDeckOpen = useStore((s) => s.addDeckOpen)
   const openAddDeck = useStore((s) => s.openAddDeck)
   const closeAddDeck = useStore((s) => s.closeAddDeck)
@@ -148,21 +144,21 @@ function Sidebar({
       if (action === 'rename') setEdit({ ws, mode: 'rename' })
       else if (action === 'note') setEdit({ ws, mode: 'note' })
       else if (action === 'reset') {
-        ws.panels.forEach((p) => window.decks?.panel.destroy(p.id))
-        const t = templateFor(ws.id)
-        if (t) {
-          const fresh = workspaceFromTemplate(t)
-          setDecks(ws.id, fresh.panels, fresh.layout)
-        } else {
-          setDecks(ws.id, [], EMPTY_LAYOUT)
-        }
+        // Refresh the workspace's decks IN PLACE (don't tear them down) so they
+        // actually re-render. Web decks reload their WebContentsView; native
+        // decks remount via a bumped nonce keyed in SplitView.
+        const { bumpPanelReload } = useStore.getState()
+        ws.panels.forEach((p) => {
+          if (p.kind === 'native') bumpPanelReload(p.id)
+          else window.decks?.panel.reload(p.id)
+        })
       } else if (action === 'delete') {
         ws.panels.forEach((p) => window.decks?.panel.destroy(p.id))
         removeWorkspace(ws.id)
       }
     })
     return () => off?.()
-  }, [removeWorkspace, setDecks])
+  }, [removeWorkspace])
 
   useEffect(() => {
     const off = window.decks?.onFolderMenuAction(({ name, action }) => {

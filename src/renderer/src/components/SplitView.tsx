@@ -61,6 +61,8 @@ function DeckCard({
   const removePanel = useStore((s) => s.removePanel)
   const popPanelOut = useStore((s) => s.popPanelOut)
   const toggleFocusMode = useStore((s) => s.toggleFocusMode)
+  // Bumped by the rail "Reset decks" action to force a native deck to remount.
+  const reloadNonce = useStore((s) => s.panelReloadNonce[panelId] ?? 0)
   const deck = ws.panels.find((p) => p.id === panelId)
   const title = deck?.title || panelId
   const isNative = deck?.kind === 'native'
@@ -129,7 +131,7 @@ function DeckCard({
       {isNative && deck?.provider ? (
         <div className="deck-body">
           <NativeDeckHost
-            key={nativeReloadKey}
+            key={`${nativeReloadKey}-${reloadNonce}`}
             provider={deck.provider}
             accountId={deck.accountId ?? 'default'}
             panelId={panelId}
