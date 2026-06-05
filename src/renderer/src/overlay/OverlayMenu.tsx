@@ -90,14 +90,36 @@ export default function OverlayMenu({
   const Row = ({ item }: { item: Item }): JSX.Element => (
     <button
       onClick={() => pick(item.action)}
-      className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors ${
-        item.danger
-          ? 'text-err hover:bg-err/15'
-          : 'text-txt-1 hover:bg-accent-soft hover:text-accent'
-      }`}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = item.danger
+          ? 'rgba(255, 93, 108, 0.14)'
+          : 'var(--bg-elevated)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent'
+      }}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        width: '100%',
+        padding: '8px 10px',
+        borderRadius: 8,
+        fontSize: 12.5,
+        textAlign: 'left',
+        background: 'transparent',
+        border: 'none',
+        cursor: 'pointer',
+        color: item.danger ? 'var(--err)' : 'var(--txt-1)',
+        transition: 'background 0.12s ease'
+      }}
     >
-      <span className="grid h-4 w-4 shrink-0 place-items-center">{item.icon}</span>
-      <span className="truncate">{item.label}</span>
+      <span style={{ display: 'grid', placeItems: 'center', width: 16, height: 16, flexShrink: 0 }}>
+        {item.icon}
+      </span>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {item.label}
+      </span>
     </button>
   )
 
@@ -105,13 +127,28 @@ export default function OverlayMenu({
     <>
       {/* Outside-click catcher (the overlay window is interactive in menu mode). */}
       <div className="pointer-events-auto fixed inset-0" onClick={dismiss} onContextMenu={(e) => { e.preventDefault(); dismiss() }} />
-      <div className="overlay-pop pointer-events-auto absolute left-0 top-0 w-[220px] rounded-xl border border-line bg-bg-elevated p-1 shadow-2xl">
+      <div
+        className="overlay-pop glass pointer-events-auto absolute left-0 top-0 w-[220px]"
+        style={{ borderRadius: 12, padding: 6 }}
+      >
+        <div
+          style={{
+            padding: '4px 10px 6px',
+            fontSize: 10.5,
+            letterSpacing: 0.3,
+            textTransform: 'uppercase',
+            color: 'var(--txt-3)',
+            fontFamily: 'var(--font-mono)'
+          }}
+        >
+          {kind === 'workspace' ? 'Workspace' : 'Folder'}
+        </div>
         {items.map((it) => (
           <Row key={it.action} item={it} />
         ))}
         {danger && (
           <>
-            <div className="my-1 h-px bg-line" />
+            <div style={{ margin: '4px 0', height: 1, background: 'var(--line-2)' }} />
             <Row item={danger} />
           </>
         )}

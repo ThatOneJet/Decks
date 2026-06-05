@@ -58,41 +58,36 @@ export default function AddDeckModal({ onClose }: { onClose: () => void }): JSX.
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/55 pt-32 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="w-[min(440px,90vw)] overflow-hidden rounded-xl2 border border-line bg-bg-elevated shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="border-b border-line px-4 py-3 text-sm font-semibold text-txt-1">Add a deck</div>
-        <div className="flex flex-col gap-3 p-4">
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-txt-3">Link</span>
+    <>
+      <div className="scrim" onClick={onClose} />
+      <div className="modal glass" onClick={(e) => e.stopPropagation()}>
+        <h3>Add a deck</h3>
+        <p className="sub">Paste any link to spin up a new deck.</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <label className="field">
             <input
               autoFocus
               value={url}
               onChange={(e) => { setUrl(e.target.value); setErr('') }}
               onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
               placeholder="paste any URL — e.g. figma.com"
-              className="rounded-lg border border-line bg-bg-panel px-3 py-2 text-sm text-txt-1 outline-none placeholder:text-txt-4 focus:border-accent-ring"
             />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-txt-3">Name (optional)</span>
+          <label className="field">
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
-              placeholder="defaults to the site name"
-              className="rounded-lg border border-line bg-bg-panel px-3 py-2 text-sm text-txt-1 outline-none placeholder:text-txt-4 focus:border-accent-ring"
+              placeholder="name (optional) — defaults to the site name"
             />
           </label>
           {err && <span className="text-xs text-err">{err}</span>}
         </div>
-        <div className="flex justify-end gap-2 border-t border-line px-4 py-3">
-          <button onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm text-txt-3 hover:text-txt-1">Cancel</button>
-          <button onClick={submit} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90">Add deck</button>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <button className="btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={submit}>Add deck</button>
         </div>
       </div>
-    </div>
+    </>
   )
 }

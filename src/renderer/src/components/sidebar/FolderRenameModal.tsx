@@ -25,18 +25,11 @@ export default function FolderRenameModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-start justify-center bg-black/50 pt-32 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="w-[min(420px,90vw)] overflow-hidden rounded-xl2 border border-line bg-bg-elevated shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="border-b border-line px-4 py-3 text-sm font-semibold text-txt-1">
-          Rename folder
-        </div>
-        <div className="p-4">
+    <>
+      <div className="scrim" onClick={onClose} />
+      <div className="modal glass" onClick={(e) => e.stopPropagation()}>
+        <h3>Rename folder</h3>
+        <label className="field">
           <input
             autoFocus
             value={draft}
@@ -45,24 +38,17 @@ export default function FolderRenameModal({
               if (e.key === 'Enter') save()
               if (e.key === 'Escape') onClose()
             }}
-            className="w-full rounded-lg border border-line bg-bg-panel px-3 py-2 text-sm text-txt-1 outline-none focus:border-accent-ring"
           />
-        </div>
-        <div className="flex justify-end gap-2 border-t border-line px-4 py-3">
-          <button
-            onClick={onClose}
-            className="rounded-lg px-3 py-1.5 text-sm text-txt-3 hover:text-txt-1"
-          >
+        </label>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <button className="btn-ghost" onClick={onClose}>
             Cancel
           </button>
-          <button
-            onClick={save}
-            className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90"
-          >
+          <button className="btn-primary" onClick={save}>
             Save
           </button>
         </div>
       </div>
-    </div>
+    </>
   )
 }

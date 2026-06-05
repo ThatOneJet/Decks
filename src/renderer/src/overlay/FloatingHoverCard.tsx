@@ -10,16 +10,16 @@ export default function FloatingHoverCard({ summary }: { summary: HoverSummary }
   const { name, deckCount, unread, playing, notes } = summary
 
   return (
-    <div className="overlay-pop pointer-events-none absolute left-0 top-0 w-56 overflow-hidden rounded-xl border border-line bg-bg-elevated px-3 py-2 shadow-2xl">
-      <div className="truncate text-sm font-semibold text-txt-1">{name}</div>
-      <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-txt-3">
-        <span>
+    <div className="hovercard glass">
+      <div className="hn">{name}</div>
+      <div className="hmeta">
+        <span className="chip">
           {deckCount} deck{deckCount === 1 ? '' : 's'}
         </span>
-        {unread > 0 && <span className="text-err">· {unread} unread</span>}
-        {playing && <span className="text-ok">· ▶ playing</span>}
+        {unread > 0 && <span className="chip acc">{unread} unread</span>}
+        {playing && <span className="chip live">▶ playing</span>}
       </div>
-      {notes && <div className="mt-1.5 border-t border-line pt-1.5 text-xs italic text-txt-3">“{notes}”</div>}
+      {notes && <div className="hrow">“{notes}”</div>}
     </div>
   )
 }

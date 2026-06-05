@@ -58,9 +58,13 @@ function CommandPalette(): JSX.Element | null {
 
   // Scroll the selected row into view.
   useEffect(() => {
-    const el = listRef.current?.children[selected] as HTMLElement | undefined
+    const id = results[selected]?.id
+    if (!id) return
+    const el = listRef.current?.querySelector(`#palette-row-${CSS.escape(id)}`) as
+      | HTMLElement
+      | undefined
     el?.scrollIntoView({ block: 'nearest' })
-  }, [selected])
+  }, [selected, results])
 
   if (!open) return null
 
@@ -80,61 +84,60 @@ function CommandPalette(): JSX.Element | null {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-32"
-      onClick={close}
-    >
-      <div
-        className="w-[min(560px,90vw)] overflow-hidden rounded-xl2 border border-line bg-bg-elevated shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={onKeyDown}
-      >
-        <input
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Jump anywhere…"
-          className="w-full bg-transparent px-4 py-3 text-sm text-txt-1 outline-none placeholder:text-txt-3"
-        />
-        <div ref={listRef} className="max-h-72 overflow-y-auto border-t border-line">
+    <>
+      <div className="scrim" onClick={close} />
+      <div className="palette glass" onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
+        <div className="palette-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+            <circle cx="11" cy="11" r="7" />
+            <line x1="16.5" y1="16.5" x2="21" y2="21" strokeLinecap="round" />
+          </svg>
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Jump anywhere…"
+            role="combobox"
+            aria-expanded={results.length > 0}
+            aria-controls="palette-listbox"
+            aria-activedescendant={results[selected] ? `palette-row-${results[selected].id}` : undefined}
+          />
+        </div>
+        <div ref={listRef} id="palette-listbox" role="listbox" className="palette-list">
           {results.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-txt-3">No results</div>
+            <div className="palette-sec">No results</div>
           ) : (
             results.map((item, i) => {
               const active = i === selected
+              const newSection = i === 0 || results[i - 1].kind !== item.kind
               return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onMouseMove={() => setSelected(i)}
-                  onClick={() => run(item)}
-                  className={
-                    'flex w-full items-center gap-3 px-4 py-2 text-left text-sm ' +
-                    (active ? 'bg-accent-soft text-txt-1' : 'text-txt-2')
-                  }
-                >
-                  <span className="w-5 shrink-0 text-center text-base leading-none">
-                    {item.glyph}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                  {item.hint && (
-                    <span className="shrink-0 text-xs text-txt-3">{item.hint}</span>
-                  )}
-                  <span
-                    className={
-                      'shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ' +
-                      (active ? 'text-accent' : 'text-txt-4')
-                    }
+                <div key={item.id} className="contents">
+                  {newSection && <div className="palette-sec">{KIND_LABEL[item.kind]}</div>}
+                  <button
+                    type="button"
+                    id={`palette-row-${item.id}`}
+                    role="option"
+                    aria-selected={active}
+                    onMouseMove={() => setSelected(i)}
+                    onClick={() => run(item)}
+                    className={'palette-row' + (active ? ' sel' : '')}
                   >
-                    {KIND_LABEL[item.kind]}
-                  </span>
-                </button>
+                    <span className={'ic' + (item.kind === 'command' ? ' act' : '')}>
+                      {item.glyph}
+                    </span>
+                    <div className="tx">
+                      <div className="l">{item.label}</div>
+                      {item.hint && <div className="d">{item.hint}</div>}
+                    </div>
+                    <span className="meta">{KIND_LABEL[item.kind]}</span>
+                  </button>
+                </div>
               )
             })
           )}
         </div>
       </div>
-    </div>
+    </>
   )
 }
 
