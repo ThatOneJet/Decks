@@ -86,6 +86,13 @@ interface CanvasAnnouncement {
   htmlUrl?: string
 }
 
+/** A single submission comment on an assignment. */
+interface CanvasComment {
+  authorName?: string
+  comment?: string
+  createdAt?: string
+}
+
 /** Full assignment detail (from the `assignment` resource). */
 interface CanvasAssignmentDetail {
   id?: string
@@ -98,6 +105,78 @@ interface CanvasAssignmentDetail {
   submissionState?: string
   score?: number
   submittedAt?: string
+  submissionTypes?: string[]
+  allowedAttempts?: number
+  comments?: CanvasComment[]
+}
+
+/** A discussion / announcement topic (from the `discussions` resource). */
+interface CanvasDiscussion {
+  id?: string
+  title?: string
+  postedAt?: string
+  htmlUrl?: string
+  isAnnouncement?: boolean
+  requireInitialPost?: boolean
+  unreadCount?: number
+}
+
+/** A nested discussion entry (reply). */
+interface CanvasDiscussionEntry {
+  id?: string
+  authorName?: string
+  message?: string
+  createdAt?: string
+  parentId?: string
+  replies?: CanvasDiscussionEntry[]
+}
+
+/** A full discussion thread (from the `discussionView` resource). */
+interface CanvasDiscussionThread {
+  id?: string
+  title?: string
+  message?: string
+  postedAt?: string
+  entries?: CanvasDiscussionEntry[]
+}
+
+/** A full page (from the `page` resource). */
+interface CanvasPage {
+  title?: string
+  body?: string
+  updatedAt?: string
+}
+
+/** A module item (from the `modules` resource). */
+interface CanvasModuleItem {
+  id?: string
+  title?: string
+  type?: string
+  htmlUrl?: string
+  pageUrl?: string
+  contentId?: string
+  completed?: boolean
+  requirementType?: string
+}
+
+/** A course module with items (from the `modules` resource). */
+interface CanvasModule {
+  id?: string
+  name?: string
+  items?: CanvasModuleItem[]
+}
+
+/** A quiz (from the `quizzes` resource). */
+interface CanvasQuiz {
+  id?: string
+  title?: string
+  dueAt?: string
+  pointsPossible?: number
+  questionCount?: number
+  htmlUrl?: string
+  quizType?: string
+  allowedAttempts?: number
+  locked?: boolean
 }
 
 /** Course header + grade (from the `course` resource). */
@@ -119,6 +198,9 @@ type View =
   | { type: 'list' }
   | { type: 'course'; courseId: string }
   | { type: 'assignment'; courseId: string; assignmentId: string }
+  | { type: 'discussions'; courseId: string }
+  | { type: 'discussion'; courseId: string; topicId: string }
+  | { type: 'page'; courseId: string; pageUrl: string }
 
 /* ── Date helpers ── */
 
@@ -502,6 +584,19 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
     Record<string, DetailCache<CanvasAssignmentDetail>>
   >({})
 
+  // Course-scoped lazy caches for reading/discussion features (keyed by courseId).
+  const [discussionLists, setDiscussionLists] = useState<
+    Record<string, DetailCache<CanvasDiscussion[]>>
+  >({})
+  const [moduleLists, setModuleLists] = useState<Record<string, DetailCache<CanvasModule[]>>>({})
+  const [quizLists, setQuizLists] = useState<Record<string, DetailCache<CanvasQuiz[]>>>({})
+  // Discussion threads keyed by `${courseId}/${topicId}`.
+  const [discussionThreads, setDiscussionThreads] = useState<
+    Record<string, DetailCache<CanvasDiscussionThread>>
+  >({})
+  // Pages keyed by `${courseId}/${pageUrl}`.
+  const [pageDetails, setPageDetails] = useState<Record<string, DetailCache<CanvasPage>>>({})
+
   // Tracks which list tabs have a fetch started (loading or done) so we don't
   // double-fetch. A ref (not the async-updated `meta`) is the reliable guard.
   const startedTabs = useRef<Set<string>>(new Set())
@@ -546,6 +641,11 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
       setAnnouncements([])
       setCourseDetails({})
       setAssignmentDetails({})
+      setDiscussionLists({})
+      setModuleLists({})
+      setQuizLists({})
+      setDiscussionThreads({})
+      setPageDetails({})
       setMeta({
         overview: { state: 'ready', error: '' },
         // The Overview agenda is driven by the `assignments` resource — mark it
@@ -642,12 +742,13 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
 
   /** Lazy-fetch an assignment detail (cached by id). */
   const loadAssignmentDetail = useCallback(
-    async (courseId: string, assignmentId: string): Promise<void> => {
+    async (courseId: string, assignmentId: string, force = false): Promise<void> => {
       const k = `${courseId}/${assignmentId}`
       setAssignmentDetails((m) => {
         const cur = m[k]
-        if (cur && (cur.state === 'ready' || cur.state === 'loading')) return m
-        return { ...m, [k]: { state: 'loading', error: '', data: null } }
+        if (!force && cur && (cur.state === 'ready' || cur.state === 'loading')) return m
+        // Preserve existing data while re-fetching so the view doesn't flash.
+        return { ...m, [k]: { state: 'loading', error: '', data: cur?.data ?? null } }
       })
       try {
         const result = (await window.decks?.provider.fetch({
@@ -674,16 +775,299 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
     [provider, accountId]
   )
 
+  /** Lazy-fetch a course's discussions list (cached by courseId). */
+  const loadDiscussions = useCallback(
+    async (courseId: string, force = false): Promise<void> => {
+      setDiscussionLists((m) => {
+        const cur = m[courseId]
+        if (!force && cur && (cur.state === 'ready' || cur.state === 'loading')) return m
+        return { ...m, [courseId]: { state: 'loading', error: '', data: null } }
+      })
+      try {
+        const result = await window.decks?.provider.fetch({
+          provider,
+          accountId,
+          resource: 'discussions',
+          params: { courseId }
+        })
+        const arr = Array.isArray(result) ? (result as CanvasDiscussion[]) : []
+        setDiscussionLists((m) => ({ ...m, [courseId]: { state: 'ready', error: '', data: arr } }))
+      } catch (err) {
+        setDiscussionLists((m) => ({
+          ...m,
+          [courseId]: {
+            state: 'error',
+            error: err instanceof Error ? err.message : 'Failed to load',
+            data: null
+          }
+        }))
+      }
+    },
+    [provider, accountId]
+  )
+
+  /** Lazy-fetch a course's modules list (cached by courseId). */
+  const loadModules = useCallback(
+    async (courseId: string, force = false): Promise<void> => {
+      setModuleLists((m) => {
+        const cur = m[courseId]
+        if (!force && cur && (cur.state === 'ready' || cur.state === 'loading')) return m
+        return { ...m, [courseId]: { state: 'loading', error: '', data: null } }
+      })
+      try {
+        const result = await window.decks?.provider.fetch({
+          provider,
+          accountId,
+          resource: 'modules',
+          params: { courseId }
+        })
+        const arr = Array.isArray(result) ? (result as CanvasModule[]) : []
+        setModuleLists((m) => ({ ...m, [courseId]: { state: 'ready', error: '', data: arr } }))
+      } catch (err) {
+        setModuleLists((m) => ({
+          ...m,
+          [courseId]: {
+            state: 'error',
+            error: err instanceof Error ? err.message : 'Failed to load',
+            data: null
+          }
+        }))
+      }
+    },
+    [provider, accountId]
+  )
+
+  /** Lazy-fetch a course's quizzes list (cached by courseId). */
+  const loadQuizzes = useCallback(
+    async (courseId: string, force = false): Promise<void> => {
+      setQuizLists((m) => {
+        const cur = m[courseId]
+        if (!force && cur && (cur.state === 'ready' || cur.state === 'loading')) return m
+        return { ...m, [courseId]: { state: 'loading', error: '', data: null } }
+      })
+      try {
+        const result = await window.decks?.provider.fetch({
+          provider,
+          accountId,
+          resource: 'quizzes',
+          params: { courseId }
+        })
+        const arr = Array.isArray(result) ? (result as CanvasQuiz[]) : []
+        setQuizLists((m) => ({ ...m, [courseId]: { state: 'ready', error: '', data: arr } }))
+      } catch (err) {
+        setQuizLists((m) => ({
+          ...m,
+          [courseId]: {
+            state: 'error',
+            error: err instanceof Error ? err.message : 'Failed to load',
+            data: null
+          }
+        }))
+      }
+    },
+    [provider, accountId]
+  )
+
+  /** Lazy-fetch a discussion thread (cached by `${courseId}/${topicId}`). */
+  const loadDiscussionThread = useCallback(
+    async (courseId: string, topicId: string): Promise<void> => {
+      const k = `${courseId}/${topicId}`
+      setDiscussionThreads((m) => {
+        const cur = m[k]
+        if (cur && cur.state === 'loading') return m
+        return { ...m, [k]: { state: 'loading', error: '', data: null } }
+      })
+      try {
+        const result = (await window.decks?.provider.fetch({
+          provider,
+          accountId,
+          resource: 'discussionView',
+          params: { courseId, topicId }
+        })) as CanvasDiscussionThread | undefined
+        setDiscussionThreads((m) => ({
+          ...m,
+          [k]: { state: 'ready', error: '', data: result ?? {} }
+        }))
+      } catch (err) {
+        setDiscussionThreads((m) => ({
+          ...m,
+          [k]: {
+            state: 'error',
+            error: err instanceof Error ? err.message : 'Failed to load',
+            data: null
+          }
+        }))
+      }
+    },
+    [provider, accountId]
+  )
+
+  /** Lazy-fetch a page (cached by `${courseId}/${pageUrl}`). */
+  const loadPage = useCallback(
+    async (courseId: string, pageUrl: string): Promise<void> => {
+      const k = `${courseId}/${pageUrl}`
+      setPageDetails((m) => {
+        const cur = m[k]
+        if (cur && (cur.state === 'ready' || cur.state === 'loading')) return m
+        return { ...m, [k]: { state: 'loading', error: '', data: null } }
+      })
+      try {
+        const result = (await window.decks?.provider.fetch({
+          provider,
+          accountId,
+          resource: 'page',
+          params: { courseId, pageUrl }
+        })) as CanvasPage | undefined
+        setPageDetails((m) => ({ ...m, [k]: { state: 'ready', error: '', data: result ?? {} } }))
+      } catch (err) {
+        setPageDetails((m) => ({
+          ...m,
+          [k]: {
+            state: 'error',
+            error: err instanceof Error ? err.message : 'Failed to load',
+            data: null
+          }
+        }))
+      }
+    },
+    [provider, accountId]
+  )
+
+  /** Perform a write action against Canvas, then return ok. Throws on failure. */
+  const submitAssignment = useCallback(
+    async (
+      courseId: string,
+      assignmentId: string,
+      kind: 'text' | 'url',
+      value: string
+    ): Promise<void> => {
+      await window.decks?.provider.fetch({
+        provider,
+        accountId,
+        resource: 'submit',
+        params: { courseId, assignmentId, kind, value }
+      })
+      await loadAssignmentDetail(courseId, assignmentId, true)
+    },
+    [provider, accountId, loadAssignmentDetail]
+  )
+
+  /** Open a native file picker and submit the chosen file. Returns the result. */
+  const submitFile = useCallback(
+    async (
+      courseId: string,
+      assignmentId: string
+    ): Promise<{ cancelled?: boolean; fileName?: string }> => {
+      const result = (await window.decks?.provider.fetch({
+        provider,
+        accountId,
+        resource: 'submitFile',
+        params: { courseId, assignmentId }
+      })) as { cancelled?: boolean; fileName?: string } | undefined
+      const out = result ?? {}
+      if (!out.cancelled) await loadAssignmentDetail(courseId, assignmentId, true)
+      return out
+    },
+    [provider, accountId, loadAssignmentDetail]
+  )
+
+  /** Add a submission comment to an assignment, then re-fetch it. */
+  const addComment = useCallback(
+    async (courseId: string, assignmentId: string, text: string): Promise<void> => {
+      await window.decks?.provider.fetch({
+        provider,
+        accountId,
+        resource: 'comment',
+        params: { courseId, assignmentId, text }
+      })
+      await loadAssignmentDetail(courseId, assignmentId, true)
+    },
+    [provider, accountId, loadAssignmentDetail]
+  )
+
+  /** Post a discussion reply (top-level or nested), then re-fetch the thread. */
+  const postReply = useCallback(
+    async (
+      courseId: string,
+      topicId: string,
+      message: string,
+      parentEntryId?: string
+    ): Promise<void> => {
+      await window.decks?.provider.fetch({
+        provider,
+        accountId,
+        resource: 'postReply',
+        params: { courseId, topicId, message, parentEntryId }
+      })
+      await loadDiscussionThread(courseId, topicId)
+    },
+    [provider, accountId, loadDiscussionThread]
+  )
+
+  /** Toggle a module item's completion requirement, then re-fetch modules. */
+  const markModuleItem = useCallback(
+    async (courseId: string, moduleId: string, itemId: string, done: boolean): Promise<void> => {
+      await window.decks?.provider.fetch({
+        provider,
+        accountId,
+        resource: 'markModuleItem',
+        params: { courseId, moduleId, itemId, done }
+      })
+      await loadModules(courseId, true)
+    },
+    [provider, accountId, loadModules]
+  )
+
+  /** Navigate into a discussions list for a course. */
+  const openDiscussions = useCallback(
+    (courseId: string): void => {
+      setView({ type: 'discussions', courseId })
+      void loadDiscussions(courseId)
+    },
+    [loadDiscussions]
+  )
+
+  /** Navigate into a single discussion thread. */
+  const openDiscussion = useCallback(
+    (courseId: string, topicId?: string): void => {
+      if (!topicId) return
+      setView({ type: 'discussion', courseId, topicId })
+      void loadDiscussionThread(courseId, topicId)
+    },
+    [loadDiscussionThread]
+  )
+
+  /** Navigate into a single page. */
+  const openPage = useCallback(
+    (courseId: string, pageUrl?: string): void => {
+      if (!pageUrl) return
+      setView({ type: 'page', courseId, pageUrl })
+      void loadPage(courseId, pageUrl)
+    },
+    [loadPage]
+  )
+
   /** Navigate into a course detail (also loads its assignments/announcements). */
   const openCourse = useCallback(
     (courseId?: string): void => {
       if (!courseId) return
       setView({ type: 'course', courseId })
       void loadCourseDetail(courseId)
+      void loadDiscussions(courseId)
+      void loadModules(courseId)
+      void loadQuizzes(courseId)
       if (meta.assignments.state === 'idle') void loadTab('assignments')
       if (meta.announcements.state === 'idle') void loadTab('announcements')
     },
-    [loadCourseDetail, loadTab, meta.assignments.state, meta.announcements.state]
+    [
+      loadCourseDetail,
+      loadDiscussions,
+      loadModules,
+      loadQuizzes,
+      loadTab,
+      meta.assignments.state,
+      meta.announcements.state
+    ]
   )
 
   /** Navigate into an assignment detail. */
@@ -696,8 +1080,15 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
     [loadAssignmentDetail]
   )
 
-  /** Back from a detail view → the previous tab list. */
-  const back = useCallback((): void => setView({ type: 'list' }), [])
+  /** Back from a detail view → its logical parent (course/discussions/list). */
+  const back = useCallback((): void => {
+    setView((v) => {
+      if (v.type === 'discussion') return { type: 'discussions', courseId: v.courseId }
+      if (v.type === 'discussions') return { type: 'course', courseId: v.courseId }
+      if (v.type === 'page') return { type: 'course', courseId: v.courseId }
+      return { type: 'list' }
+    })
+  }, [])
 
   /** Refresh: reload current view/tab (overview reloads everything). */
   const refresh = useCallback((): void => {
@@ -707,14 +1098,41 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
     }
     if (view.type === 'course') {
       void loadCourseDetail(view.courseId)
+      void loadDiscussions(view.courseId, true)
+      void loadModules(view.courseId, true)
+      void loadQuizzes(view.courseId, true)
       void loadTab('assignments', true)
       void loadTab('announcements', true)
+      return
+    }
+    if (view.type === 'discussions') {
+      void loadDiscussions(view.courseId, true)
+      return
+    }
+    if (view.type === 'discussion') {
+      void loadDiscussionThread(view.courseId, view.topicId)
+      return
+    }
+    if (view.type === 'page') {
+      void loadPage(view.courseId, view.pageUrl)
       return
     }
     if (tab === 'overview') void load()
     else if (tab === 'assignments' || tab === 'grades' || tab === 'announcements')
       void loadTab(tab, true)
-  }, [view, tab, load, loadTab, loadCourseDetail, loadAssignmentDetail])
+  }, [
+    view,
+    tab,
+    load,
+    loadTab,
+    loadCourseDetail,
+    loadAssignmentDetail,
+    loadDiscussions,
+    loadModules,
+    loadQuizzes,
+    loadDiscussionThread,
+    loadPage
+  ])
 
   if (state === 'loading') {
     return (
@@ -837,15 +1255,47 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
           assignmentsMeta={meta.assignments}
           announcements={announcements}
           announcementsMeta={meta.announcements}
+          discussions={discussionLists[view.courseId]}
+          modules={moduleLists[view.courseId]}
+          quizzes={quizLists[view.courseId]}
           courseName={courseName}
           onOpenAssignment={openAssignment}
+          onOpenDiscussions={openDiscussions}
+          onOpenDiscussion={openDiscussion}
+          onOpenPage={openPage}
+          onMarkModuleItem={markModuleItem}
         />
       ) : view.type === 'assignment' ? (
         <AssignmentDetailView
           detail={assignmentDetails[`${view.courseId}/${view.assignmentId}`]}
           courseId={view.courseId}
+          assignmentId={view.assignmentId}
           courseName={courseName}
           onOpenCourse={openCourse}
+          onSubmit={submitAssignment}
+          onSubmitFile={submitFile}
+          onAddComment={addComment}
+        />
+      ) : view.type === 'discussions' ? (
+        <DiscussionsView
+          list={discussionLists[view.courseId]}
+          courseId={view.courseId}
+          courseName={courseName}
+          onOpenDiscussion={openDiscussion}
+        />
+      ) : view.type === 'discussion' ? (
+        <DiscussionThreadView
+          thread={discussionThreads[`${view.courseId}/${view.topicId}`]}
+          courseId={view.courseId}
+          topicId={view.topicId}
+          courseName={courseName}
+          onPostReply={postReply}
+        />
+      ) : view.type === 'page' ? (
+        <PageView
+          page={pageDetails[`${view.courseId}/${view.pageUrl}`]}
+          courseId={view.courseId}
+          courseName={courseName}
         />
       ) : (
         <div className="flex-1 overflow-auto px-4 py-4">
@@ -1411,22 +1861,47 @@ function OpenInCanvasLink({ url }: { url?: string }): JSX.Element | null {
 function AssignmentDetailView({
   detail,
   courseId,
+  assignmentId,
   courseName,
-  onOpenCourse
+  onOpenCourse,
+  onSubmit,
+  onSubmitFile,
+  onAddComment
 }: {
   detail?: DetailCache<CanvasAssignmentDetail>
   courseId: string
+  assignmentId: string
   courseName: (id?: string) => string | undefined
   onOpenCourse: (courseId?: string) => void
+  onSubmit: (
+    courseId: string,
+    assignmentId: string,
+    kind: 'text' | 'url',
+    value: string
+  ) => Promise<void>
+  onSubmitFile: (
+    courseId: string,
+    assignmentId: string
+  ) => Promise<{ cancelled?: boolean; fileName?: string }>
+  onAddComment: (courseId: string, assignmentId: string, text: string) => Promise<void>
 }): JSX.Element {
-  if (!detail || detail.state === 'loading' || detail.state === 'idle') {
+  // Show the spinner only on the very first load (no data yet); re-fetches after
+  // an action keep the previous data visible while loading.
+  if (detail && detail.state === 'loading' && !detail.data) {
     return (
       <div className="flex-1 overflow-auto px-4 py-4">
         <TabStatus kind="loading" message="Loading assignment…" />
       </div>
     )
   }
-  if (detail.state === 'error') {
+  if (!detail || detail.state === 'idle') {
+    return (
+      <div className="flex-1 overflow-auto px-4 py-4">
+        <TabStatus kind="loading" message="Loading assignment…" />
+      </div>
+    )
+  }
+  if (detail.state === 'error' && !detail.data) {
     return (
       <div className="flex-1 overflow-auto px-4 py-4">
         <TabStatus kind="error" message={detail.error} />
@@ -1502,10 +1977,352 @@ function AssignmentDetailView({
         )}
       </div>
 
-      <div className="mt-4">
+      {/* Submit section (driven by submissionTypes) */}
+      <div className="mt-5">
+        <SectionHeading tone="accent">Submit</SectionHeading>
+        <SubmitSection
+          courseId={courseId}
+          assignmentId={assignmentId}
+          submissionTypes={a.submissionTypes}
+          allowedAttempts={a.allowedAttempts}
+          htmlUrl={a.htmlUrl}
+          onSubmit={onSubmit}
+          onSubmitFile={onSubmitFile}
+        />
+      </div>
+
+      {/* Comments */}
+      <div className="mt-5">
+        <CommentsSection
+          courseId={courseId}
+          assignmentId={assignmentId}
+          comments={a.comments}
+          onAddComment={onAddComment}
+        />
+      </div>
+
+      <div className="mt-5">
         <OpenInCanvasLink url={a.htmlUrl} />
       </div>
     </div>
+  )
+}
+
+/* ── Assignment submission ──
+ *
+ * Renders a submission control per allowed type (text / url / upload). Real
+ * submissions use a 2-step confirm. After a successful action the parent
+ * re-fetches the assignment so status/score update.
+ */
+
+/** True if `types` contains an upload/text/url submission type. */
+function hasType(types: string[] | undefined, name: string): boolean {
+  return Array.isArray(types) && types.includes(name)
+}
+
+function SubmitSection({
+  courseId,
+  assignmentId,
+  submissionTypes,
+  allowedAttempts,
+  htmlUrl,
+  onSubmit,
+  onSubmitFile
+}: {
+  courseId: string
+  assignmentId: string
+  submissionTypes?: string[]
+  allowedAttempts?: number
+  htmlUrl?: string
+  onSubmit: (
+    courseId: string,
+    assignmentId: string,
+    kind: 'text' | 'url',
+    value: string
+  ) => Promise<void>
+  onSubmitFile: (
+    courseId: string,
+    assignmentId: string
+  ) => Promise<{ cancelled?: boolean; fileName?: string }>
+}): JSX.Element {
+  const allowsText = hasType(submissionTypes, 'online_text_entry')
+  const allowsUrl = hasType(submissionTypes, 'online_url')
+  const allowsUpload = hasType(submissionTypes, 'online_upload')
+  const anyOnline = allowsText || allowsUrl || allowsUpload
+
+  const [text, setText] = useState('')
+  const [url, setUrl] = useState('')
+  // Per-control 2-step confirm + busy + result state.
+  const [confirm, setConfirm] = useState<'text' | 'url' | 'file' | null>(null)
+  const [busy, setBusy] = useState<'text' | 'url' | 'file' | null>(null)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState('')
+  const [fileName, setFileName] = useState('')
+
+  const run = useCallback(
+    async (which: 'text' | 'url' | 'file'): Promise<void> => {
+      setError('')
+      setDone('')
+      setBusy(which)
+      try {
+        if (which === 'text') {
+          await onSubmit(courseId, assignmentId, 'text', text)
+          setDone('Text submitted.')
+          setText('')
+        } else if (which === 'url') {
+          await onSubmit(courseId, assignmentId, 'url', url)
+          setDone('Link submitted.')
+          setUrl('')
+        } else {
+          const res = await onSubmitFile(courseId, assignmentId)
+          if (res.cancelled) {
+            setBusy(null)
+            setConfirm(null)
+            return
+          }
+          setFileName(res.fileName ?? '')
+          setDone(res.fileName ? `Submitted ${res.fileName}.` : 'File submitted.')
+        }
+        setConfirm(null)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Submission failed.')
+      } finally {
+        setBusy(null)
+      }
+    },
+    [courseId, assignmentId, text, url, onSubmit, onSubmitFile]
+  )
+
+  if (!anyOnline) {
+    return (
+      <div className="rounded-lg border border-line bg-bg-elevated px-3 py-2.5">
+        <p className="text-xs text-txt-3">
+          This assignment is submitted outside Decks (on paper, an external tool, or no online
+          submission).
+        </p>
+        <div className="mt-2">
+          <OpenInCanvasLink url={htmlUrl} />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {typeof allowedAttempts === 'number' && allowedAttempts > 0 && (
+        <p className="text-[11px] text-txt-4">
+          {allowedAttempts} attempt{allowedAttempts === 1 ? '' : 's'} allowed
+        </p>
+      )}
+
+      {allowsText && (
+        <div className="rounded-lg border border-line bg-bg-elevated p-3">
+          <label className="mb-1.5 block text-[11px] font-medium text-txt-3">Text entry</label>
+          <textarea
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value)
+              if (confirm === 'text') setConfirm(null)
+            }}
+            rows={4}
+            placeholder="Type your submission…"
+            disabled={busy !== null}
+            className="w-full resize-y rounded-md border border-line bg-bg px-2.5 py-2 text-xs text-txt-1 placeholder:text-txt-4 focus:border-accent-ring focus:outline-none disabled:opacity-60"
+          />
+          <div className="mt-2 flex items-center justify-end gap-2">
+            {confirm === 'text' && (
+              <button
+                type="button"
+                onClick={() => setConfirm(null)}
+                disabled={busy !== null}
+                className="rounded-md px-2.5 py-1.5 text-xs font-medium text-txt-3 transition-colors hover:text-txt-1"
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={busy !== null || text.trim().length === 0}
+              onClick={() => (confirm === 'text' ? void run('text') : setConfirm('text'))}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                confirm === 'text'
+                  ? 'bg-accent text-bg hover:brightness-110'
+                  : 'border border-accent-ring text-accent hover:bg-accent/10'
+              }`}
+            >
+              {busy === 'text' && <Spinner />}
+              {confirm === 'text' ? 'Confirm submit' : 'Submit text'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {allowsUrl && (
+        <div className="rounded-lg border border-line bg-bg-elevated p-3">
+          <label className="mb-1.5 block text-[11px] font-medium text-txt-3">Website URL</label>
+          <input
+            type="url"
+            value={url}
+            onChange={(e) => {
+              setUrl(e.target.value)
+              if (confirm === 'url') setConfirm(null)
+            }}
+            placeholder="https://…"
+            disabled={busy !== null}
+            className="w-full rounded-md border border-line bg-bg px-2.5 py-2 text-xs text-txt-1 placeholder:text-txt-4 focus:border-accent-ring focus:outline-none disabled:opacity-60"
+          />
+          <div className="mt-2 flex items-center justify-end gap-2">
+            {confirm === 'url' && (
+              <button
+                type="button"
+                onClick={() => setConfirm(null)}
+                disabled={busy !== null}
+                className="rounded-md px-2.5 py-1.5 text-xs font-medium text-txt-3 transition-colors hover:text-txt-1"
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={busy !== null || url.trim().length === 0}
+              onClick={() => (confirm === 'url' ? void run('url') : setConfirm('url'))}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                confirm === 'url'
+                  ? 'bg-accent text-bg hover:brightness-110'
+                  : 'border border-accent-ring text-accent hover:bg-accent/10'
+              }`}
+            >
+              {busy === 'url' && <Spinner />}
+              {confirm === 'url' ? 'Confirm submit' : 'Submit link'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {allowsUpload && (
+        <div className="rounded-lg border border-line bg-bg-elevated p-3">
+          <label className="mb-1.5 block text-[11px] font-medium text-txt-3">File upload</label>
+          {fileName && <p className="mb-2 text-xs text-txt-2">Selected: {fileName}</p>}
+          <div className="flex items-center justify-end gap-2">
+            {confirm === 'file' && (
+              <button
+                type="button"
+                onClick={() => setConfirm(null)}
+                disabled={busy !== null}
+                className="rounded-md px-2.5 py-1.5 text-xs font-medium text-txt-3 transition-colors hover:text-txt-1"
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={() => (confirm === 'file' ? void run('file') : setConfirm('file'))}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                confirm === 'file'
+                  ? 'bg-accent text-bg hover:brightness-110'
+                  : 'border border-accent-ring text-accent hover:bg-accent/10'
+              }`}
+            >
+              {busy === 'file' && <Spinner />}
+              {confirm === 'file' ? 'Confirm: pick file & submit' : 'Attach a file & submit'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {done && <p className="text-xs font-medium text-ok">{done}</p>}
+      {error && <p className="text-xs text-err">{error}</p>}
+    </div>
+  )
+}
+
+/* ── Assignment comments ── */
+
+function CommentsSection({
+  courseId,
+  assignmentId,
+  comments,
+  onAddComment
+}: {
+  courseId: string
+  assignmentId: string
+  comments?: CanvasComment[]
+  onAddComment: (courseId: string, assignmentId: string, text: string) => Promise<void>
+}): JSX.Element {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const list = Array.isArray(comments) ? comments : []
+
+  const send = useCallback(async (): Promise<void> => {
+    if (text.trim().length === 0) return
+    setError('')
+    setBusy(true)
+    try {
+      await onAddComment(courseId, assignmentId, text)
+      setText('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add comment.')
+    } finally {
+      setBusy(false)
+    }
+  }, [courseId, assignmentId, text, onAddComment])
+
+  return (
+    <>
+      <SectionHeading count={list.length || undefined}>Comments</SectionHeading>
+      {list.length === 0 ? (
+        <p className="text-xs text-txt-4">No comments yet.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {list.map((c, i) => (
+            <div
+              key={`${c.authorName ?? 'c'}-${i}`}
+              className="rounded-lg border border-line bg-bg-elevated px-3 py-2"
+            >
+              <div className="mb-0.5 flex items-center gap-2">
+                <span className="truncate text-xs font-medium text-txt-1">
+                  {c.authorName ?? 'Unknown'}
+                </span>
+                {c.createdAt && (
+                  <span className="shrink-0 text-[11px] text-txt-4" title={formatWhen(c.createdAt)}>
+                    {relative(c.createdAt)}
+                  </span>
+                )}
+              </div>
+              <p className="whitespace-pre-wrap text-xs leading-relaxed text-txt-2">
+                {c.comment ?? ''}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-3 rounded-lg border border-line bg-bg-elevated p-3">
+        <label className="mb-1.5 block text-[11px] font-medium text-txt-3">Add a comment</label>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={2}
+          placeholder="Write a comment…"
+          disabled={busy}
+          className="w-full resize-y rounded-md border border-line bg-bg px-2.5 py-2 text-xs text-txt-1 placeholder:text-txt-4 focus:border-accent-ring focus:outline-none disabled:opacity-60"
+        />
+        <div className="mt-2 flex items-center justify-end">
+          <button
+            type="button"
+            disabled={busy || text.trim().length === 0}
+            onClick={() => void send()}
+            className="inline-flex items-center gap-1.5 rounded-md border border-accent-ring px-3 py-1.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-50"
+          >
+            {busy && <Spinner />}
+            Comment
+          </button>
+        </div>
+        {error && <p className="mt-2 text-xs text-err">{error}</p>}
+      </div>
+    </>
   )
 }
 
@@ -1518,8 +2335,15 @@ function CourseDetailView({
   assignmentsMeta,
   announcements,
   announcementsMeta,
+  discussions,
+  modules,
+  quizzes,
   courseName,
-  onOpenAssignment
+  onOpenAssignment,
+  onOpenDiscussions,
+  onOpenDiscussion,
+  onOpenPage,
+  onMarkModuleItem
 }: {
   detail?: DetailCache<CanvasCourseDetail>
   courseId: string
@@ -1527,8 +2351,20 @@ function CourseDetailView({
   assignmentsMeta: TabData
   announcements: CanvasAnnouncement[]
   announcementsMeta: TabData
+  discussions?: DetailCache<CanvasDiscussion[]>
+  modules?: DetailCache<CanvasModule[]>
+  quizzes?: DetailCache<CanvasQuiz[]>
   courseName: (id?: string) => string | undefined
   onOpenAssignment: (courseId?: string, assignmentId?: string) => void
+  onOpenDiscussions: (courseId: string) => void
+  onOpenDiscussion: (courseId: string, topicId?: string) => void
+  onOpenPage: (courseId: string, pageUrl?: string) => void
+  onMarkModuleItem: (
+    courseId: string,
+    moduleId: string,
+    itemId: string,
+    done: boolean
+  ) => Promise<void>
 }): JSX.Element {
   const c = courseColor(courseId)
   const d = detail?.data ?? {}
@@ -1644,6 +2480,680 @@ function CourseDetailView({
           </div>
         )}
       </section>
+
+      {/* Discussions */}
+      <CourseDiscussionsSection
+        courseId={courseId}
+        list={discussions}
+        onOpenDiscussions={onOpenDiscussions}
+        onOpenDiscussion={onOpenDiscussion}
+      />
+
+      {/* Modules (reading) */}
+      <CourseModulesSection
+        courseId={courseId}
+        modules={modules}
+        accent={c.hue}
+        onOpenPage={onOpenPage}
+        onMarkModuleItem={onMarkModuleItem}
+      />
+
+      {/* Quizzes */}
+      <CourseQuizzesSection quizzes={quizzes} />
+    </div>
+  )
+}
+
+/* ── Course section: Discussions ── */
+
+function CourseDiscussionsSection({
+  courseId,
+  list,
+  onOpenDiscussions,
+  onOpenDiscussion
+}: {
+  courseId: string
+  list?: DetailCache<CanvasDiscussion[]>
+  onOpenDiscussions: (courseId: string) => void
+  onOpenDiscussion: (courseId: string, topicId?: string) => void
+}): JSX.Element {
+  const topics = (list?.data ?? []).filter((t) => !t.isAnnouncement)
+  const loading = !list || list.state === 'loading' || list.state === 'idle'
+  return (
+    <section className="mt-5">
+      <div className="flex items-center justify-between">
+        <SectionHeading count={loading ? undefined : topics.length}>Discussions</SectionHeading>
+        {topics.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onOpenDiscussions(courseId)}
+            className="mb-2 text-[11px] font-medium text-txt-3 transition-colors hover:text-accent"
+          >
+            View all
+          </button>
+        )}
+      </div>
+      {loading ? (
+        <TabStatus kind="loading" message="Loading discussions…" />
+      ) : list?.state === 'error' ? (
+        <TabStatus kind="error" message={list.error} />
+      ) : topics.length === 0 ? (
+        <p className="text-xs text-txt-4">No discussions for this course.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {topics.slice(0, 5).map((t, i) => (
+            <DiscussionRow
+              key={t.id ?? `${t.title ?? 'd'}-${i}`}
+              t={t}
+              courseId={courseId}
+              onOpenDiscussion={onOpenDiscussion}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/* ── Course section: Modules (reading) ── */
+
+function CourseModulesSection({
+  courseId,
+  modules,
+  accent,
+  onOpenPage,
+  onMarkModuleItem
+}: {
+  courseId: string
+  modules?: DetailCache<CanvasModule[]>
+  accent: string
+  onOpenPage: (courseId: string, pageUrl?: string) => void
+  onMarkModuleItem: (
+    courseId: string,
+    moduleId: string,
+    itemId: string,
+    done: boolean
+  ) => Promise<void>
+}): JSX.Element {
+  const list = modules?.data ?? []
+  const loading = !modules || modules.state === 'loading' || modules.state === 'idle'
+  return (
+    <section className="mt-5">
+      <SectionHeading count={loading ? undefined : list.length}>Modules</SectionHeading>
+      {loading ? (
+        <TabStatus kind="loading" message="Loading modules…" />
+      ) : modules?.state === 'error' ? (
+        <TabStatus kind="error" message={modules.error} />
+      ) : list.length === 0 ? (
+        <p className="text-xs text-txt-4">No modules for this course.</p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {list.map((m, i) => (
+            <div key={m.id ?? `m-${i}`} className="rounded-lg border border-line bg-bg-elevated p-3">
+              <div className="mb-2 text-xs font-semibold text-txt-1">{m.name ?? 'Module'}</div>
+              {(m.items ?? []).length === 0 ? (
+                <p className="text-[11px] text-txt-4">No items.</p>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {(m.items ?? []).map((it, j) => (
+                    <ModuleItemRow
+                      key={it.id ?? `mi-${j}`}
+                      courseId={courseId}
+                      moduleId={m.id ?? ''}
+                      item={it}
+                      accent={accent}
+                      onOpenPage={onOpenPage}
+                      onMarkModuleItem={onMarkModuleItem}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** A single module item row: page→open in deck; others→Open in Canvas; optional done toggle. */
+function ModuleItemRow({
+  courseId,
+  moduleId,
+  item,
+  accent,
+  onOpenPage,
+  onMarkModuleItem
+}: {
+  courseId: string
+  moduleId: string
+  item: CanvasModuleItem
+  accent: string
+  onOpenPage: (courseId: string, pageUrl?: string) => void
+  onMarkModuleItem: (
+    courseId: string,
+    moduleId: string,
+    itemId: string,
+    done: boolean
+  ) => Promise<void>
+}): JSX.Element {
+  const [busy, setBusy] = useState(false)
+  const isPage = item.type === 'Page' && !!item.pageUrl
+  const hasRequirement = !!item.requirementType
+  const completed = !!item.completed
+
+  const toggle = useCallback(async (): Promise<void> => {
+    if (!item.id) return
+    setBusy(true)
+    try {
+      await onMarkModuleItem(courseId, moduleId, item.id, !completed)
+    } finally {
+      setBusy(false)
+    }
+  }, [courseId, moduleId, item.id, completed, onMarkModuleItem])
+
+  return (
+    <div className="flex items-center gap-2">
+      {isPage ? (
+        <button
+          type="button"
+          onClick={() => onOpenPage(courseId, item.pageUrl)}
+          className="min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-xs text-txt-2 transition-colors hover:text-accent"
+          style={{ borderLeft: `2px solid ${accent}`, paddingLeft: '0.5rem' }}
+        >
+          {item.title ?? 'Page'}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => openExternal(item.htmlUrl)}
+          disabled={!item.htmlUrl}
+          className="min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-xs text-txt-2 transition-colors enabled:hover:text-accent disabled:opacity-60"
+          style={{ borderLeft: `2px solid ${accent}`, paddingLeft: '0.5rem' }}
+          title={item.type}
+        >
+          {item.title ?? item.type ?? 'Item'}
+          {item.type && <span className="ml-1.5 text-[10px] text-txt-4">{item.type}</span>}
+        </button>
+      )}
+      {hasRequirement && (
+        <button
+          type="button"
+          onClick={() => void toggle()}
+          disabled={busy}
+          className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold transition-colors disabled:opacity-50 ${
+            completed
+              ? 'bg-ok/15 text-ok'
+              : 'border border-line text-txt-3 hover:border-accent-ring hover:text-accent'
+          }`}
+        >
+          {completed ? 'Done ✓' : 'Mark done'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/* ── Course section: Quizzes ── */
+
+function CourseQuizzesSection({
+  quizzes
+}: {
+  quizzes?: DetailCache<CanvasQuiz[]>
+}): JSX.Element {
+  const list = quizzes?.data ?? []
+  const loading = !quizzes || quizzes.state === 'loading' || quizzes.state === 'idle'
+  return (
+    <section className="mt-5">
+      <SectionHeading count={loading ? undefined : list.length}>Quizzes</SectionHeading>
+      {loading ? (
+        <TabStatus kind="loading" message="Loading quizzes…" />
+      ) : quizzes?.state === 'error' ? (
+        <TabStatus kind="error" message={quizzes.error} />
+      ) : list.length === 0 ? (
+        <p className="text-xs text-txt-4">No quizzes for this course.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {list.map((q, i) => {
+            const u = urgency(q.dueAt)
+            const past = q.dueAt ? new Date(q.dueAt).getTime() < Date.now() : false
+            return (
+              <div
+                key={q.id ?? `q-${i}`}
+                className="rounded-lg border border-line bg-bg-elevated px-3 py-2.5"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-txt-1">
+                    {q.title ?? 'Quiz'}
+                  </span>
+                  {q.locked ? (
+                    <span className="shrink-0 rounded bg-bg px-1.5 py-0.5 text-[10px] font-semibold text-txt-3">
+                      Locked
+                    </span>
+                  ) : (
+                    <span className="shrink-0 rounded bg-ok/15 px-1.5 py-0.5 text-[10px] font-medium text-ok">
+                      Available
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                  {q.dueAt ? (
+                    <span className={past ? 'text-txt-4' : URGENCY_TEXT[u]}>
+                      {past ? `Due ${formatWhen(q.dueAt)}` : `Due ${relative(q.dueAt)} · ${formatWhen(q.dueAt)}`}
+                    </span>
+                  ) : (
+                    <span className="text-txt-4">No due date</span>
+                  )}
+                  {typeof q.pointsPossible === 'number' && (
+                    <span className="text-txt-4">· {q.pointsPossible} pts</span>
+                  )}
+                  {typeof q.questionCount === 'number' && (
+                    <span className="text-txt-4">· {q.questionCount} questions</span>
+                  )}
+                </div>
+                <div className="mt-2">
+                  <OpenInCanvasLink url={q.htmlUrl} />
+                  <span className="ml-2 text-[10px] text-txt-4">to take</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/* ── Discussion row (shared by course section + list view) ── */
+
+function DiscussionRow({
+  t,
+  courseId,
+  onOpenDiscussion
+}: {
+  t: CanvasDiscussion
+  courseId: string
+  onOpenDiscussion: (courseId: string, topicId?: string) => void
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenDiscussion(courseId, t.id)}
+      disabled={!t.id}
+      className="flex w-full flex-col items-start gap-1 overflow-hidden rounded-lg border border-line bg-bg-elevated px-3 py-2.5 text-left transition-colors enabled:hover:border-accent-ring disabled:cursor-default"
+    >
+      <div className="flex w-full items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-txt-1">
+          {t.title ?? 'Discussion'}
+        </span>
+        {typeof t.unreadCount === 'number' && t.unreadCount > 0 && (
+          <span className="shrink-0 rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">
+            {t.unreadCount} new
+          </span>
+        )}
+        {t.postedAt && (
+          <span className="shrink-0 text-[11px] text-txt-4" title={formatWhen(t.postedAt)}>
+            {relative(t.postedAt)}
+          </span>
+        )}
+      </div>
+      {t.requireInitialPost && (
+        <span className="text-[10px] text-warn">Post a reply to view others</span>
+      )}
+    </button>
+  )
+}
+
+/* ── Detail: Discussions list ── */
+
+function DiscussionsView({
+  list,
+  courseId,
+  courseName,
+  onOpenDiscussion
+}: {
+  list?: DetailCache<CanvasDiscussion[]>
+  courseId: string
+  courseName: (id?: string) => string | undefined
+  onOpenDiscussion: (courseId: string, topicId?: string) => void
+}): JSX.Element {
+  const label = courseName(courseId)
+  if (!list || list.state === 'loading' || list.state === 'idle') {
+    return (
+      <div className="flex-1 overflow-auto px-4 py-4">
+        <TabStatus kind="loading" message="Loading discussions…" />
+      </div>
+    )
+  }
+  if (list.state === 'error') {
+    return (
+      <div className="flex-1 overflow-auto px-4 py-4">
+        <TabStatus kind="error" message={list.error} />
+      </div>
+    )
+  }
+  const topics = (list.data ?? []).filter((t) => !t.isAnnouncement)
+  return (
+    <div className="flex-1 overflow-auto px-4 py-4">
+      <div className="mb-3">
+        <CourseChip label={label} colorKey={courseId} />
+      </div>
+      <SectionHeading count={topics.length}>Discussions</SectionHeading>
+      {topics.length === 0 ? (
+        <TabStatus kind="empty" message="No discussions for this course." />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {topics.map((t, i) => (
+            <DiscussionRow
+              key={t.id ?? `${t.title ?? 'd'}-${i}`}
+              t={t}
+              courseId={courseId}
+              onOpenDiscussion={onOpenDiscussion}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Detail: Discussion thread ── */
+
+/** Recursively render a discussion entry and its nested replies (indented). */
+function DiscussionEntryNode({
+  entry,
+  depth,
+  accent,
+  onReply,
+  replyingTo,
+  setReplyingTo,
+  posting
+}: {
+  entry: CanvasDiscussionEntry
+  depth: number
+  accent: string
+  onReply: (parentId: string, message: string) => Promise<void>
+  replyingTo: string | null
+  setReplyingTo: (id: string | null) => void
+  posting: boolean
+}): JSX.Element {
+  const [text, setText] = useState('')
+  const message = htmlToText(entry.message)
+  const open = replyingTo === entry.id
+  const indent = Math.min(depth, 5) * 14
+
+  const send = useCallback(async (): Promise<void> => {
+    if (!entry.id || text.trim().length === 0) return
+    await onReply(entry.id, text)
+    setText('')
+  }, [entry.id, text, onReply])
+
+  return (
+    <div style={{ marginLeft: indent }}>
+      <div
+        className="rounded-lg border border-line bg-bg-elevated px-3 py-2"
+        style={depth > 0 ? { borderLeft: `2px solid ${accent}` } : undefined}
+      >
+        <div className="mb-0.5 flex items-center gap-2">
+          <span className="truncate text-xs font-medium text-txt-1">
+            {entry.authorName ?? 'Unknown'}
+          </span>
+          {entry.createdAt && (
+            <span className="shrink-0 text-[11px] text-txt-4" title={formatWhen(entry.createdAt)}>
+              {relative(entry.createdAt)}
+            </span>
+          )}
+        </div>
+        {message ? (
+          <p className="whitespace-pre-wrap text-xs leading-relaxed text-txt-2">{message}</p>
+        ) : (
+          <p className="text-xs text-txt-4">(no content)</p>
+        )}
+        <div className="mt-1.5">
+          <button
+            type="button"
+            onClick={() => setReplyingTo(open ? null : entry.id ?? null)}
+            disabled={!entry.id}
+            className="text-[11px] font-medium text-txt-3 transition-colors hover:text-accent disabled:opacity-50"
+          >
+            {open ? 'Cancel' : 'Reply'}
+          </button>
+        </div>
+        {open && (
+          <div className="mt-2">
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={2}
+              placeholder="Write a reply…"
+              disabled={posting}
+              className="w-full resize-y rounded-md border border-line bg-bg px-2.5 py-2 text-xs text-txt-1 placeholder:text-txt-4 focus:border-accent-ring focus:outline-none disabled:opacity-60"
+            />
+            <div className="mt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => void send()}
+                disabled={posting || text.trim().length === 0}
+                className="inline-flex items-center gap-1.5 rounded-md border border-accent-ring px-3 py-1.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-50"
+              >
+                {posting && <Spinner />}
+                Post reply
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      {(entry.replies ?? []).length > 0 && (
+        <div className="mt-2 flex flex-col gap-2">
+          {(entry.replies ?? []).map((r, i) => (
+            <DiscussionEntryNode
+              key={r.id ?? `r-${depth}-${i}`}
+              entry={r}
+              depth={depth + 1}
+              accent={accent}
+              onReply={onReply}
+              replyingTo={replyingTo}
+              setReplyingTo={setReplyingTo}
+              posting={posting}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DiscussionThreadView({
+  thread,
+  courseId,
+  topicId,
+  courseName,
+  onPostReply
+}: {
+  thread?: DetailCache<CanvasDiscussionThread>
+  courseId: string
+  topicId: string
+  courseName: (id?: string) => string | undefined
+  onPostReply: (
+    courseId: string,
+    topicId: string,
+    message: string,
+    parentEntryId?: string
+  ) => Promise<void>
+}): JSX.Element {
+  const accent = courseColor(courseId).hue
+  const [rootText, setRootText] = useState('')
+  const [posting, setPosting] = useState(false)
+  const [error, setError] = useState('')
+  const [replyingTo, setReplyingTo] = useState<string | null>(null)
+
+  const postRoot = useCallback(async (): Promise<void> => {
+    if (rootText.trim().length === 0) return
+    setError('')
+    setPosting(true)
+    try {
+      await onPostReply(courseId, topicId, rootText)
+      setRootText('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to post reply.')
+    } finally {
+      setPosting(false)
+    }
+  }, [courseId, topicId, rootText, onPostReply])
+
+  const postNested = useCallback(
+    async (parentId: string, message: string): Promise<void> => {
+      setError('')
+      setPosting(true)
+      try {
+        await onPostReply(courseId, topicId, message, parentId)
+        setReplyingTo(null)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to post reply.')
+      } finally {
+        setPosting(false)
+      }
+    },
+    [courseId, topicId, onPostReply]
+  )
+
+  if (!thread || thread.state === 'loading' || thread.state === 'idle') {
+    return (
+      <div className="flex-1 overflow-auto px-4 py-4">
+        <TabStatus kind="loading" message="Loading discussion…" />
+      </div>
+    )
+  }
+  if (thread.state === 'error') {
+    return (
+      <div className="flex-1 overflow-auto px-4 py-4">
+        <TabStatus kind="error" message={thread.error} />
+      </div>
+    )
+  }
+  const t = thread.data ?? {}
+  const rootMessage = htmlToText(t.message)
+  const entries = t.entries ?? []
+  const label = courseName(courseId)
+
+  return (
+    <div className="flex-1 overflow-auto px-4 py-4">
+      <div className="mb-3">
+        <CourseChip label={label} colorKey={courseId} />
+      </div>
+      <h1 className="text-base font-semibold leading-snug text-txt-1">{t.title ?? 'Discussion'}</h1>
+      {t.postedAt && (
+        <p className="mt-1 text-[11px] text-txt-4" title={formatWhen(t.postedAt)}>
+          Posted {relative(t.postedAt)}
+        </p>
+      )}
+
+      {/* Root message */}
+      <div className="mt-3 rounded-lg border border-line bg-bg-elevated px-3 py-2.5">
+        {rootMessage ? (
+          <p className="whitespace-pre-wrap text-xs leading-relaxed text-txt-2">{rootMessage}</p>
+        ) : (
+          <p className="text-xs text-txt-4">No prompt text.</p>
+        )}
+      </div>
+
+      {/* Reply to the discussion */}
+      <div className="mt-4 rounded-lg border border-line bg-bg-elevated p-3">
+        <label className="mb-1.5 block text-[11px] font-medium text-txt-3">Reply to discussion</label>
+        <textarea
+          value={rootText}
+          onChange={(e) => setRootText(e.target.value)}
+          rows={3}
+          placeholder="Write a reply…"
+          disabled={posting}
+          className="w-full resize-y rounded-md border border-line bg-bg px-2.5 py-2 text-xs text-txt-1 placeholder:text-txt-4 focus:border-accent-ring focus:outline-none disabled:opacity-60"
+        />
+        <div className="mt-2 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => void postRoot()}
+            disabled={posting || rootText.trim().length === 0}
+            className="inline-flex items-center gap-1.5 rounded-md border border-accent-ring px-3 py-1.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-50"
+          >
+            {posting && <Spinner />}
+            Post reply
+          </button>
+        </div>
+        {error && <p className="mt-2 text-xs text-err">{error}</p>}
+      </div>
+
+      {/* Replies */}
+      <div className="mt-5">
+        <SectionHeading count={entries.length || undefined}>Replies</SectionHeading>
+        {entries.length === 0 ? (
+          <p className="text-xs text-txt-4">No replies yet.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {entries.map((e, i) => (
+              <DiscussionEntryNode
+                key={e.id ?? `e-${i}`}
+                entry={e}
+                depth={0}
+                accent={accent}
+                onReply={postNested}
+                replyingTo={replyingTo}
+                setReplyingTo={setReplyingTo}
+                posting={posting}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ── Detail: Page (reading) ── */
+
+function PageView({
+  page,
+  courseId,
+  courseName
+}: {
+  page?: DetailCache<CanvasPage>
+  courseId: string
+  courseName: (id?: string) => string | undefined
+}): JSX.Element {
+  const label = courseName(courseId)
+  if (!page || page.state === 'loading' || page.state === 'idle') {
+    return (
+      <div className="flex-1 overflow-auto px-4 py-4">
+        <TabStatus kind="loading" message="Loading page…" />
+      </div>
+    )
+  }
+  if (page.state === 'error') {
+    return (
+      <div className="flex-1 overflow-auto px-4 py-4">
+        <TabStatus kind="error" message={page.error} />
+      </div>
+    )
+  }
+  const p = page.data ?? {}
+  const body = htmlToText(p.body)
+  return (
+    <div className="flex-1 overflow-auto px-4 py-4">
+      <div className="mb-3">
+        <CourseChip label={label} colorKey={courseId} />
+      </div>
+      <h1 className="text-base font-semibold leading-snug text-txt-1">{p.title ?? 'Page'}</h1>
+      {p.updatedAt && (
+        <p className="mt-1 text-[11px] text-txt-4" title={formatWhen(p.updatedAt)}>
+          Updated {relative(p.updatedAt)}
+        </p>
+      )}
+      <div className="mt-4">
+        {body ? (
+          <p className="whitespace-pre-wrap text-xs leading-relaxed text-txt-2">{body}</p>
+        ) : (
+          <p className="text-xs text-txt-4">This page has no content.</p>
+        )}
+      </div>
     </div>
   )
 }
