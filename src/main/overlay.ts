@@ -226,7 +226,8 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
       sendMenu({
         kind: payload.kind,
         targetId: payload.targetId,
-        hasNotes: !!payload.hasNotes
+        hasNotes: !!payload.hasNotes,
+        keepAlive: !!payload.keepAlive
       })
       win.show()
       win.focus()

@@ -42,7 +42,9 @@ const api: DecksApi = {
     goForward: (panelId: PanelId) => ipcRenderer.invoke(IPC.PanelGoForward, panelId),
     setBounds: (p: PanelSetBoundsPayload) => ipcRenderer.invoke(IPC.PanelSetBounds, p),
     showOnly: (p: PanelShowOnlyPayload) => ipcRenderer.invoke(IPC.PanelShowOnly, p),
-    hideAll: () => ipcRenderer.invoke(IPC.PanelHideAll)
+    hideAll: () => ipcRenderer.invoke(IPC.PanelHideAll),
+    setKeepAlive: (panelId: PanelId, keepAlive: boolean) =>
+      ipcRenderer.invoke(IPC.PanelSetKeepAlive, panelId, keepAlive)
   },
   provider: {
     connect: (p: ProviderConnectPayload) => ipcRenderer.invoke(IPC.ProviderConnect, p),

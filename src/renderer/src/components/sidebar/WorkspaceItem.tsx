@@ -55,6 +55,7 @@ export default function RailTile({
       kind: 'workspace',
       targetId: workspace.id,
       hasNotes: !!workspace.notes,
+      keepAlive: !!workspace.keepAlive,
       x,
       y
     })

@@ -69,6 +69,8 @@ export interface DecksState {
   renameWorkspace: (id: WorkspaceId, name: string) => void
   setNotes: (id: WorkspaceId, notes: string) => void
   setGroup: (id: WorkspaceId, group: string | undefined) => void
+  /** Pin/unpin a workspace as keep-alive (its decks never auto-discard). */
+  setKeepAlive: (id: WorkspaceId, on: boolean) => void
   /** Rename a folder: move every workspace from `oldName` to `newName`. */
   renameGroup: (oldName: string, newName: string) => void
   /** Next default folder name: "Group N" where N = distinct group count + 1. */
@@ -157,6 +159,10 @@ export const useStore = create<DecksState>((set, get) => ({
   setGroup: (id, group) =>
     set((s) => ({
       workspaces: s.workspaces.map((w) => (w.id === id ? { ...w, group } : w))
+    })),
+  setKeepAlive: (id, on) =>
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => (w.id === id ? { ...w, keepAlive: on } : w))
     })),
   renameGroup: (oldName, newName) =>
     set((s) => ({

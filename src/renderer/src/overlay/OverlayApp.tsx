@@ -13,7 +13,7 @@ import FloatingHoverCard from './FloatingHoverCard'
 import OverlayMenu from './OverlayMenu'
 import MiniPlayerBar from './MiniPlayerBar'
 
-type MenuState = { kind: MenuKind; targetId: string; hasNotes: boolean }
+type MenuState = { kind: MenuKind; targetId: string; hasNotes: boolean; keepAlive: boolean }
 
 export default function OverlayApp(): JSX.Element | null {
   const [summary, setSummary] = useState<HoverSummary | null>(null)
@@ -29,7 +29,7 @@ export default function OverlayApp(): JSX.Element | null {
   useEffect(() => {
     return window.decks?.onOverlayMenu((e) => {
       if (e.hide) setMenu(null)
-      else setMenu({ kind: e.kind, targetId: e.targetId, hasNotes: e.hasNotes })
+      else setMenu({ kind: e.kind, targetId: e.targetId, hasNotes: e.hasNotes, keepAlive: !!e.keepAlive })
     })
   }, [])
 
@@ -44,7 +44,7 @@ export default function OverlayApp(): JSX.Element | null {
   if (menu) {
     return (
       <div className="fixed inset-0">
-        <OverlayMenu kind={menu.kind} targetId={menu.targetId} hasNotes={menu.hasNotes} />
+        <OverlayMenu kind={menu.kind} targetId={menu.targetId} hasNotes={menu.hasNotes} keepAlive={menu.keepAlive} />
       </div>
     )
   }

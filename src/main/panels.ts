@@ -34,6 +34,14 @@ import type { PanelBounds, PanelId } from '@shared/types'
 const DISCARD_AFTER_MS = 8 * 60 * 1000
 /** How often the discard sweep runs. */
 const SWEEP_INTERVAL_MS = 60 * 1000
+/**
+ * Soft cap on LIVE WebContentsViews (renderer processes). Before creating a new
+ * view, if we're at/over this many live panels we proactively discard the
+ * least-recently-active HIDDEN deck to make room — so a deck the user is opening
+ * always gets a renderer and never comes up blank, regardless of the idle timer.
+ * Visible (attached), audible, and keep-alive decks are never evicted.
+ */
+const MAX_LIVE_PANELS = 14
 
 interface PanelEntry {
   view: WebContentsView
@@ -166,6 +174,8 @@ export class PanelManager {
   private readonly panels = new Map<PanelId, PanelEntry>()
   /** Panels whose renderer was discarded; recreated automatically on return. */
   private readonly discarded = new Map<PanelId, DiscardedEntry>()
+  /** Panels the user pinned "keep alive": never discarded/evicted, kept loaded. */
+  private readonly keepAlive = new Set<PanelId>()
   private window: BrowserWindow | null = null
   private sweepTimer: ReturnType<typeof setInterval> | null = null
   /** Idle-discard threshold (ms); configurable from Settings. */
@@ -201,6 +211,53 @@ export class PanelManager {
   /** Number of live WebContentsViews (one renderer process each). */
   get liveCount(): number {
     return this.panels.size
+  }
+
+  /**
+   * Pin/unpin a panel as "keep alive": it is never auto-discarded or evicted, so
+   * its content stays loaded and ready. Called by the renderer when the user
+   * toggles keep-alive on a workspace (and on hydrate for persisted pins).
+   */
+  setKeepAlive(panelId: PanelId, on: boolean): void {
+    if (on) {
+      this.keepAlive.add(panelId)
+      // A pinned panel must not be sitting in the discarded set.
+      const entry = this.panels.get(panelId)
+      if (entry) {
+        entry.lastActiveAt = Date.now()
+        entry.hiddenSince = entry.attached ? null : entry.hiddenSince
+      }
+    } else {
+      this.keepAlive.delete(panelId)
+    }
+  }
+
+  /**
+   * Before creating another renderer, make room if we're at the live soft cap:
+   * discard the least-recently-active HIDDEN panel (never one that's attached,
+   * audible, or keep-alive). Repeats until under the cap or nothing is evictable.
+   */
+  private evictForRoom(): void {
+    let guard = 0
+    while (this.panels.size >= MAX_LIVE_PANELS && guard++ < MAX_LIVE_PANELS) {
+      let victim: PanelId | null = null
+      let oldest = Infinity
+      for (const [id, entry] of this.panels) {
+        if (entry.attached || this.keepAlive.has(id)) continue
+        try {
+          if (entry.view.webContents.isCurrentlyAudible()) continue
+        } catch {
+          /* destroyed — treat as evictable */
+        }
+        if (entry.lastActiveAt < oldest) {
+          oldest = entry.lastActiveAt
+          victim = id
+        }
+      }
+      if (!victim) return // nothing evictable (all visible/audible/pinned)
+      const entry = this.panels.get(victim)
+      if (entry) this.discardPanel(victim, entry)
+    }
   }
 
   /** Number of panels currently discarded. */
@@ -251,6 +308,8 @@ export class PanelManager {
    * by create() and the recreate-on-return path; both want identical setup.
    */
   private buildView(panelId: PanelId, partition: string, url: string): PanelEntry {
+    // Make room first so this new deck is guaranteed a renderer process.
+    this.evictForRoom()
     const view = new WebContentsView({
       webPreferences: {
         partition,
@@ -286,7 +345,12 @@ export class PanelManager {
       return { action: 'deny' }
     })
 
-    void wc.loadURL(url).catch((err) => {
+    void wc.loadURL(url).catch((err: NodeJS.ErrnoException) => {
+      // ERR_ABORTED (-3) is almost always a benign superseded navigation — the
+      // page itself redirected (e.g. youtube.com → www.youtube.com/?themeRefresh),
+      // which aborts the original load while the new one proceeds. Don't treat it
+      // as a failure; only log real load errors.
+      if (err?.code === 'ERR_ABORTED' || err?.errno === -3) return
       console.error(`[decks] panel ${panelId} failed to load ${url}:`, err)
     })
 
@@ -437,6 +501,7 @@ export class PanelManager {
     // A user-initiated destroy (delete deck / reset) also clears any discard
     // memory so the panel won't silently come back.
     this.discarded.delete(panelId)
+    this.keepAlive.delete(panelId)
   }
 
   navigate(payload: PanelNavigatePayload): void {
@@ -545,19 +610,7 @@ export class PanelManager {
     // ── Decide who (if anyone) should remain as a corner mini-player ──
     // A panel qualifies when it is a YouTube view, currently audible, and NOT in
     // the incoming show-set (the user is switching AWAY from it while it plays).
-    let nextMini: PanelId | null = null
-    for (const [id, entry] of this.panels) {
-      if (show.has(id)) continue
-      if (!isYouTube(entry.url)) continue
-      try {
-        if (entry.view.webContents.isDestroyed()) continue
-        if (!entry.view.webContents.isCurrentlyAudible()) continue
-      } catch {
-        continue
-      }
-      nextMini = id
-      break
-    }
+    const nextMini = this.pickMiniCandidate(show)
     // If the existing mini panel is being shown again (user returned) or it no
     // longer qualifies, it must be torn down below; only keep it if it's still
     // the chosen mini AND not in the show-set.
@@ -588,28 +641,49 @@ export class PanelManager {
       if (b) entry.view.setBounds(this.toIntBounds(b))
     }
 
-    // ── Activate / re-raise the corner mini-player LAST so it stays on top ──
-    // addChildView raises to the top of z-order, so attaching the mini view after
-    // the workspace panels guarantees the corner video is never covered.
-    if (nextMini) {
-      const entry = this.panels.get(nextMini)
-      if (entry) {
-        const rect = this.cornerRect()
-        // Force the corner video ABOVE the just-attached workspace panels.
-        this.raise(entry)
-        entry.view.setBounds(rect)
-        // Re-apply bounds next tick so the shrunk view actually repaints (avoids
-        // the blank grey frame).
-        this.repaintNudge(entry, rect)
-        entry.lastActiveAt = now
-        entry.hiddenSince = null
-        this.miniPanelId = nextMini
-        const meta = entry.meta ?? { title: '', artist: '', paused: false }
-        // onStart (re)draws the bar at the current corner rect — used both when
-        // the mini-player first activates and to keep it pinned across switches.
-        this.miniHooks?.onStart(rect, meta)
+    // Activate / re-raise the corner mini-player LAST so it stays on top.
+    if (nextMini) this.activateMini(nextMini)
+  }
+
+  /**
+   * Pick the panel that should be the corner mini-player: the first YouTube view
+   * that is currently audible and NOT in the `show` set (the user is switching
+   * away from it while it plays). Returns null if none qualifies.
+   */
+  private pickMiniCandidate(show: Set<PanelId>): PanelId | null {
+    for (const [id, entry] of this.panels) {
+      if (show.has(id)) continue
+      if (!isYouTube(entry.url)) continue
+      try {
+        if (entry.view.webContents.isDestroyed()) continue
+        if (!entry.view.webContents.isCurrentlyAudible()) continue
+      } catch {
+        continue
       }
+      return id
     }
+    return null
+  }
+
+  /**
+   * Corner + raise a panel as the mini-player and (re)draw the overlay control
+   * bar. addChildView raises to the top of z-order, so the corner video is never
+   * covered. Shared by showOnly() and hideAll().
+   */
+  private activateMini(panelId: PanelId): void {
+    const entry = this.panels.get(panelId)
+    if (!entry) return
+    const rect = this.cornerRect()
+    this.raise(entry)
+    entry.view.setBounds(rect)
+    // Re-apply bounds next tick so the shrunk view actually repaints (avoids the
+    // blank grey frame).
+    this.repaintNudge(entry, rect)
+    entry.lastActiveAt = Date.now()
+    entry.hiddenSince = null
+    this.miniPanelId = panelId
+    const meta = entry.meta ?? { title: '', artist: '', paused: false }
+    this.miniHooks?.onStart(rect, meta)
   }
 
   /**
@@ -746,10 +820,17 @@ export class PanelManager {
   /** Detach/hide every panel so pure-renderer UI is fully visible. */
   hideAll(): void {
     const now = Date.now()
-    for (const entry of this.panels.values()) {
+    // Keep an audible YouTube deck cornered even when everything is hidden — e.g.
+    // going Home, switching to a native-only workspace, or opening the palette.
+    // (Without this, those paths used to silently drop the mini-player.)
+    const nextMini = this.pickMiniCandidate(new Set())
+    if (this.miniPanelId && this.miniPanelId !== nextMini) this.endMiniPlayer()
+    for (const [id, entry] of this.panels) {
+      if (id === nextMini) continue
       this.detach(entry)
       if (entry.hiddenSince == null) entry.hiddenSince = now
     }
+    if (nextMini) this.activateMini(nextMini)
   }
 
   // ── Discard manager ─────────────────────────────────────────────────────
@@ -771,6 +852,8 @@ export class PanelManager {
     for (const [id, entry] of [...this.panels]) {
       // Visible/active panels have no hiddenSince and are never candidates.
       if (entry.hiddenSince == null || entry.attached) continue
+      // Keep-alive panels are pinned by the user — never discard them.
+      if (this.keepAlive.has(id)) continue
       // Audible playback pins the panel even while hidden.
       try {
         if (entry.view.webContents.isCurrentlyAudible()) {

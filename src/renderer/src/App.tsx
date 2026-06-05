@@ -9,7 +9,7 @@
  *   3. live updates — onPanelUpdate → store.patchPanel (title/favicon/loading/nav).
  *   4. persistence — debounced save of the full PersistedState on any change.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from './store'
 import Titlebar from './components/Titlebar'
 import Sidebar from './components/Sidebar'
@@ -116,6 +116,38 @@ function App(): JSX.Element {
         .catch(() => createdPanels.current.delete(panel.id))
     }
   }, [view, activeWorkspaceId, workspaces])
+
+  // ── 2b. Keep-alive: push pin state to main for every web panel, and eagerly
+  // create pinned decks so they render + stay loaded even when not active. ──
+  const keepAliveKey = useMemo(
+    () =>
+      workspaces
+        .map((w) => `${w.id}:${w.keepAlive ? 1 : 0}:${w.panels.map((p) => p.id).join(',')}`)
+        .join('|'),
+    [workspaces]
+  )
+  useEffect(() => {
+    if (!hydrated.current) return
+    for (const ws of useStore.getState().workspaces) {
+      const pinned = !!ws.keepAlive
+      for (const p of ws.panels) {
+        if (p.kind === 'native') continue
+        window.decks?.panel.setKeepAlive(p.id, pinned)
+        if (pinned && !p.discarded && !createdPanels.current.has(p.id)) {
+          createdPanels.current.add(p.id)
+          window.decks?.panel
+            .create({
+              panelId: p.id,
+              workspaceId: ws.id,
+              partition: ws.partition,
+              url: p.url,
+              bounds: { x: 0, y: 0, width: 800, height: 600 }
+            })
+            .catch(() => createdPanels.current.delete(p.id))
+        }
+      }
+    }
+  }, [keepAliveKey])
 
   // ── 3. Live panel updates from main → store. ──
   useEffect(() => {

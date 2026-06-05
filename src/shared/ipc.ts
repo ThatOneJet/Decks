@@ -33,6 +33,8 @@ export const IPC = {
   PanelShowOnly: 'panel:show-only',
   /** Detach every panel view (so pure-renderer UI like Home/Cmd+K is visible). */
   PanelHideAll: 'panel:hide-all',
+  /** Pin/unpin a panel as keep-alive (never auto-discarded). */
+  PanelSetKeepAlive: 'panel:set-keep-alive',
 
   // ── Native deck providers — renderer → main (invoke) ──
   /** Connect a provider (paste a token, or run the OAuth helper). */
@@ -176,7 +178,7 @@ export interface PanelShowOnlyPayload {
 /** event: WorkspaceMenuAction (main → renderer) */
 export interface WorkspaceMenuActionEvent {
   workspaceId: WorkspaceId
-  action: 'rename' | 'reset' | 'note' | 'delete'
+  action: 'rename' | 'reset' | 'note' | 'keepalive' | 'delete'
 }
 
 /** What kind of target a custom context menu is acting on. */
@@ -190,6 +192,8 @@ export interface MenuShowPayload {
   x: number
   y: number
   hasNotes?: boolean
+  /** Current keep-alive state, so the menu renders the toggle on/off. */
+  keepAlive?: boolean
 }
 
 /** event: OverlayMenu (main → the overlay window). */
@@ -197,6 +201,8 @@ export interface OverlayMenuEvent {
   kind: MenuKind
   targetId: string
   hasNotes: boolean
+  /** Current keep-alive state for the toggle item. */
+  keepAlive?: boolean
   /** When true, the menu should be cleared (overlay reverts to hover mode). */
   hide?: boolean
 }
@@ -242,7 +248,7 @@ export interface FocusPanelEvent {
 /** event: FolderMenuAction (main → the MAIN renderer). */
 export interface FolderMenuActionEvent {
   name: string
-  action: 'rename' | 'ungroup'
+  action: 'rename' | 'ungroup' | 'keepalive'
 }
 
 /** event: PanelUpdate (main → renderer) */
@@ -336,6 +342,8 @@ export interface DecksApi {
     setBounds(payload: PanelSetBoundsPayload): Promise<void>
     showOnly(payload: PanelShowOnlyPayload): Promise<void>
     hideAll(): Promise<void>
+    /** Pin/unpin a panel as keep-alive (never auto-discarded/evicted). */
+    setKeepAlive(panelId: PanelId, keepAlive: boolean): Promise<void>
   }
   /**
    * Native deck providers. The renderer never holds tokens or talks to a service

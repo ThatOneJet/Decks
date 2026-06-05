@@ -12,6 +12,8 @@ type Item = {
   label: string
   icon: JSX.Element
   danger?: boolean
+  /** Render a right-aligned on/off pill reflecting `keepAlive`. */
+  toggle?: boolean
 }
 
 const Pencil = (
@@ -57,14 +59,55 @@ const Ungroup = (
   </svg>
 )
 
+/** A small on/off pill rendered on the right of the keep-alive row. */
+function Toggle({ on }: { on: boolean }): JSX.Element {
+  return (
+    <span
+      style={{
+        marginLeft: 'auto',
+        width: 26,
+        height: 15,
+        borderRadius: 8,
+        flexShrink: 0,
+        position: 'relative',
+        background: on ? 'var(--accent)' : 'var(--bg-elevated)',
+        boxShadow: on ? '0 0 10px -2px var(--accent-glow)' : 'inset 0 0 0 1px var(--line-2)',
+        transition: 'background 0.15s'
+      }}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          top: 2,
+          left: on ? 13 : 2,
+          width: 11,
+          height: 11,
+          borderRadius: '50%',
+          background: on ? '#04222b' : 'var(--txt-3)',
+          transition: 'left 0.15s'
+        }}
+      />
+    </span>
+  )
+}
+
+const Pin = (
+  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 17v5" />
+    <path d="M9 10.76V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v5.76a2 2 0 0 0 .59 1.42L17 13.5V16H7v-2.5l1.41-1.32A2 2 0 0 0 9 10.76Z" />
+  </svg>
+)
+
 export default function OverlayMenu({
   kind,
   targetId,
-  hasNotes
+  hasNotes,
+  keepAlive
 }: {
   kind: MenuKind
   targetId: string
   hasNotes: boolean
+  keepAlive?: boolean
 }): JSX.Element {
   const pick = (action: string): void =>
     window.decks?.menu.pick({ kind, targetId, action })
@@ -75,10 +118,12 @@ export default function OverlayMenu({
       ? [
           { action: 'rename', label: 'Rename', icon: Pencil },
           { action: 'reset', label: 'Reset decks', icon: Refresh },
-          { action: 'note', label: hasNotes ? 'Edit note' : 'Add note', icon: Note }
+          { action: 'note', label: hasNotes ? 'Edit note' : 'Add note', icon: Note },
+          { action: 'keepalive', label: 'Keep alive', icon: Pin, toggle: true }
         ]
       : [
           { action: 'rename', label: 'Rename', icon: Pencil },
+          { action: 'keepalive', label: 'Keep alive', icon: Pin, toggle: true },
           { action: 'ungroup', label: 'Ungroup', icon: Ungroup }
         ]
 
@@ -120,6 +165,7 @@ export default function OverlayMenu({
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {item.label}
       </span>
+      {item.toggle && <Toggle on={!!keepAlive} />}
     </button>
   )
 

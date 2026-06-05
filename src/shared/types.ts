@@ -125,6 +125,12 @@ export interface Workspace {
   /** Optional group/section label for organizing the rail (e.g. "Work", "Fun"). */
   group?: string
   /**
+   * Keep-alive: when true, this workspace's decks are never auto-discarded — they
+   * render eagerly and stay loaded (and the flag persists). Toggled from the rail
+   * right-click menu (per app, or per group via its members).
+   */
+  keepAlive?: boolean
+  /**
    * Electron session partition. Always `persist:<id>` so cookies / logins
    * survive restarts. Set once at creation; never change it.
    */

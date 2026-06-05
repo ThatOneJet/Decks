@@ -152,6 +152,8 @@ function Sidebar({
           if (p.kind === 'native') bumpPanelReload(p.id)
           else window.decks?.panel.reload(p.id)
         })
+      } else if (action === 'keepalive') {
+        useStore.getState().setKeepAlive(ws.id, !ws.keepAlive)
       } else if (action === 'delete') {
         ws.panels.forEach((p) => window.decks?.panel.destroy(p.id))
         removeWorkspace(ws.id)
@@ -162,12 +164,14 @@ function Sidebar({
 
   useEffect(() => {
     const off = window.decks?.onFolderMenuAction(({ name, action }) => {
+      const members = useStore.getState().workspaces.filter((w) => w.group === name)
       if (action === 'rename') setRenameFolder(name)
       else if (action === 'ungroup') {
-        useStore
-          .getState()
-          .workspaces.filter((w) => w.group === name)
-          .forEach((w) => setGroup(w.id, undefined))
+        members.forEach((w) => setGroup(w.id, undefined))
+      } else if (action === 'keepalive') {
+        // Toggle the whole group together: if all are pinned, unpin; else pin all.
+        const allOn = members.length > 0 && members.every((w) => w.keepAlive)
+        members.forEach((w) => useStore.getState().setKeepAlive(w.id, !allOn))
       }
     })
     return () => off?.()

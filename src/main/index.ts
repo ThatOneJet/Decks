@@ -36,14 +36,15 @@ import type { CodeServerResult } from '@shared/ipc'
 
 /**
  * Cap the number of Chromium renderer processes. NOTE this counts ALL renderers,
- * including the app's own main window + the overlay window (2). So the cap must
- * comfortably exceed "2 + a 4-deck split + a few not-yet-discarded background
- * panels" — a too-low cap (we shipped 4) silently prevents extra panels from
- * getting a renderer, so they never load. The discard manager is the real RAM
- * control; this is just a sane ceiling. Tradeoff: lower = less RAM but less site
- * isolation.
+ * including the app's own main window + the overlay window. When this cap is hit,
+ * Chromium SILENTLY refuses to spawn a renderer for a new WebContentsView, so the
+ * deck never loads (this caused embedded decks to come up blank / ERR_ABORTED).
+ * So the cap must stay well clear of the working set. The real RAM control is the
+ * discard manager + PanelManager's own live-panel soft cap (which proactively
+ * evicts the least-recently-used HIDDEN deck before creating a new one), so the
+ * active deck always gets a renderer. Keep this ceiling generous.
  */
-const RENDERER_PROCESS_LIMIT = 16
+const RENDERER_PROCESS_LIMIT = 64
 app.commandLine.appendSwitch('renderer-process-limit', String(RENDERER_PROCESS_LIMIT))
 
 let mainWindow: BrowserWindow | null = null
@@ -143,6 +144,9 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.PanelHideAll, () => {
     panels.hideAll()
+  })
+  ipcMain.handle(IPC.PanelSetKeepAlive, (_e, panelId: PanelId, keepAlive: boolean) => {
+    panels.setKeepAlive(panelId, keepAlive)
   })
 
   // ── Native deck providers (renderer → main, invoke) ──

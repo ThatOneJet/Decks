@@ -775,6 +775,28 @@ html.overlay-mode #root {
     transform: none;
   }
 }
+/* Centering-preserving entrances — these keep the translate that positions the
+   element, so the `both` fill-mode can't wipe out the centering transform. */
+@keyframes palette-pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+@keyframes modal-pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 8px)) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
 @keyframes slidein {
   from {
     opacity: 0;
@@ -799,7 +821,7 @@ html.overlay-mode #root {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  animation: pop-up 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: palette-pop 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 .palette-search {
   display: flex;
@@ -952,7 +974,7 @@ html.overlay-mode #root {
   width: min(440px, 90vw);
   border-radius: 16px;
   padding: 22px;
-  animation: pop-up 0.18s ease both;
+  animation: modal-pop 0.18s ease both;
 }
 .modal h3 {
   margin: 0 0 4px;

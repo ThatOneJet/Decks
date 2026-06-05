@@ -56,7 +56,13 @@ export default function RailFolder({
   const hideHover = (): void => window.decks?.hover.hide()
 
   const openMenu = (x: number, y: number): void =>
-    window.decks?.menu.show({ kind: 'folder', targetId: name, x, y })
+    window.decks?.menu.show({
+      kind: 'folder',
+      targetId: name,
+      keepAlive: members.length > 0 && members.every((m) => m.keepAlive),
+      x,
+      y
+    })
 
   return (
     <div
