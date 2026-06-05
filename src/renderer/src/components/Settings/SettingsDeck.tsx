@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../../store'
 import type { MetricsResult } from '@shared/ipc'
+import Accounts from './Accounts'
 
 const ACCENTS = ['#7c5cff', '#ff3b3b', '#3ddc97', '#5b8def', '#e1306c', '#f5b342']
 const DISCARD_MIN = 1
@@ -109,6 +110,16 @@ function SettingsDeck(): JSX.Element {
         </header>
 
         <div className="flex flex-col gap-5">
+          {/* ── Accounts & native decks ── */}
+          <Card title="Accounts & native decks">
+            <p className="-mt-2 mb-4 text-xs leading-relaxed text-txt-3">
+              Connect a service to render your own feed on its data — no embedded site, no
+              extra renderer process. Closed feeds (Instagram, TikTok, X, Reddit, YouTube) stay
+              as embedded web decks.
+            </p>
+            <Accounts />
+          </Card>
+
           {/* ── Memory ── */}
           <Card title="Memory">
             <MemoryReadout />

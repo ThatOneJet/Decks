@@ -43,6 +43,12 @@ export const IPC = {
   /** Query a provider's current connection status. */
   ProviderStatus: 'provider:status',
 
+  // ── code-server (local VS Code in a deck) — renderer → main (invoke) ──
+  /** Pick a folder + spawn code-server; resolves its loopback URL. */
+  CodeServerStart: 'codeserver:start',
+  /** Stop the running code-server (also torn down on quit). */
+  CodeServerStop: 'codeserver:stop',
+
   // ── Persistence — renderer → main (invoke) ──
   StateLoad: 'state:load',
   StateSave: 'state:save',
@@ -287,6 +293,18 @@ export interface MetricsResult {
   discarded: number
 }
 
+/** result: CodeServerStart — outcome of trying to launch local code-server. */
+export interface CodeServerResult {
+  /** The loopback URL to load as a web deck, when it started. */
+  url?: string
+  /** A human-readable error when it didn't (e.g. not installed, cancelled). */
+  error?: string
+  /** True when the failure was specifically "code-server isn't installed". */
+  notInstalled?: boolean
+  /** True when the user cancelled the folder picker. */
+  cancelled?: boolean
+}
+
 /**
  * The full API surface exposed on `window.decks` by the preload.
  * Renderer code depends ONLY on this interface.
@@ -316,6 +334,12 @@ export interface DecksApi {
     disconnect(provider: ProviderId): Promise<void>
     /** Query a provider's current connection status. */
     status(provider: ProviderId): Promise<ProviderStatus>
+  }
+  codeserver: {
+    /** Pick a folder + spawn code-server; resolves a result with the URL. */
+    start(): Promise<CodeServerResult>
+    /** Stop the running code-server. */
+    stop(): Promise<void>
   }
   state: {
     load(): Promise<PersistedState | null>

@@ -23,6 +23,24 @@ that block iframe embedding still load.
   preview that expands inline.
 - **Add anything by link** — the **+** button (or ⌘/Ctrl+N) adds any URL as a
   deck. ⌘/Ctrl+K opens a fuzzy command palette over workspaces + pinned sites.
+- **Native decks** — for services with a real API, Decks renders *our own* UI on
+  *their* data instead of embedding their site: **Canvas** (courses + to-dos),
+  **GitHub** (notifications + repos), **Spotify** (now-playing + playlists),
+  **Bluesky**, **Mastodon**, **RSS** (incl. YouTube channels), and a **Follows
+  wall** — one chronological river of Bluesky + Mastodon + RSS, *no algorithm*.
+  Connect each under **Settings → Accounts**. Tokens are encrypted with the OS
+  keychain (`safeStorage`) and never leave the main process; all API calls happen
+  in main, OAuth runs in a dedicated window. Because a native deck is just
+  React + JSON, it spawns **no Chromium renderer** — moving a feed from an
+  embedded deck to a native one drops a whole renderer process.
+- **Closed feeds stay embedded** — Instagram, TikTok, X, Reddit and YouTube have
+  no usable personal-feed API, so they remain sandboxed web decks. The rule:
+  *real API → native deck; closed logged-in feed → embedded deck; never scrape.*
+- **YouTube corner mini-player** — switch away from an audible YouTube deck and
+  it shrinks to a still-playing corner video with a now-playing control bar
+  (artwork/title from `mediaSession`, play-pause/skip); close expands it back.
+- **code-server** — open a local folder in real VS Code (running on 127.0.0.1)
+  as a deck, from Settings → Accounts.
 - **Custom floating menus & hover cards** that render *above* live web pages via a
   transparent always-on-top overlay window (right-click for Rename / Reset /
   Note / Delete).
@@ -74,15 +92,25 @@ shortcuts, and renders the Sidebar + (Home | SplitView | Settings) + overlay.
 src/
 ├─ shared/      types.ts · ipc.ts · seed.ts        (the contract)
 ├─ main/        index.ts · panels.ts · overlay.ts · persistence.ts · lifecycle.ts
+│              tokens.ts (safeStorage) · oauth.ts · codeserver.ts
+│              providers/ (registry + canvas · github · spotify · bluesky ·
+│                          mastodon · rss · follows-wall — one ProviderClient each)
 ├─ preload/     index.ts (window.decks)
 └─ renderer/src/
    ├─ App.tsx · store.ts · main.tsx · index.css
    ├─ components/  Titlebar · Sidebar · Home · SplitView · CommandPalette
    │              sidebar/ (RailTile · RailFolder · TileIcon · menus)
-   │              Settings/ (SettingsDeck)
-   ├─ overlay/    OverlayApp · FloatingHoverCard · OverlayMenu
+   │              Settings/ (SettingsDeck · Accounts)
+   ├─ native/     NativeDeckHost · registry + <provider>/<Provider>Deck.tsx
+   ├─ overlay/    OverlayApp · FloatingHoverCard · OverlayMenu · MiniPlayerBar
    └─ lib/        favicon · layout · platform · useOverlay
 ```
+
+**Native decks** add a second deck kind: `Panel.kind: 'web' | 'native'`. A web
+deck is a `WebContentsView`; a native deck is a React component
+(`renderer/src/native/`) fed sanitized JSON from a main-process `ProviderClient`
+(`main/providers/`) over the `provider:*` IPC channels — it has no view, so
+SplitView renders it inline and it's excluded from view-bounds reporting.
 
 ## Keyboard
 

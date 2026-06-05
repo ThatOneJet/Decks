@@ -5,7 +5,7 @@
  * every IPC handler declared in @shared/ipc, JSON persistence, and the
  * process-lifecycle registry + safe cleanup.
  */
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC } from '@shared/ipc'
@@ -31,6 +31,8 @@ import { killTrackedChildren } from './lifecycle'
 import { createOverlay, type OverlayController } from './overlay'
 import { registerProviderIpc } from './providers/registry'
 import { registerAllProviders } from './providers'
+import { startCodeServer, stopCodeServer } from './codeserver'
+import type { CodeServerResult } from '@shared/ipc'
 
 /**
  * Cap the number of Chromium renderer processes. NOTE this counts ALL renderers,
@@ -146,6 +148,26 @@ function registerIpc(): void {
   // ── Native deck providers (renderer → main, invoke) ──
   // Wires provider:connect/fetch/disconnect/status to the provider registry.
   registerProviderIpc()
+
+  // ── code-server (local VS Code in a web deck) — renderer → main (invoke) ──
+  ipcMain.handle(IPC.CodeServerStart, async (): Promise<CodeServerResult> => {
+    if (!mainWindow) return { error: 'No window' }
+    const picked = await dialog.showOpenDialog(mainWindow, {
+      title: 'Open folder in code-server',
+      properties: ['openDirectory']
+    })
+    if (picked.canceled || !picked.filePaths[0]) return { cancelled: true }
+    try {
+      const { url } = await startCodeServer(picked.filePaths[0])
+      return { url }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { error: message, notInstalled: /not installed/i.test(message) }
+    }
+  })
+  ipcMain.handle(IPC.CodeServerStop, () => {
+    stopCodeServer()
+  })
 
   // ── Persistence (renderer → main, invoke) ──
   ipcMain.handle(IPC.StateLoad, (): Promise<PersistedState | null> => loadState())
@@ -264,6 +286,11 @@ function cleanup(): void {
   }
   try {
     overlay?.destroy()
+  } catch {
+    /* ignore */
+  }
+  try {
+    stopCodeServer()
   } catch {
     /* ignore */
   }

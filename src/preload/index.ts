@@ -50,6 +50,10 @@ const api: DecksApi = {
     disconnect: (provider: ProviderId) => ipcRenderer.invoke(IPC.ProviderDisconnect, provider),
     status: (provider: ProviderId) => ipcRenderer.invoke(IPC.ProviderStatus, provider)
   },
+  codeserver: {
+    start: () => ipcRenderer.invoke(IPC.CodeServerStart),
+    stop: () => ipcRenderer.invoke(IPC.CodeServerStop)
+  },
   state: {
     load: () => ipcRenderer.invoke(IPC.StateLoad),
     save: (state: PersistedState) => ipcRenderer.invoke(IPC.StateSave, state)
