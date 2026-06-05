@@ -37,6 +37,8 @@ export interface DecksState {
   // ── overlays ──
   paletteOpen: boolean
   addDeckOpen: boolean
+  /** Focus mode — collapse the sidebar and focus the active deck. */
+  focusMode: boolean
 
   // ── derived helpers ──
   activeWorkspace: () => Workspace | undefined
@@ -68,6 +70,7 @@ export interface DecksState {
   togglePalette: () => void
   openAddDeck: () => void
   closeAddDeck: () => void
+  toggleFocusMode: () => void
 }
 
 export const useStore = create<DecksState>((set, get) => ({
@@ -77,6 +80,7 @@ export const useStore = create<DecksState>((set, get) => ({
   theme: 'dark',
   paletteOpen: false,
   addDeckOpen: false,
+  focusMode: false,
 
   activeWorkspace: () => {
     const { workspaces, activeWorkspaceId } = get()
@@ -170,5 +174,6 @@ export const useStore = create<DecksState>((set, get) => ({
   closePalette: () => set({ paletteOpen: false }),
   togglePalette: () => set((s) => ({ paletteOpen: !s.paletteOpen })),
   openAddDeck: () => set({ addDeckOpen: true }),
-  closeAddDeck: () => set({ addDeckOpen: false })
+  closeAddDeck: () => set({ addDeckOpen: false }),
+  toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode }))
 }))

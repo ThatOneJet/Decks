@@ -21,6 +21,21 @@ export function faviconFor(url: string, size = 64): string {
   return `https://www.google.com/s2/favicons?domain=${host}&sz=${size}`
 }
 
+/**
+ * High-res square brand logo (Clearbit) — fills a tile crisply when available.
+ * Returns '' for unknown hosts; callers should fall back to faviconFor().
+ */
+export function logoFor(url: string): string {
+  const host = hostOf(url)
+  if (!host) return ''
+  return `https://logo.clearbit.com/${host}?size=128`
+}
+
+/** Ordered icon candidates for a deck, best (crispest) first. */
+export function iconCandidates(url: string, liveFavicon?: string): string[] {
+  return [logoFor(url), liveFavicon || '', faviconFor(url, 128)].filter(Boolean)
+}
+
 /** First letter fallback when no icon resolves. */
 export function initialOf(title: string, url: string): string {
   const t = (title || hostOf(url) || '?').trim()

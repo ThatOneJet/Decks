@@ -34,6 +34,8 @@ function App(): JSX.Element {
   const paletteOpen = useStore((s) => s.paletteOpen)
   const openAddDeck = useStore((s) => s.openAddDeck)
   const closeAddDeck = useStore((s) => s.closeAddDeck)
+  const focusMode = useStore((s) => s.focusMode)
+  const toggleFocusMode = useStore((s) => s.toggleFocusMode)
 
   const hydrated = useRef(false)
   const createdPanels = useRef<Set<string>>(new Set())
@@ -113,14 +115,18 @@ function App(): JSX.Element {
       } else if (mod && (e.key.toLowerCase() === 'n' || e.key === '+' || e.key === '=')) {
         e.preventDefault()
         openAddDeck()
+      } else if (mod && e.key === '.') {
+        e.preventDefault()
+        toggleFocusMode()
       } else if (e.key === 'Escape') {
         closePalette()
         closeAddDeck()
+        if (useStore.getState().focusMode) toggleFocusMode()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [togglePalette, closePalette, openAddDeck, closeAddDeck])
+  }, [togglePalette, closePalette, openAddDeck, closeAddDeck, toggleFocusMode])
 
   // Hide native web views while the palette is open so it isn't covered by them.
   useEffect(() => {
@@ -131,13 +137,35 @@ function App(): JSX.Element {
     }
   }, [paletteOpen])
 
+  // Re-measure deck views when focus mode collapses/expands the sidebar.
+  useEffect(() => {
+    const id = setTimeout(() => window.dispatchEvent(new Event('resize')), 0)
+    return () => clearTimeout(id)
+  }, [focusMode])
+
+  const showSplit = view === 'workspace' && workspaces.length > 0
+  const inFocus = focusMode && showSplit
+
   return (
     <div className="flex h-full w-full flex-col bg-bg text-txt-1">
       <Titlebar />
       <div className="flex min-h-0 flex-1">
-        <Sidebar />
+        {!inFocus && <Sidebar />}
         <main className="relative min-w-0 flex-1">
           {view === 'home' || workspaces.length === 0 ? <Home /> : <SplitView />}
+
+          {/* Focus mode: small far-left, vertically-centered handle to expand back. */}
+          {inFocus && (
+            <button
+              onClick={toggleFocusMode}
+              title="Exit focus (Ctrl/⌘+.)"
+              className="no-drag absolute left-0 top-1/2 z-50 grid h-12 w-6 -translate-y-1/2 place-items-center rounded-r-xl border border-l-0 border-line bg-bg-elevated/90 text-txt-2 shadow-lg backdrop-blur transition-colors hover:bg-accent-soft hover:text-accent"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
+          )}
         </main>
       </div>
       <CommandPalette />

@@ -1,14 +1,13 @@
 /**
- * RailTile — one workspace tile in the icon rail.
- *
- * Shows the favicon/logo of the workspace's primary deck (live favicon if known,
- * else resolved from the URL, else a colored initial). Active → squircle + left
- * accent pill + ring. Unread → count badge. Hover morphs the corner radius
- * (Discord-style) and reveals the name tooltip.
+ * RailTile — one workspace tile in the icon rail. The site logo fills the whole
+ * squircle (high-res, with a crisp fallback chain). Active → squircle + accent
+ * ring/pill. Unread/playing badges only from real signals. Hover shows a styled
+ * HoverCard plus a rich OS tooltip (the one overlay reliable over web views).
  */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { Workspace } from '@shared/types'
-import { faviconFor, initialOf } from '../../lib/favicon'
+import { iconCandidates, initialOf } from '../../lib/favicon'
+import HoverCard from './HoverCard'
 
 export default function RailTile({
   workspace,
@@ -19,19 +18,19 @@ export default function RailTile({
   active: boolean
   onClick: () => void
 }): JSX.Element {
-  const [imgFailed, setImgFailed] = useState(false)
   const primary = workspace.panels[0]
-  const iconUrl = primary ? primary.favicon || faviconFor(primary.url) : ''
+  const candidates = primary ? iconCandidates(primary.url, primary.favicon) : []
+  const [idx, setIdx] = useState(0)
+  const [hoverTop, setHoverTop] = useState<number | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+
   const color = workspace.color || '#7c5cff'
-  // REAL signals only: unread = sum of per-deck title badges; playing = any deck
-  // has active media. No badge/indicator appears unless the site reports one.
   const unread = workspace.panels.reduce((sum, p) => sum + (p.badge || 0), 0)
   const playing = workspace.panels.some((p) => p.playing)
-  const showImg = !!iconUrl && !imgFailed
   const deckN = workspace.panels.filter((p) => p.id).length
+  const iconUrl = candidates[idx]
+  const showImg = idx < candidates.length && !!iconUrl
 
-  // Rich hover details — the OS tooltip is the one overlay that reliably renders
-  // ABOVE native web views, so it carries the name + live details.
   const hoverDetails = [
     workspace.name,
     `${deckN} deck${deckN === 1 ? '' : 's'}`,
@@ -46,7 +45,12 @@ export default function RailTile({
     window.decks?.workspace.contextMenu({ workspaceId: workspace.id, hasNotes: !!workspace.notes })
 
   return (
-    <div className="group relative flex w-full items-center justify-center">
+    <div
+      ref={ref}
+      className="group relative flex w-full items-center justify-center"
+      onMouseEnter={() => setHoverTop(ref.current?.getBoundingClientRect().top ?? null)}
+      onMouseLeave={() => setHoverTop(null)}
+    >
       {/* Active / hover accent pill on the far left */}
       <span
         className={`absolute left-0 w-1 rounded-r-full bg-accent transition-all ${
@@ -67,31 +71,30 @@ export default function RailTile({
         style={active ? { boxShadow: `0 0 0 2px ${color}, 0 4px 14px ${color}40` } : undefined}
       >
         {showImg ? (
+          // Fill the entire tile with the logo (Discord-style), crisp via 128px sources.
           <img
             src={iconUrl}
             alt={workspace.name}
-            className="h-6 w-6 object-contain"
-            onError={() => setImgFailed(true)}
+            className="h-full w-full object-cover"
+            onError={() => setIdx((i) => i + 1)}
             draggable={false}
           />
         ) : (
           <span
-            className="grid h-full w-full place-items-center text-sm font-semibold"
-            style={{ color, background: color + '1f' }}
+            className="grid h-full w-full place-items-center text-base font-semibold"
+            style={{ color, background: color + '24' }}
           >
             {workspace.glyph || initialOf(workspace.name, primary?.url || '')}
           </span>
         )}
       </button>
 
-      {/* Unread badge — only when the site actually reports unread items */}
       {unread > 0 && (
         <span className="absolute -bottom-0.5 right-2 grid h-4 min-w-4 place-items-center rounded-full border-2 border-bg-rail bg-err px-1 text-[9px] font-bold text-white">
           {unread > 99 ? '99+' : unread}
         </span>
       )}
 
-      {/* Playing indicator — only while a deck is actively playing media */}
       {playing && unread === 0 && (
         <span
           className="absolute -bottom-0.5 right-2 grid h-3.5 w-3.5 place-items-center rounded-full border-2 border-bg-rail bg-ok"
@@ -101,6 +104,7 @@ export default function RailTile({
         </span>
       )}
 
+      {hoverTop !== null && <HoverCard workspace={workspace} top={hoverTop} />}
     </div>
   )
 }

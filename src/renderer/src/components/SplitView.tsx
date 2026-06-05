@@ -45,7 +45,7 @@ function DeckCard({
   }
 
   return (
-    <div className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden bg-bg-panel">
+    <div className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden rounded-t-xl2 bg-bg-panel">
       {/* Card header */}
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line bg-bg-elevated px-2.5">
         {icon ? (
