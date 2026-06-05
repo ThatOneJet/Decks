@@ -51,7 +51,7 @@ const EMPTY_LAYOUT: LayoutNode = { type: 'leaf', panelId: '' }
  * renderers are live vs discarded. Compact, two tiny stacked lines — not a
  * dashboard. Matches the rail's dark tokens.
  */
-function RamMeter(): JSX.Element | null {
+function RamMeter({ compact = false }: { compact?: boolean } = {}): JSX.Element | null {
   const [m, setM] = useState<MetricsResult | null>(null)
 
   useEffect(() => {
@@ -69,6 +69,18 @@ function RamMeter(): JSX.Element | null {
   }, [])
 
   if (!m) return null
+  if (compact) {
+    // Single-line readout sized for the bottom dock.
+    return (
+      <div
+        title={`${m.ramMB} MB · ${m.liveRenderers} live / ${m.discarded} discarded`}
+        className="flex shrink-0 items-center gap-1 rounded-lg bg-bg-elevated px-2 py-1 leading-none"
+      >
+        <span className="text-[10px] font-medium tabular-nums text-txt-3">{m.ramMB} MB</span>
+        <span className="text-[9px] tabular-nums text-txt-4">{m.liveRenderers}/{m.discarded}</span>
+      </div>
+    )
+  }
   return (
     <div
       title={`${m.ramMB} MB · ${m.liveRenderers} live / ${m.discarded} discarded`}
@@ -82,7 +94,13 @@ function RamMeter(): JSX.Element | null {
   )
 }
 
-function Sidebar(): JSX.Element {
+function Sidebar({
+  orientation = 'vertical'
+}: {
+  /** 'vertical' = left icon rail (default); 'horizontal' = bottom taskbar dock. */
+  orientation?: 'vertical' | 'horizontal'
+} = {}): JSX.Element {
+  const horizontal = orientation === 'horizontal'
   const workspaces = useStore((s) => s.workspaces)
   const activeId = useStore((s) => s.activeWorkspaceId)
   const view = useStore((s) => s.view)
@@ -156,19 +174,42 @@ function Sidebar(): JSX.Element {
   }, [setGroup])
 
   return (
-    <aside className="flex w-[72px] shrink-0 flex-col items-center gap-2 bg-bg-rail py-3">
-      <nav className="flex min-h-0 flex-1 flex-col items-center gap-2.5 overflow-y-auto overflow-x-visible px-1">
+    <aside
+      className={
+        horizontal
+          ? 'flex h-14 w-full shrink-0 flex-row items-center gap-2 border-t border-line bg-bg-rail px-3'
+          : 'flex w-[72px] shrink-0 flex-col items-center gap-2 bg-bg-rail py-3'
+      }
+    >
+      <nav
+        className={
+          horizontal
+            ? 'flex min-w-0 flex-1 flex-row items-center gap-2.5 overflow-x-auto overflow-y-visible py-1'
+            : 'flex min-h-0 flex-1 flex-col items-center gap-2.5 overflow-y-auto overflow-x-visible px-1'
+        }
+      >
         {rail.map((entry) =>
           entry.kind === 'tile' ? (
-            <RailTile
+            <div
               key={entry.ws.id}
-              workspace={entry.ws}
-              active={view === 'workspace' && entry.ws.id === activeId}
-              onClick={() => activate(entry.ws.id)}
-              onDropWorkspace={(draggedId) => dropOntoTile(draggedId, entry.ws.id)}
-            />
+              className={horizontal ? 'flex w-9 shrink-0 justify-center' : 'w-full'}
+            >
+              <RailTile
+                workspace={entry.ws}
+                active={view === 'workspace' && entry.ws.id === activeId}
+                onClick={() => activate(entry.ws.id)}
+                onDropWorkspace={(draggedId) => dropOntoTile(draggedId, entry.ws.id)}
+              />
+            </div>
           ) : (
-            <div key={`group:${entry.name}`} className="flex w-full flex-col items-center gap-2.5">
+            <div
+              key={`group:${entry.name}`}
+              className={
+                horizontal
+                  ? 'flex shrink-0 flex-row items-center gap-2.5'
+                  : 'flex w-full flex-col items-center gap-2.5'
+              }
+            >
               <RailFolder
                 name={entry.name}
                 members={entry.members}
@@ -178,7 +219,10 @@ function Sidebar(): JSX.Element {
               />
               {openGroups[entry.name] &&
                 entry.members.map((w) => (
-                  <div key={w.id} className="w-full scale-90">
+                  <div
+                    key={w.id}
+                    className={horizontal ? 'flex w-9 shrink-0 justify-center scale-90' : 'w-full scale-90'}
+                  >
                     <RailTile
                       workspace={w}
                       active={view === 'workspace' && w.id === activeId}
@@ -192,12 +236,12 @@ function Sidebar(): JSX.Element {
         )}
       </nav>
 
-      <div className="my-0.5 h-px w-7 bg-line/70" />
+      <div className={horizontal ? 'mx-0.5 h-7 w-px shrink-0 bg-line/70' : 'my-0.5 h-px w-7 bg-line/70'} />
 
       <button
         onClick={openAddDeck}
         title={`Add a deck (${MOD === '⌘' ? '⌘N' : 'Ctrl+N'})`}
-        className="grid h-9 w-9 place-items-center rounded-2xl bg-bg-elevated text-txt-3 transition-all duration-150 hover:rounded-xl hover:bg-accent-soft hover:text-accent"
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl bg-bg-elevated text-txt-3 transition-all duration-150 hover:rounded-xl hover:bg-accent-soft hover:text-accent"
       >
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 5v14M5 12h14" />
@@ -207,7 +251,7 @@ function Sidebar(): JSX.Element {
       <button
         onClick={goHome}
         title="Home"
-        className={`grid h-9 w-9 place-items-center rounded-2xl transition-all duration-150 hover:rounded-xl ${
+        className={`grid h-9 w-9 shrink-0 place-items-center rounded-2xl transition-all duration-150 hover:rounded-xl ${
           view === 'home' ? 'bg-accent-soft text-accent' : 'bg-bg-elevated text-txt-3 hover:text-txt-1'
         }`}
       >
@@ -220,7 +264,7 @@ function Sidebar(): JSX.Element {
       <button
         onClick={openSettings}
         title="Settings"
-        className={`grid h-9 w-9 place-items-center rounded-2xl transition-all duration-150 hover:rounded-xl ${
+        className={`grid h-9 w-9 shrink-0 place-items-center rounded-2xl transition-all duration-150 hover:rounded-xl ${
           view === 'settings' ? 'bg-accent-soft text-accent' : 'bg-bg-elevated text-txt-3 hover:text-txt-1'
         }`}
       >
@@ -230,8 +274,8 @@ function Sidebar(): JSX.Element {
         </svg>
       </button>
 
-      <div className="my-0.5 h-px w-7 bg-line/70" />
-      <RamMeter />
+      <div className={horizontal ? 'mx-0.5 h-7 w-px shrink-0 bg-line/70' : 'my-0.5 h-px w-7 bg-line/70'} />
+      <RamMeter compact={horizontal} />
 
       {edit && <WorkspaceEditModal workspace={edit.ws} mode={edit.mode} onClose={() => setEdit(null)} />}
       {renameFolder && (

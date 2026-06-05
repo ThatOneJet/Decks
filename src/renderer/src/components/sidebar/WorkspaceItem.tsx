@@ -8,6 +8,7 @@
 import { useRef, useState } from 'react'
 import type { Workspace } from '@shared/types'
 import { iconCandidates } from '../../lib/favicon'
+import { useStore } from '../../store'
 import TileIcon from './TileIcon'
 
 /** MIME-ish key carried by the drag payload (the dragged workspace id). */
@@ -29,6 +30,7 @@ export default function RailTile({
   const [dragging, setDragging] = useState(false)
   const [dropOver, setDropOver] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const setGlobalDragging = useStore((s) => s.setDragging)
 
   const color = workspace.color || '#7c5cff'
   const unread = workspace.panels.reduce((sum, p) => sum + (p.badge || 0), 0)
@@ -87,8 +89,18 @@ export default function RailTile({
         e.dataTransfer.effectAllowed = 'move'
         setDragging(true)
         hideHover()
+        // Hide native web views so the renderer page area becomes a real DOM
+        // drop target (views sit OVER the DOM and would otherwise eat events).
+        setGlobalDragging(true)
+        window.decks?.panel.hideAll()
       }}
-      onDragEnd={() => setDragging(false)}
+      onDragEnd={() => {
+        setDragging(false)
+        // Restore: clearing the flag and dispatching resize makes SplitView
+        // re-measure and reattach the native views over the cards.
+        setGlobalDragging(false)
+        window.dispatchEvent(new Event('resize'))
+      }}
       onDragOver={(e) => {
         if (!onDropWorkspace) return
         if (!e.dataTransfer.types.includes(DECKS_WS_DND)) return

@@ -50,6 +50,8 @@ export interface DecksState {
   addDeckOpen: boolean
   /** Focus mode — collapse the sidebar and focus the active deck. */
   focusMode: boolean
+  /** True while a rail tile is being dragged (exposes the page as a drop target). */
+  dragging: boolean
 
   // ── derived helpers ──
   activeWorkspace: () => Workspace | undefined
@@ -90,6 +92,8 @@ export interface DecksState {
   openAddDeck: () => void
   closeAddDeck: () => void
   toggleFocusMode: () => void
+  /** Set the rail-drag flag. */
+  setDragging: (dragging: boolean) => void
 }
 
 export const useStore = create<DecksState>((set, get) => ({
@@ -101,6 +105,7 @@ export const useStore = create<DecksState>((set, get) => ({
   paletteOpen: false,
   addDeckOpen: false,
   focusMode: false,
+  dragging: false,
 
   activeWorkspace: () => {
     const { workspaces, activeWorkspaceId } = get()
@@ -208,5 +213,6 @@ export const useStore = create<DecksState>((set, get) => ({
   togglePalette: () => set((s) => ({ paletteOpen: !s.paletteOpen })),
   openAddDeck: () => set({ addDeckOpen: true }),
   closeAddDeck: () => set({ addDeckOpen: false }),
-  toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode }))
+  toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
+  setDragging: (dragging) => set({ dragging })
 }))

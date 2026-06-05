@@ -9,7 +9,7 @@
  *   3. live updates — onPanelUpdate → store.patchPanel (title/favicon/loading/nav).
  *   4. persistence — debounced save of the full PersistedState on any change.
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store'
 import Titlebar from './components/Titlebar'
 import Sidebar from './components/Sidebar'
@@ -42,6 +42,24 @@ function App(): JSX.Element {
 
   const hydrated = useRef(false)
   const createdPanels = useRef<Set<string>>(new Set())
+
+  // ── Responsive shape: portrait windows turn the rail into a bottom dock. ──
+  const [portrait, setPortrait] = useState(
+    () => typeof window !== 'undefined' && window.innerHeight > window.innerWidth
+  )
+  useEffect(() => {
+    const onResize = (): void => setPortrait(window.innerHeight > window.innerWidth)
+    onResize()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  // When the rail moves (vertical rail ⇄ bottom dock), the page area changes
+  // size, so re-measure the deck views on the next frame.
+  useEffect(() => {
+    const id = setTimeout(() => window.dispatchEvent(new Event('resize')), 0)
+    return () => clearTimeout(id)
+  }, [portrait])
 
   // ── 1. Bootstrap: hydrate from disk, else seed; restore last workspace. ──
   useEffect(() => {
@@ -184,12 +202,16 @@ function App(): JSX.Element {
   const showSplit = view === 'workspace' && workspaces.length > 0
   const inFocus = focusMode && showSplit
 
+  // Portrait: dock at the BOTTOM → stack [main | dock] vertically.
+  // Landscape: rail on the LEFT → [rail | main] horizontally.
+  const dockMode = portrait && !inFocus
+
   return (
     <div className="flex h-full w-full flex-col bg-bg text-txt-1">
       <Titlebar />
-      <div className="flex min-h-0 flex-1">
-        {!inFocus && <Sidebar />}
-        <main className="relative min-w-0 flex-1">
+      <div className={`flex min-h-0 flex-1 ${dockMode ? 'flex-col' : 'flex-row'}`}>
+        {!inFocus && !dockMode && <Sidebar />}
+        <main className="relative min-w-0 min-h-0 flex-1">
           {view === 'settings' ? (
             <SettingsDeck />
           ) : view === 'home' || workspaces.length === 0 ? (
@@ -211,6 +233,8 @@ function App(): JSX.Element {
             </button>
           )}
         </main>
+        {/* Portrait: the rail becomes a horizontal taskbar dock at the bottom. */}
+        {dockMode && <Sidebar orientation="horizontal" />}
       </div>
       <CommandPalette />
     </div>
