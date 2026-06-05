@@ -39,9 +39,6 @@ export const IPC = {
   WindowMaximize: 'window:maximize',
   WindowClose: 'window:close',
 
-  // ── Native workspace context menu — renderer → main (send) ──
-  WorkspaceContextMenu: 'workspace:context-menu',
-
   // ── Floating hover card overlay — renderer → main (send) ──
   /** Show the always-on-top hover card for a rail tile at a position. */
   HoverShow: 'hover:show',
@@ -52,9 +49,18 @@ export const IPC = {
   /** Apply settings that affect main (e.g. discard timeout). */
   SettingsApply: 'settings:apply',
 
+  // ── Custom context menu (rendered in the overlay window, floats over pages) ──
+  MenuShow: 'menu:show', // renderer → main
+  MenuPick: 'menu:pick', // overlay → main (an item was chosen)
+  MenuDismiss: 'menu:dismiss', // overlay → main (clicked outside)
+
   // ── Events — main → renderer (on) ──
   /** main → the OVERLAY window only: render/hide the hover card. */
   OverlayRender: 'overlay:render',
+  /** main → the OVERLAY window only: render/hide the custom context menu. */
+  OverlayMenu: 'overlay:menu',
+  /** main → the MAIN renderer: a folder menu item was chosen. */
+  FolderMenuAction: 'folder:menu-action',
   /** A panel's live WebContents changed (title/url/favicon/loading/nav state). */
   PanelUpdate: 'panel:update',
   /** A native workspace menu item was chosen. */
@@ -98,16 +104,45 @@ export interface PanelShowOnlyPayload {
   bounds: Record<PanelId, PanelBounds>
 }
 
-/** payload: WorkspaceContextMenu (renderer → main) */
-export interface WorkspaceContextMenuPayload {
-  workspaceId: WorkspaceId
-  hasNotes: boolean
-}
-
 /** event: WorkspaceMenuAction (main → renderer) */
 export interface WorkspaceMenuActionEvent {
   workspaceId: WorkspaceId
   action: 'rename' | 'reset' | 'note' | 'delete'
+}
+
+/** What kind of target a custom context menu is acting on. */
+export type MenuKind = 'workspace' | 'folder'
+
+/** payload: MenuShow (renderer → main). x/y are main-window-relative px. */
+export interface MenuShowPayload {
+  kind: MenuKind
+  /** workspace id (kind='workspace') or group name (kind='folder'). */
+  targetId: string
+  x: number
+  y: number
+  hasNotes?: boolean
+}
+
+/** event: OverlayMenu (main → the overlay window). */
+export interface OverlayMenuEvent {
+  kind: MenuKind
+  targetId: string
+  hasNotes: boolean
+  /** When true, the menu should be cleared (overlay reverts to hover mode). */
+  hide?: boolean
+}
+
+/** payload: MenuPick (overlay → main). An item was chosen. */
+export interface MenuPickPayload {
+  kind: MenuKind
+  targetId: string
+  action: string
+}
+
+/** event: FolderMenuAction (main → the MAIN renderer). */
+export interface FolderMenuActionEvent {
+  name: string
+  action: 'rename' | 'ungroup'
 }
 
 /** event: PanelUpdate (main → renderer) */
@@ -203,9 +238,13 @@ export interface DecksApi {
     maximize(): void
     close(): void
   }
-  workspace: {
-    /** Pop a NATIVE context menu at the cursor (renders above web views). */
-    contextMenu(payload: WorkspaceContextMenuPayload): void
+  menu: {
+    /** Ask main to float the custom context menu in the overlay at the cursor. */
+    show(payload: MenuShowPayload): void
+    /** Report (from the overlay) that a menu item was chosen. */
+    pick(payload: MenuPickPayload): void
+    /** Report (from the overlay) that the menu was dismissed (clicked outside). */
+    dismiss(): void
   }
   hover: {
     /** Show the always-on-top floating hover card (over live web pages). */
@@ -219,10 +258,14 @@ export interface DecksApi {
   }
   /** Subscribe to live panel updates. Returns an unsubscribe fn. */
   onPanelUpdate(cb: (e: PanelUpdateEvent) => void): () => void
-  /** Subscribe to native workspace-menu choices. Returns an unsubscribe fn. */
+  /** Subscribe to workspace-menu choices. Returns an unsubscribe fn. */
   onWorkspaceMenuAction(cb: (e: WorkspaceMenuActionEvent) => void): () => void
+  /** Subscribe to folder-menu choices. Returns an unsubscribe fn. */
+  onFolderMenuAction(cb: (e: FolderMenuActionEvent) => void): () => void
   /** Subscribe to discard/recreate state changes. Returns an unsubscribe fn. */
   onPanelDiscardState(cb: (e: PanelDiscardStateEvent) => void): () => void
   /** (Overlay window only) subscribe to hover-card render events. */
   onOverlayRender(cb: (e: OverlayRenderEvent) => void): () => void
+  /** (Overlay window only) subscribe to custom context-menu render events. */
+  onOverlayMenu(cb: (e: OverlayMenuEvent) => void): () => void
 }

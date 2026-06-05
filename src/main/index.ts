@@ -5,7 +5,7 @@
  * every IPC handler declared in @shared/ipc, JSON persistence, and the
  * process-lifecycle registry + safe cleanup.
  */
-import { app, shell, BrowserWindow, ipcMain, Menu } from 'electron'
+import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC } from '@shared/ipc'
@@ -16,7 +16,12 @@ import type {
   PanelShowOnlyPayload,
   MetricsResult
 } from '@shared/ipc'
-import type { HoverShowPayload, SettingsApplyPayload } from '@shared/ipc'
+import type {
+  HoverShowPayload,
+  SettingsApplyPayload,
+  MenuShowPayload,
+  MenuPickPayload
+} from '@shared/ipc'
 import type { PanelId, PersistedState } from '@shared/types'
 import { PanelManager } from './panels'
 import { loadState, saveState } from './persistence'
@@ -152,20 +157,24 @@ function registerIpc(): void {
     }
   })
 
-  // ── Native workspace context menu (renders ABOVE web views; page stays put) ──
-  ipcMain.on(IPC.WorkspaceContextMenu, (_e, p: { workspaceId: string; hasNotes: boolean }) => {
+  // ── Custom context menu (rendered in the overlay window, floats over pages) ──
+  // Renderer asks to show the menu → overlay floats it at the cursor.
+  ipcMain.on(IPC.MenuShow, (_e, p: MenuShowPayload) => overlay?.showMenu(p))
+  // The overlay reports a chosen item → hide it, then route to the main renderer.
+  ipcMain.on(IPC.MenuPick, (_e, p: MenuPickPayload) => {
+    overlay?.hideMenu()
     if (!mainWindow) return
-    const sendAction = (action: string): void =>
-      mainWindow?.webContents.send(IPC.WorkspaceMenuAction, { workspaceId: p.workspaceId, action })
-    const menu = Menu.buildFromTemplate([
-      { label: 'Rename', click: () => sendAction('rename') },
-      { label: 'Reset decks', click: () => sendAction('reset') },
-      { label: p.hasNotes ? 'Edit note' : 'Add note', click: () => sendAction('note') },
-      { type: 'separator' },
-      { label: 'Delete workspace', click: () => sendAction('delete') }
-    ])
-    menu.popup({ window: mainWindow })
+    if (p.kind === 'workspace') {
+      mainWindow.webContents.send(IPC.WorkspaceMenuAction, {
+        workspaceId: p.targetId,
+        action: p.action
+      })
+    } else {
+      mainWindow.webContents.send(IPC.FolderMenuAction, { name: p.targetId, action: p.action })
+    }
   })
+  // The overlay reports a click outside the menu → just hide it.
+  ipcMain.on(IPC.MenuDismiss, () => overlay?.hideMenu())
 }
 
 app.whenReady().then(async () => {

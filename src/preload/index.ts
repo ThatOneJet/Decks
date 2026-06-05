@@ -16,8 +16,11 @@ import type {
   PanelShowOnlyPayload,
   PanelUpdateEvent,
   PanelDiscardStateEvent,
-  WorkspaceContextMenuPayload,
   WorkspaceMenuActionEvent,
+  FolderMenuActionEvent,
+  MenuShowPayload,
+  MenuPickPayload,
+  OverlayMenuEvent,
   HoverShowPayload,
   SettingsApplyPayload,
   OverlayRenderEvent
@@ -48,8 +51,10 @@ const api: DecksApi = {
     maximize: () => ipcRenderer.send(IPC.WindowMaximize),
     close: () => ipcRenderer.send(IPC.WindowClose)
   },
-  workspace: {
-    contextMenu: (p: WorkspaceContextMenuPayload) => ipcRenderer.send(IPC.WorkspaceContextMenu, p)
+  menu: {
+    show: (p: MenuShowPayload) => ipcRenderer.send(IPC.MenuShow, p),
+    pick: (p: MenuPickPayload) => ipcRenderer.send(IPC.MenuPick, p),
+    dismiss: () => ipcRenderer.send(IPC.MenuDismiss)
   },
   hover: {
     show: (p: HoverShowPayload) => ipcRenderer.send(IPC.HoverShow, p),
@@ -68,6 +73,11 @@ const api: DecksApi = {
     ipcRenderer.on(IPC.WorkspaceMenuAction, listener)
     return () => ipcRenderer.removeListener(IPC.WorkspaceMenuAction, listener)
   },
+  onFolderMenuAction: (cb: (e: FolderMenuActionEvent) => void) => {
+    const listener = (_: unknown, e: FolderMenuActionEvent): void => cb(e)
+    ipcRenderer.on(IPC.FolderMenuAction, listener)
+    return () => ipcRenderer.removeListener(IPC.FolderMenuAction, listener)
+  },
   onPanelDiscardState: (cb: (e: PanelDiscardStateEvent) => void) => {
     const listener = (_: unknown, e: PanelDiscardStateEvent): void => cb(e)
     ipcRenderer.on(IPC.PanelDiscardState, listener)
@@ -77,6 +87,11 @@ const api: DecksApi = {
     const listener = (_: unknown, e: OverlayRenderEvent): void => cb(e)
     ipcRenderer.on(IPC.OverlayRender, listener)
     return () => ipcRenderer.removeListener(IPC.OverlayRender, listener)
+  },
+  onOverlayMenu: (cb: (e: OverlayMenuEvent) => void) => {
+    const listener = (_: unknown, e: OverlayMenuEvent): void => cb(e)
+    ipcRenderer.on(IPC.OverlayMenu, listener)
+    return () => ipcRenderer.removeListener(IPC.OverlayMenu, listener)
   }
 }
 

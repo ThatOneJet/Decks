@@ -6,9 +6,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store'
 import type { MetricsResult } from '@shared/ipc'
-import RailTile, { DECKS_WS_DND } from './sidebar/WorkspaceItem'
+import RailTile from './sidebar/WorkspaceItem'
 import RailFolder from './sidebar/RailFolder'
 import WorkspaceEditModal from './sidebar/WorkspaceEditModal'
+import FolderRenameModal from './sidebar/FolderRenameModal'
 import AddDeckModal from './AddDeckModal'
 import { MOD } from '../lib/platform'
 import { templateFor, workspaceFromTemplate } from '@shared/seed'
@@ -94,12 +95,11 @@ function Sidebar(): JSX.Element {
   const openAddDeck = useStore((s) => s.openAddDeck)
   const closeAddDeck = useStore((s) => s.closeAddDeck)
   const setGroup = useStore((s) => s.setGroup)
-  const renameGroup = useStore((s) => s.renameGroup)
   const nextGroupName = useStore((s) => s.nextGroupName)
 
   const [edit, setEdit] = useState<{ ws: Workspace; mode: 'rename' | 'note' } | null>(null)
+  const [renameFolder, setRenameFolder] = useState<string | null>(null)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
-  const [clearOver, setClearOver] = useState(false)
 
   const rail = useMemo(() => buildRail(workspaces), [workspaces])
 
@@ -117,7 +117,7 @@ function Sidebar(): JSX.Element {
     setGroup(draggedId, groupName)
   }
 
-  // Native menu choices come back here.
+  // Custom workspace-menu choices come back here.
   useEffect(() => {
     const off = window.decks?.onWorkspaceMenuAction(({ workspaceId, action }) => {
       const ws = useStore.getState().workspaces.find((w) => w.id === workspaceId)
@@ -141,6 +141,20 @@ function Sidebar(): JSX.Element {
     return () => off?.()
   }, [removeWorkspace, setDecks])
 
+  // Custom folder-menu choices come back here.
+  useEffect(() => {
+    const off = window.decks?.onFolderMenuAction(({ name, action }) => {
+      if (action === 'rename') setRenameFolder(name)
+      else if (action === 'ungroup') {
+        useStore
+          .getState()
+          .workspaces.filter((w) => w.group === name)
+          .forEach((w) => setGroup(w.id, undefined))
+      }
+    })
+    return () => off?.()
+  }, [setGroup])
+
   return (
     <aside className="flex w-[72px] shrink-0 flex-col items-center gap-2 bg-bg-rail py-3">
       <nav className="flex min-h-0 flex-1 flex-col items-center gap-2.5 overflow-y-auto overflow-x-visible px-1">
@@ -161,17 +175,6 @@ function Sidebar(): JSX.Element {
                 open={!!openGroups[entry.name]}
                 onToggle={() => toggleGroup(entry.name)}
                 onDropWorkspace={(draggedId) => setGroup(draggedId, entry.name)}
-                onRename={(newName) => {
-                  renameGroup(entry.name, newName)
-                  setOpenGroups((s) => {
-                    const next = { ...s }
-                    if (entry.name in next) {
-                      next[newName] = next[entry.name]
-                      delete next[entry.name]
-                    }
-                    return next
-                  })
-                }}
               />
               {openGroups[entry.name] &&
                 entry.members.map((w) => (
@@ -187,32 +190,6 @@ function Sidebar(): JSX.Element {
             </div>
           )
         )}
-
-        {/* Drop here to remove a tile from its folder. */}
-        <div
-          onDragOver={(e) => {
-            if (!e.dataTransfer.types.includes(DECKS_WS_DND)) return
-            e.preventDefault()
-            e.dataTransfer.dropEffect = 'move'
-            setClearOver(true)
-          }}
-          onDragLeave={() => setClearOver(false)}
-          onDrop={(e) => {
-            setClearOver(false)
-            const id = e.dataTransfer.getData(DECKS_WS_DND)
-            if (!id) return
-            e.preventDefault()
-            setGroup(id, undefined)
-          }}
-          title="Drop here to remove from folder"
-          className={`mt-1 grid h-7 w-11 place-items-center rounded-xl border border-dashed text-[9px] uppercase tracking-wide transition-colors ${
-            clearOver
-              ? 'border-accent bg-accent-soft text-accent'
-              : 'border-line/60 text-txt-4'
-          }`}
-        >
-          drop
-        </div>
       </nav>
 
       <div className="my-0.5 h-px w-7 bg-line/70" />
@@ -220,9 +197,11 @@ function Sidebar(): JSX.Element {
       <button
         onClick={openAddDeck}
         title={`Add a deck (${MOD === '⌘' ? '⌘N' : 'Ctrl+N'})`}
-        className="grid h-9 w-9 place-items-center rounded-2xl bg-bg-elevated text-2xl font-light leading-none text-txt-3 transition-all duration-150 hover:rounded-xl hover:bg-accent-soft hover:text-accent"
+        className="grid h-9 w-9 place-items-center rounded-2xl bg-bg-elevated text-txt-3 transition-all duration-150 hover:rounded-xl hover:bg-accent-soft hover:text-accent"
       >
-        +
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
       </button>
 
       <button
@@ -255,6 +234,9 @@ function Sidebar(): JSX.Element {
       <RamMeter />
 
       {edit && <WorkspaceEditModal workspace={edit.ws} mode={edit.mode} onClose={() => setEdit(null)} />}
+      {renameFolder && (
+        <FolderRenameModal name={renameFolder} onClose={() => setRenameFolder(null)} />
+      )}
       {addDeckOpen && <AddDeckModal onClose={closeAddDeck} />}
     </aside>
   )

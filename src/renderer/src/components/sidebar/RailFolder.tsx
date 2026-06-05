@@ -1,22 +1,22 @@
 /**
  * RailFolder — a Discord-style folder tile in the icon rail. Shows a rounded
  * square with a 2x2 mini-grid of up to 4 member icons. Clicking toggles the
- * folder OPEN (members render inline below). Right-click opens an inline rename
- * popover. Folders are a pure view over workspaces that share a `group` name.
+ * folder OPEN (members render inline below). Right-click opens the custom
+ * floating context menu (rename / ungroup) in the overlay window, so it draws
+ * ABOVE live web pages. Hovering floats a summary card (mirrors RailTile).
+ * Folders are a pure view over workspaces that share a `group` name.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { Workspace } from '@shared/types'
 import TileIcon from './TileIcon'
 import { DECKS_WS_DND } from './WorkspaceItem'
-import { useHideViewsWhile } from '../../lib/useOverlay'
 
 export default function RailFolder({
   name,
   members,
   open,
   onToggle,
-  onDropWorkspace,
-  onRename
+  onDropWorkspace
 }: {
   name: string
   members: Workspace[]
@@ -24,38 +24,50 @@ export default function RailFolder({
   onToggle: () => void
   /** A workspace tile was dropped onto this folder (id = dragged workspace). */
   onDropWorkspace: (draggedId: string) => void
-  onRename: (newName: string) => void
 }): JSX.Element {
   const [dropOver, setDropOver] = useState(false)
-  const [renaming, setRenaming] = useState(false)
-  const [draft, setDraft] = useState(name)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  // Keep native web views hidden while the rename popover is up so it's visible.
-  useHideViewsWhile(renaming)
-
-  useEffect(() => {
-    if (renaming) {
-      setDraft(name)
-      // Focus after paint.
-      const t = setTimeout(() => inputRef.current?.select(), 0)
-      return () => clearTimeout(t)
-    }
-    return undefined
-  }, [renaming, name])
-
-  const commit = (): void => {
-    const next = draft.trim()
-    if (next && next !== name) onRename(next)
-    setRenaming(false)
-  }
+  const ref = useRef<HTMLDivElement>(null)
 
   const preview = members.slice(0, 4)
   const accent = '#7c5cff'
 
+  const unread = members.reduce(
+    (sum, w) => sum + w.panels.reduce((s, p) => s + (p.badge || 0), 0),
+    0
+  )
+  const playing = members.some((w) => w.panels.some((p) => p.playing))
+
+  /** Ask main to float the always-on-top hover card next to this folder. */
+  const showHover = (): void => {
+    const rect = ref.current?.getBoundingClientRect()
+    if (!rect) return
+    window.decks?.hover.show({
+      summary: {
+        name,
+        iconUrl: '',
+        color: accent,
+        deckCount: members.length,
+        unread,
+        playing,
+        notes: undefined
+      },
+      x: rect.right + 8,
+      y: rect.top
+    })
+  }
+  const hideHover = (): void => window.decks?.hover.hide()
+
+  const openMenu = (x: number, y: number): void =>
+    window.decks?.menu.show({ kind: 'folder', targetId: name, x, y })
+
   return (
     <div className="relative flex w-full flex-col items-center">
-      <div className="group relative flex w-full items-center justify-center">
+      <div
+        ref={ref}
+        className="group relative flex w-full items-center justify-center"
+        onMouseEnter={showHover}
+        onMouseLeave={hideHover}
+      >
         <span
           className={`absolute left-0 w-1 rounded-r-full bg-accent transition-all ${
             open ? 'h-7 opacity-100' : 'h-2 opacity-0 group-hover:h-4 group-hover:opacity-60'
@@ -66,7 +78,8 @@ export default function RailFolder({
           onClick={onToggle}
           onContextMenu={(e) => {
             e.preventDefault()
-            setRenaming(true)
+            hideHover()
+            openMenu(e.clientX, e.clientY)
           }}
           title={`${name} · ${members.length} workspace${members.length === 1 ? '' : 's'}`}
           className={`grid h-9 w-9 grid-cols-2 grid-rows-2 gap-0.5 overflow-hidden bg-bg-elevated p-1 transition-all duration-150 ${
@@ -113,29 +126,6 @@ export default function RailFolder({
             <span key={`pad-${i}`} className="rounded bg-bg-rail/40" />
           ))}
         </button>
-
-        {renaming && (
-          <div
-            className="absolute left-[60px] top-0 z-50 w-44 rounded-lg border border-line bg-bg-panel p-2 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-txt-3">
-              Folder name
-            </label>
-            <input
-              ref={inputRef}
-              value={draft}
-              autoFocus
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') commit()
-                else if (e.key === 'Escape') setRenaming(false)
-              }}
-              onBlur={commit}
-              className="w-full rounded-md border border-line bg-bg-elevated px-2 py-1 text-sm text-txt-1 outline-none focus:border-accent focus:ring-1 focus:ring-accent-ring"
-            />
-          </div>
-        )}
       </div>
     </div>
   )

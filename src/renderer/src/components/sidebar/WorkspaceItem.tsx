@@ -45,8 +45,14 @@ export default function RailTile({
     .filter(Boolean)
     .join('\n')
 
-  const openMenu = (): void =>
-    window.decks?.workspace.contextMenu({ workspaceId: workspace.id, hasNotes: !!workspace.notes })
+  const openMenu = (x: number, y: number): void =>
+    window.decks?.menu.show({
+      kind: 'workspace',
+      targetId: workspace.id,
+      hasNotes: !!workspace.notes,
+      x,
+      y
+    })
 
   /** Ask main to float the always-on-top hover card next to this tile. */
   const showHover = (): void => {
@@ -111,7 +117,8 @@ export default function RailTile({
         onClick={onClick}
         onContextMenu={(e) => {
           e.preventDefault()
-          openMenu()
+          hideHover()
+          openMenu(e.clientX, e.clientY)
         }}
         title={hoverDetails}
         className={`relative grid h-9 w-9 place-items-center overflow-hidden bg-bg-elevated transition-all duration-200 ease-out group-hover:translate-x-1.5 ${
