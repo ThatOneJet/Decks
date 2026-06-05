@@ -231,6 +231,10 @@ export class CanvasClient implements ProviderClient {
         return this.fetchGrades(creds)
       case 'assignments':
         return this.fetchAssignments(creds)
+      case 'assignment':
+        return this.fetchAssignment(creds, _params)
+      case 'course':
+        return this.fetchCourse(creds, _params)
       case 'announcements':
         return this.fetchAnnouncements(creds)
       case 'calendar':
@@ -383,7 +387,12 @@ export class CanvasClient implements ProviderClient {
     })
   }
 
-  /** Upcoming assignments merged across active courses, sorted by due date. */
+  /**
+   * Assignments merged across active courses, sorted by due date. Covers BOTH
+   * past and upcoming (no `bucket=upcoming` restriction) so the renderer can
+   * show overdue/missing/past items above today and upcoming below. Capped at
+   * ~120 of the most temporally-relevant rows (nearest to now, kept undated).
+   */
   private async fetchAssignments(creds: CanvasCreds): Promise<
     Array<{
       id?: string
@@ -394,6 +403,7 @@ export class CanvasClient implements ProviderClient {
       pointsPossible?: number
       htmlUrl?: string
       hasSubmitted?: boolean
+      submissionState?: string
     }>
   > {
     type AssignmentRow = {
@@ -405,6 +415,7 @@ export class CanvasClient implements ProviderClient {
       pointsPossible?: number
       htmlUrl?: string
       hasSubmitted?: boolean
+      submissionState?: string
     }
 
     const courses = await this.activeCourses(creds)
@@ -412,9 +423,11 @@ export class CanvasClient implements ProviderClient {
 
     const settled = await Promise.allSettled(
       courses.map(async (course): Promise<AssignmentRow[]> => {
+        // No bucket filter → includes past-due assignments too. include[]=submission
+        // gives us each item's submission workflow_state for missing/done logic.
         const data = (await this.apiGet(
           creds,
-          `/api/v1/users/self/courses/${course.id}/assignments?order_by=due_at&per_page=20&bucket=upcoming`
+          `/api/v1/users/self/courses/${course.id}/assignments?order_by=due_at&per_page=40&include[]=submission`
         )) as unknown
         if (!Array.isArray(data)) return []
         return data.map((a): AssignmentRow => {
@@ -427,6 +440,7 @@ export class CanvasClient implements ProviderClient {
             submission?: { workflow_state?: unknown }
           }
           const wf = item.submission?.workflow_state
+          const submissionState = typeof wf === 'string' ? wf : undefined
           return {
             id: asId(item.id),
             courseId: course.id,
@@ -435,7 +449,10 @@ export class CanvasClient implements ProviderClient {
             dueAt: typeof item.due_at === 'string' ? item.due_at : undefined,
             pointsPossible: asNum(item.points_possible),
             htmlUrl: typeof item.html_url === 'string' ? item.html_url : undefined,
-            hasSubmitted: typeof wf === 'string' && wf !== 'unsubmitted'
+            hasSubmitted:
+              submissionState !== undefined &&
+              submissionState !== 'unsubmitted',
+            submissionState
           }
         })
       })
@@ -452,7 +469,108 @@ export class CanvasClient implements ProviderClient {
       return ta - tb
     })
 
-    return merged.slice(0, 60)
+    // Cap ~120 keeping items nearest to "now" (so we don't drop near-term past
+    // or upcoming in favour of far-future/far-past items).
+    if (merged.length <= 120) return merged
+    const now = Date.now()
+    const ranked = [...merged].sort((a, b) => {
+      const da = a.dueAt ? Math.abs(new Date(a.dueAt).getTime() - now) : Number.POSITIVE_INFINITY
+      const db = b.dueAt ? Math.abs(new Date(b.dueAt).getTime() - now) : Number.POSITIVE_INFINITY
+      return da - db
+    })
+    const keep = new Set(ranked.slice(0, 120))
+    return merged.filter((m) => keep.has(m))
+  }
+
+  /** Full detail for one assignment (lazy-loaded by the detail view). */
+  private async fetchAssignment(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<{
+    id?: string
+    name?: string
+    courseId?: string
+    dueAt?: string
+    pointsPossible?: number
+    htmlUrl?: string
+    description?: string
+    submissionState?: string
+    score?: number
+    submittedAt?: string
+  }> {
+    const courseId = asId(params?.courseId)
+    const assignmentId = asId(params?.assignmentId)
+    if (!courseId || !assignmentId) {
+      throw new Error('Missing course or assignment id')
+    }
+    const data = (await this.apiGet(
+      creds,
+      `/api/v1/courses/${courseId}/assignments/${assignmentId}?include[]=submission`
+    )) as unknown
+    const item = (data ?? {}) as {
+      id?: unknown
+      name?: unknown
+      due_at?: unknown
+      points_possible?: unknown
+      html_url?: unknown
+      description?: unknown
+      submission?: { workflow_state?: unknown; score?: unknown; submitted_at?: unknown }
+    }
+    const sub = item.submission ?? {}
+    return {
+      id: asId(item.id) ?? assignmentId,
+      name: typeof item.name === 'string' ? item.name : undefined,
+      courseId,
+      dueAt: typeof item.due_at === 'string' ? item.due_at : undefined,
+      pointsPossible: asNum(item.points_possible),
+      htmlUrl:
+        typeof item.html_url === 'string'
+          ? item.html_url
+          : `${creds.instanceUrl}/courses/${courseId}/assignments/${assignmentId}`,
+      // Pass through the raw HTML; renderer strips it safely (no innerHTML).
+      description: typeof item.description === 'string' ? item.description : undefined,
+      submissionState: typeof sub.workflow_state === 'string' ? sub.workflow_state : undefined,
+      score: asNum(sub.score),
+      submittedAt: typeof sub.submitted_at === 'string' ? sub.submitted_at : undefined
+    }
+  }
+
+  /** Course header + current grade for the course detail view. */
+  private async fetchCourse(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<{
+    id?: string
+    name?: string
+    courseCode?: string
+    htmlUrl?: string
+    score?: number
+    grade?: string
+  }> {
+    const courseId = asId(params?.courseId)
+    if (!courseId) throw new Error('Missing course id')
+    const data = (await this.apiGet(
+      creds,
+      `/api/v1/courses/${courseId}?include[]=total_scores`
+    )) as unknown
+    const course = (data ?? {}) as {
+      id?: unknown
+      name?: unknown
+      course_code?: unknown
+      enrollments?: Array<{
+        computed_current_score?: unknown
+        computed_current_grade?: unknown
+      }>
+    }
+    const enr = Array.isArray(course.enrollments) ? course.enrollments[0] : undefined
+    return {
+      id: asId(course.id) ?? courseId,
+      name: typeof course.name === 'string' ? course.name : undefined,
+      courseCode: typeof course.course_code === 'string' ? course.course_code : undefined,
+      htmlUrl: `${creds.instanceUrl}/courses/${courseId}`,
+      score: asNum(enr?.computed_current_score),
+      grade: typeof enr?.computed_current_grade === 'string' ? enr.computed_current_grade : undefined
+    }
   }
 
   /** Recent announcements across active courses, newest first. */
