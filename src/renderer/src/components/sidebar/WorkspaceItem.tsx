@@ -1,91 +1,80 @@
 /**
- * WorkspaceItem — a single row in the workspace rail.
+ * RailTile — one workspace tile in the icon rail.
  *
- * Shows: a color-tinted glyph chip, the workspace name (bold), a muted
- * subtitle line (falls back to a "paused HH:MM" string when paused and no
- * explicit subtitle is set), and a LiveDot on the right.
- *
- * `active` reflects that this workspace is BOTH the selected workspace AND the
- * right-hand region is showing the workspace view (not home). The active row
- * gets an accent background, a left accent bar, and brighter text.
+ * Shows the favicon/logo of the workspace's primary deck (live favicon if known,
+ * else resolved from the URL, else a colored initial). Active → squircle + left
+ * accent pill + ring. Unread → count badge. Hover morphs the corner radius
+ * (Discord-style) and reveals the name tooltip.
  */
+import { useState } from 'react'
 import type { Workspace } from '@shared/types'
-import LiveDot from './LiveDot'
+import { faviconFor, initialOf } from '../../lib/favicon'
 
-interface WorkspaceItemProps {
+export default function RailTile({
+  workspace,
+  active,
+  onClick
+}: {
   workspace: Workspace
   active: boolean
-  onActivate: (id: string) => void
-}
-
-/** Format an epoch-ms timestamp as "HH:MM" (24h, local time). */
-function formatPausedTime(pausedAt: number): string {
-  const d = new Date(pausedAt)
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  return `${hh}:${mm}`
-}
-
-/** The line under the name. Prefers the explicit subtitle, otherwise derives one. */
-function subtitleFor(workspace: Workspace): string | undefined {
-  if (workspace.subtitle) return workspace.subtitle
-  if (workspace.live.status === 'paused' && workspace.live.pausedAt != null) {
-    return `paused ${formatPausedTime(workspace.live.pausedAt)}`
-  }
-  return undefined
-}
-
-function WorkspaceItem({ workspace, active, onActivate }: WorkspaceItemProps): JSX.Element {
-  const color = workspace.color ?? '#7c5cff'
-  const subtitle = subtitleFor(workspace)
+  onClick: () => void
+}): JSX.Element {
+  const [imgFailed, setImgFailed] = useState(false)
+  const primary = workspace.panels[0]
+  const iconUrl = primary ? primary.favicon || faviconFor(primary.url) : ''
+  const color = workspace.color || '#7c5cff'
+  const unread =
+    workspace.live.status === 'unread' && workspace.live.unread ? workspace.live.unread : 0
+  const showImg = !!iconUrl && !imgFailed
 
   return (
-    <button
-      type="button"
-      onClick={() => onActivate(workspace.id)}
-      aria-current={active ? 'true' : undefined}
-      className={[
-        'group relative flex w-full items-center gap-3 rounded-xl2 px-2.5 py-2 text-left transition-colors',
-        active
-          ? 'bg-accent-soft ring-1 ring-accent-ring'
-          : 'hover:bg-bg-elevated'
-      ].join(' ')}
-    >
-      {/* Left accent bar — only on the active row. */}
-      {active && (
-        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent" />
+    <div className="group relative flex w-full items-center justify-center">
+      {/* Active / hover accent pill on the far left */}
+      <span
+        className={`absolute left-0 w-1 rounded-r-full bg-accent transition-all ${
+          active ? 'h-7 opacity-100' : 'h-2 opacity-0 group-hover:h-4 group-hover:opacity-60'
+        }`}
+      />
+
+      <button
+        onClick={onClick}
+        title={workspace.name}
+        className={`relative grid h-11 w-11 place-items-center overflow-hidden border bg-bg-panel transition-all duration-150 ${
+          active
+            ? 'rounded-xl border-accent-ring shadow-lg'
+            : 'rounded-2xl border-line hover:rounded-xl'
+        }`}
+        style={active ? { boxShadow: `0 0 0 2px ${color}55` } : undefined}
+      >
+        {showImg ? (
+          <img
+            src={iconUrl}
+            alt={workspace.name}
+            className="h-6 w-6 object-contain"
+            onError={() => setImgFailed(true)}
+            draggable={false}
+          />
+        ) : (
+          <span
+            className="grid h-full w-full place-items-center text-sm font-semibold"
+            style={{ color, background: color + '1f' }}
+          >
+            {workspace.glyph || initialOf(workspace.name, primary?.url || '')}
+          </span>
+        )}
+      </button>
+
+      {/* Unread badge */}
+      {unread > 0 && (
+        <span className="absolute -bottom-0.5 right-2 grid h-4 min-w-4 place-items-center rounded-full border-2 border-bg-rail bg-err px-1 text-[9px] font-bold text-white">
+          {unread > 99 ? '99+' : unread}
+        </span>
       )}
 
-      {/* Color-tinted glyph chip. */}
-      <span
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm"
-        style={{ backgroundColor: `${color}22`, color }}
-        aria-hidden
-      >
-        {workspace.glyph ?? workspace.name.charAt(0).toUpperCase()}
+      {/* Name tooltip on hover */}
+      <span className="pointer-events-none absolute left-full z-20 ml-2 hidden whitespace-nowrap rounded-md border border-line bg-bg-elevated px-2 py-1 text-xs text-txt-1 shadow-lg group-hover:block">
+        {workspace.name}
       </span>
-
-      {/* Name + subtitle. */}
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span
-          className={[
-            'truncate text-sm font-semibold leading-tight',
-            active ? 'text-txt-1' : 'text-txt-2 group-hover:text-txt-1'
-          ].join(' ')}
-        >
-          {workspace.name}
-        </span>
-        {subtitle && (
-          <span className="truncate text-xs leading-tight text-txt-3">{subtitle}</span>
-        )}
-      </span>
-
-      {/* Live-state indicator. */}
-      <span className="flex shrink-0 items-center">
-        <LiveDot live={workspace.live} />
-      </span>
-    </button>
+    </div>
   )
 }
-
-export default WorkspaceItem

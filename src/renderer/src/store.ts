@@ -18,6 +18,11 @@ import type {
   LayoutNode,
   Theme
 } from '@shared/types'
+import { addLeaf, removeLeaf } from './lib/layout'
+
+const deckCount = (n: number): string => `${n} deck${n === 1 ? '' : 's'}`
+const EMPTY_LAYOUT: LayoutNode = { type: 'leaf', panelId: '' }
+const isEmptyLayout = (l: LayoutNode): boolean => l.type === 'leaf' && l.panelId === ''
 
 /** Which surface the right-hand region is showing. */
 export type View = 'home' | 'workspace'
@@ -97,19 +102,27 @@ export const useStore = create<DecksState>((set, get) => ({
       )
     })),
 
+  // Add a deck: append it and graft a leaf into the split layout.
   addPanel: (workspaceId, panel) =>
     set((s) => ({
-      workspaces: s.workspaces.map((w) =>
-        w.id === workspaceId ? { ...w, panels: [...w.panels, panel] } : w
-      )
+      workspaces: s.workspaces.map((w) => {
+        if (w.id !== workspaceId) return w
+        const panels = [...w.panels, panel]
+        const layout = isEmptyLayout(w.layout)
+          ? { type: 'leaf' as const, panelId: panel.id }
+          : addLeaf(w.layout, panel.id, 'row')
+        return { ...w, panels, layout, subtitle: deckCount(panels.length) }
+      })
     })),
+  // Delete a deck: drop it and prune its leaf from the layout (collapsing splits).
   removePanel: (workspaceId, panelId) =>
     set((s) => ({
-      workspaces: s.workspaces.map((w) =>
-        w.id === workspaceId
-          ? { ...w, panels: w.panels.filter((p) => p.id !== panelId) }
-          : w
-      )
+      workspaces: s.workspaces.map((w) => {
+        if (w.id !== workspaceId) return w
+        const panels = w.panels.filter((p) => p.id !== panelId)
+        const layout = removeLeaf(w.layout, panelId) ?? EMPTY_LAYOUT
+        return { ...w, panels, layout, subtitle: deckCount(panels.length) }
+      })
     })),
   patchPanel: (panelId, patch) =>
     set((s) => ({
