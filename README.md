@@ -65,6 +65,28 @@ python launcher.py   # frees the dev port, ensures deps, then runs dev
 
 Build a production bundle with `npm run build`; typecheck with `npm run typecheck`.
 
+## DRM streaming (Netflix / Disney+ / Spotify)
+
+Vanilla Electron ships **no Widevine CDM**, so DRM video won't play. The app
+already has a feature-detected Widevine gate in `src/main/index.ts` (a no-op on
+stock Electron); to actually enable DRM, swap Electron for the **castLabs
+"Electron for Content Security" (ECS)** drop-in fork, which bundles Widevine:
+
+```bash
+# 1) Replace electron with the castLabs build (match your Electron major + "+wvcus"):
+npm install --save-dev "github:castlabs/electron-releases#v33.0.0+wvcus"
+
+# 2) First run downloads the Widevine component automatically (the gate awaits it).
+npm run dev
+```
+
+For a **packaged** build that real services trust, you must VMP-sign with castLabs
+EVS (free account): `pip install castlabs-evs && python -m castlabs_evs.account signup`,
+then sign the built app with `python -m castlabs_evs.vmp sign-pkg <dist>`. Netflix
+also requires the app to present as a real browser (the UA is already de-Electron'd).
+Without signing, expect L3-only / limited playback. This isn't bundled here because
+it needs your EVS account + signing on your machine.
+
 ## Architecture
 
 The code is split into **surfaces** that meet at two contracts in `src/shared`:

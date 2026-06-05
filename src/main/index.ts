@@ -6,6 +6,7 @@
  * process-lifecycle registry + safe cleanup.
  */
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import * as electron from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC } from '@shared/ipc'
@@ -264,6 +265,24 @@ function registerIpc(): void {
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.decks.app')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
+
+  // ── DRM / Widevine (Netflix, Disney+, Spotify, …) ──
+  // Stock Electron ships NO Widevine CDM, so DRM streams won't play. The castLabs
+  // "Electron for Content Security" build (a drop-in fork) adds Widevine + a
+  // `components` API; gate startup on it so the CDM is loaded before any deck.
+  // This is FEATURE-DETECTED: a no-op on stock Electron, active on the castLabs
+  // build. See the README "DRM streaming" section for the dependency swap + VMP
+  // signing the castLabs build needs (we don't bundle it because it requires an
+  // EVS account + signing on your machine).
+  const drm = (electron as { components?: { whenReady(): Promise<void> } }).components
+  if (drm) {
+    try {
+      await drm.whenReady()
+      console.log('[decks] Widevine components ready — DRM-capable build')
+    } catch (err) {
+      console.error('[decks] Widevine components failed to initialize:', err)
+    }
+  }
 
   // Present as plain Chrome to embedded sites: the default UA contains
   // "decks/x" and "Electron/x" tokens that some sites (Google sign-in, etc.)

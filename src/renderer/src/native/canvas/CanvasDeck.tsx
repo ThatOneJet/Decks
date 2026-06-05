@@ -23,6 +23,7 @@ interface CanvasCourse {
   id?: string
   name?: string
   courseCode?: string
+  htmlUrl?: string
 }
 
 interface CanvasTodo {
@@ -38,6 +39,7 @@ interface CanvasUpcoming {
   title?: string
   startAt?: string
   type?: string
+  courseId?: string
   htmlUrl?: string
 }
 
@@ -53,6 +55,7 @@ interface CanvasGrade {
   courseCode?: string
   score?: number
   grade?: string
+  htmlUrl?: string
 }
 
 interface CanvasAssignment {
@@ -91,6 +94,7 @@ interface AgendaItem {
   title: string
   when?: string
   url?: string
+  courseId?: string
   source: 'todo' | 'upcoming'
 }
 
@@ -172,23 +176,55 @@ function openExternal(url?: string): void {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
-/* ── Course color chips ── */
+/* ── Course color system ──
+ *
+ * ONE stable color per course, derived deterministically from its courseId (or
+ * name as a fallback). Ten distinct hues that read well on the dark card. The
+ * same color is reused EVERYWHERE a course appears (Overview chips, assignment
+ * left-edges, grade dots, announcements, calendar items) so it's instantly
+ * clear which item belongs to which class. Applied via inline `style` because
+ * Tailwind can't purge-safely generate arbitrary per-course classes.
+ */
+const COURSE_HUES = [
+  '#35e3ff', // cyan (accent)
+  '#a78bfa', // violet
+  '#4ef0a6', // emerald (ok)
+  '#ffc25c', // amber (warn)
+  '#ff5bd0', // rose / live
+  '#60a5fa', // sky
+  '#fb923c', // orange
+  '#a3e635', // lime
+  '#e879f9', // fuchsia
+  '#2dd4bf' // teal
+] as const
 
-const CHIP_PALETTE = [
-  'text-accent',
-  'text-live',
-  'text-ok',
-  'text-warn',
-  'text-[#c084fc]',
-  'text-[#60a5fa]'
-]
+/** Course color tokens for a course, ready to drop into inline styles. */
+interface CourseColor {
+  /** Solid hue, e.g. for dots and left-edges. */
+  hue: string
+  /** Translucent fill for soft tile/chip backgrounds. */
+  soft: string
+  /** Translucent border. */
+  border: string
+}
 
-/** Deterministic color class for a given course id/name (stable per course). */
-function courseColor(key?: string): string {
-  if (!key) return 'text-txt-3'
+/** Deterministic, stable color for a course keyed by courseId (name fallback). */
+function courseColor(key?: string): CourseColor {
+  if (!key) {
+    return { hue: '#6d7689', soft: 'rgba(109,118,137,0.12)', border: 'rgba(109,118,137,0.30)' }
+  }
   let hash = 0
   for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0
-  return CHIP_PALETTE[Math.abs(hash) % CHIP_PALETTE.length]
+  const hue = COURSE_HUES[Math.abs(hash) % COURSE_HUES.length]
+  // hue is a #rrggbb literal → build rgba() variants.
+  const r = parseInt(hue.slice(1, 3), 16)
+  const g = parseInt(hue.slice(3, 5), 16)
+  const b = parseInt(hue.slice(5, 7), 16)
+  return {
+    hue,
+    soft: `rgba(${r},${g},${b},0.13)`,
+    border: `rgba(${r},${g},${b},0.40)`
+  }
 }
 
 /* ── UI bits ── */
@@ -282,27 +318,35 @@ const URGENCY_TEXT: Record<ReturnType<typeof urgency>, string> = {
   none: 'text-txt-3'
 }
 
-function AgendaRow({ item }: { item: AgendaItem }): JSX.Element {
+function AgendaRow({
+  item,
+  courseLabel
+}: {
+  item: AgendaItem
+  courseLabel?: string
+}): JSX.Element {
   const u = urgency(item.when)
   const when = formatWhen(item.when)
+  const c = courseColor(item.courseId ?? courseLabel)
   return (
     <button
       type="button"
       onClick={() => openExternal(item.url)}
       disabled={!item.url}
-      className="flex w-full items-start gap-2.5 rounded-lg border border-line bg-bg-elevated px-3 py-2.5 text-left transition-colors enabled:hover:border-accent-ring disabled:cursor-default"
+      className="flex w-full items-start gap-2.5 overflow-hidden rounded-lg border border-line bg-bg-elevated py-2.5 pr-3 text-left transition-colors enabled:hover:border-accent-ring disabled:cursor-default"
+      style={{ borderLeft: `3px solid ${c.hue}`, paddingLeft: 'calc(0.75rem - 3px)' }}
     >
       <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${URGENCY_DOT[u]}`} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-txt-1">{item.title}</div>
-        <div className="mt-0.5 flex items-center gap-2 text-xs">
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          {courseLabel && <CourseChip label={courseLabel} colorKey={item.courseId ?? courseLabel} />}
           {when ? (
             <span className={URGENCY_TEXT[u]}>{u === 'overdue' ? `Overdue · ${when}` : when}</span>
           ) : (
             <span className="text-txt-4">No due date</span>
           )}
-          <span className="text-txt-4">·</span>
-          <span className="capitalize text-txt-4">{item.source}</span>
+          <span className="capitalize text-txt-4">· {item.source}</span>
         </div>
       </div>
     </button>
@@ -319,6 +363,7 @@ function buildAgenda(data: CanvasDashboard): AgendaItem[] {
       title: t.title ?? 'Untitled assignment',
       when: t.dueAt,
       url: t.htmlUrl,
+      courseId: t.courseId,
       source: 'todo'
     })
   })
@@ -329,6 +374,7 @@ function buildAgenda(data: CanvasDashboard): AgendaItem[] {
       title: e.title ?? 'Untitled event',
       when: e.startAt,
       url: e.htmlUrl,
+      courseId: e.courseId,
       source: 'upcoming'
     })
   })
@@ -342,10 +388,33 @@ function buildAgenda(data: CanvasDashboard): AgendaItem[] {
   return items
 }
 
-/* ── Section heading ── */
-function SectionHeading({ children }: { children: React.ReactNode }): JSX.Element {
+/* ── Section heading (with optional count + tone) ── */
+function SectionHeading({
+  children,
+  count,
+  tone = 'muted'
+}: {
+  children: React.ReactNode
+  count?: number
+  tone?: 'muted' | 'err' | 'warn' | 'accent'
+}): JSX.Element {
+  const toneClass =
+    tone === 'err'
+      ? 'text-err'
+      : tone === 'warn'
+        ? 'text-warn'
+        : tone === 'accent'
+          ? 'text-accent'
+          : 'text-txt-3'
   return (
-    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-txt-3">{children}</h3>
+    <div className="mb-2 flex items-center gap-2">
+      <h3 className={`text-xs font-semibold uppercase tracking-wide ${toneClass}`}>{children}</h3>
+      {typeof count === 'number' && (
+        <span className="rounded-full bg-bg-elevated px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-txt-3">
+          {count}
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -395,7 +464,7 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
     (courseId?: string): string | undefined => {
       if (!courseId || !dash) return undefined
       const c = dash.courses.find((x) => x.id === courseId)
-      return c?.name ?? c?.courseCode
+      return c?.courseCode ?? c?.name
     },
     [dash]
   )
@@ -576,7 +645,7 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
       {/* Scrollable body */}
       <div className="flex-1 overflow-auto px-4 py-4">
         {tab === 'overview' && (
-          <OverviewTab data={data} agenda={buildAgenda(data)} />
+          <OverviewTab data={data} agenda={buildAgenda(data)} courseName={courseName} />
         )}
         {tab === 'assignments' && (
           <AssignmentsTab meta={meta.assignments} items={assignments} courseName={courseName} />
@@ -599,43 +668,67 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
 
 /* ── Overview tab ── */
 
+/** A clickable, bold course tile carrying the course color (Overview). */
+function CourseTile({ course }: { course: CanvasCourse }): JSX.Element {
+  const c = courseColor(course.id ?? course.name)
+  const label = course.courseCode || course.name || 'Course'
+  const sub = course.courseCode && course.name ? course.name : undefined
+  const clickable = !!course.htmlUrl
+  return (
+    <button
+      type="button"
+      onClick={() => openExternal(course.htmlUrl)}
+      disabled={!clickable}
+      title={course.name ? `${course.name} — open in Canvas` : 'Open in Canvas'}
+      className="group flex max-w-full items-center gap-2 rounded-xl2 px-3 py-2 text-left transition-all enabled:cursor-pointer enabled:hover:brightness-125 disabled:cursor-default"
+      style={{ backgroundColor: c.soft, border: `1px solid ${c.border}` }}
+    >
+      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: c.hue }} />
+      <span className="min-w-0">
+        <span
+          className="block truncate text-xs font-semibold"
+          style={{ color: c.hue }}
+        >
+          {label}
+        </span>
+        {sub && <span className="block max-w-[12rem] truncate text-[10px] text-txt-3">{sub}</span>}
+      </span>
+    </button>
+  )
+}
+
 function OverviewTab({
   data,
-  agenda
+  agenda,
+  courseName
 }: {
   data: CanvasDashboard
   agenda: AgendaItem[]
+  courseName: (id?: string) => string | undefined
 }): JSX.Element {
   return (
     <>
       <section className="mb-5">
-        <SectionHeading>Active courses</SectionHeading>
+        <SectionHeading count={data.courses.length}>Active courses</SectionHeading>
         {data.courses.length === 0 ? (
           <p className="text-xs text-txt-4">No active courses.</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {data.courses.map((c, i) => (
-              <span
-                key={c.id ?? `${c.name ?? 'course'}-${i}`}
-                title={c.name}
-                className="flex max-w-[14rem] items-center gap-1.5 truncate rounded-full border border-line bg-bg-elevated px-3 py-1 text-xs text-txt-2"
-              >
-                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${courseColor(c.id ?? c.name)} bg-current`} />
-                <span className="truncate">{c.courseCode || c.name || 'Course'}</span>
-              </span>
+              <CourseTile key={c.id ?? `${c.name ?? 'course'}-${i}`} course={c} />
             ))}
           </div>
         )}
       </section>
 
       <section>
-        <SectionHeading>Upcoming / To-do</SectionHeading>
+        <SectionHeading count={agenda.length || undefined}>Upcoming / To-do</SectionHeading>
         {agenda.length === 0 ? (
           <p className="text-xs text-txt-4">Nothing due. You&apos;re all caught up.</p>
         ) : (
           <div className="flex flex-col gap-2">
             {agenda.map((item) => (
-              <AgendaRow key={item.key} item={item} />
+              <AgendaRow key={item.key} item={item} courseLabel={courseName(item.courseId)} />
             ))}
           </div>
         )}
@@ -644,21 +737,98 @@ function OverviewTab({
   )
 }
 
-/* ── Course chip (shared by Assignments / Announcements / Calendar) ── */
+/* ── Course tag (shared by Assignments / Announcements / Calendar) ──
+ * A small course-colored pill identifying the owning class. */
 
 function CourseChip({ label, colorKey }: { label?: string; colorKey?: string }): JSX.Element | null {
   if (!label) return null
+  const c = courseColor(colorKey ?? label)
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-md bg-bg px-1.5 py-0.5 text-[10px] font-medium ${courseColor(colorKey ?? label)}`}
+      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium"
+      style={{ backgroundColor: c.soft, color: c.hue }}
     >
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: c.hue }} />
       <span className="max-w-[10rem] truncate">{label}</span>
     </span>
   )
 }
 
 /* ── Assignments tab ── */
+
+/** Due-date buckets for grouping the assignments list, in display order. */
+type DueBucket = 'overdue' | 'today' | 'week' | 'later' | 'none'
+
+const DUE_BUCKETS: Array<{ key: DueBucket; label: string; tone: 'err' | 'warn' | 'accent' | 'muted' }> = [
+  { key: 'overdue', label: 'Overdue', tone: 'err' },
+  { key: 'today', label: 'Today', tone: 'warn' },
+  { key: 'week', label: 'This week', tone: 'accent' },
+  { key: 'later', label: 'Later', tone: 'muted' },
+  { key: 'none', label: 'No due date', tone: 'muted' }
+]
+
+/** Classify a due date into a display bucket relative to now. */
+function dueBucket(iso?: string): DueBucket {
+  if (!iso) return 'none'
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return 'none'
+  const now = Date.now()
+  if (t < now) return 'overdue'
+  const endOfToday = new Date()
+  endOfToday.setHours(23, 59, 59, 999)
+  if (t <= endOfToday.getTime()) return 'today'
+  if (t <= now + 7 * MS_DAY) return 'week'
+  return 'later'
+}
+
+/** A single assignment row: lighter card with a course-colored left edge. */
+function AssignmentRow({
+  a,
+  label
+}: {
+  a: CanvasAssignment
+  label?: string
+}): JSX.Element {
+  const u = urgency(a.dueAt)
+  const c = courseColor(a.courseId ?? label)
+  return (
+    <button
+      type="button"
+      onClick={() => openExternal(a.htmlUrl)}
+      disabled={!a.htmlUrl}
+      className="flex w-full items-start gap-2.5 overflow-hidden rounded-lg border border-line bg-bg-elevated py-2.5 pr-3 text-left transition-colors enabled:hover:border-accent-ring disabled:cursor-default"
+      style={{ borderLeft: `3px solid ${c.hue}`, paddingLeft: 'calc(0.75rem - 3px)' }}
+    >
+      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${URGENCY_DOT[u]}`} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-txt-1">
+            {a.name ?? 'Untitled assignment'}
+          </span>
+          {a.hasSubmitted && (
+            <span className="shrink-0 rounded bg-bg px-1.5 py-0.5 text-[10px] font-medium text-ok">
+              Submitted
+            </span>
+          )}
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          <CourseChip label={label} colorKey={a.courseId ?? label} />
+          {a.dueAt ? (
+            <span className={URGENCY_TEXT[u]}>
+              {u === 'overdue' ? 'Overdue · ' : `Due ${relative(a.dueAt)} · `}
+              {formatWhen(a.dueAt)}
+            </span>
+          ) : (
+            <span className="text-txt-4">No due date</span>
+          )}
+          {typeof a.pointsPossible === 'number' && (
+            <span className="text-txt-4">· {a.pointsPossible} pts</span>
+          )}
+        </div>
+      </div>
+    </button>
+  )
+}
 
 function AssignmentsTab({
   meta,
@@ -675,47 +845,35 @@ function AssignmentsTab({
   if (items.length === 0)
     return <TabStatus kind="empty" message="No upcoming assignments. You're all caught up." />
 
+  // Group into due buckets (items arrive pre-sorted by due date from main).
+  const grouped = new Map<DueBucket, CanvasAssignment[]>()
+  for (const a of items) {
+    const b = dueBucket(a.dueAt)
+    const arr = grouped.get(b)
+    if (arr) arr.push(a)
+    else grouped.set(b, [a])
+  }
+
   return (
-    <div className="flex flex-col gap-2">
-      {items.map((a, i) => {
-        const u = urgency(a.dueAt)
-        const label = a.courseName ?? courseName(a.courseId)
+    <div className="flex flex-col gap-5">
+      {DUE_BUCKETS.map(({ key, label, tone }) => {
+        const group = grouped.get(key)
+        if (!group || group.length === 0) return null
         return (
-          <button
-            key={a.id ?? `${a.name ?? 'a'}-${i}`}
-            type="button"
-            onClick={() => openExternal(a.htmlUrl)}
-            disabled={!a.htmlUrl}
-            className="flex w-full items-start gap-2.5 rounded-lg border border-line bg-bg-elevated px-3 py-2.5 text-left transition-colors enabled:hover:border-accent-ring disabled:cursor-default"
-          >
-            <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${URGENCY_DOT[u]}`} />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-txt-1">
-                  {a.name ?? 'Untitled assignment'}
-                </span>
-                {a.hasSubmitted && (
-                  <span className="shrink-0 rounded bg-bg px-1.5 py-0.5 text-[10px] font-medium text-ok">
-                    Submitted
-                  </span>
-                )}
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                <CourseChip label={label} colorKey={a.courseId ?? label} />
-                {a.dueAt ? (
-                  <span className={URGENCY_TEXT[u]}>
-                    {u === 'overdue' ? 'Overdue · ' : `Due ${relative(a.dueAt)} · `}
-                    {formatWhen(a.dueAt)}
-                  </span>
-                ) : (
-                  <span className="text-txt-4">No due date</span>
-                )}
-                {typeof a.pointsPossible === 'number' && (
-                  <span className="text-txt-4">· {a.pointsPossible} pts</span>
-                )}
-              </div>
+          <section key={key}>
+            <SectionHeading count={group.length} tone={tone}>
+              {label}
+            </SectionHeading>
+            <div className="flex flex-col gap-2">
+              {group.map((a, i) => (
+                <AssignmentRow
+                  key={a.id ?? `${a.name ?? 'a'}-${i}`}
+                  a={a}
+                  label={a.courseName ?? courseName(a.courseId)}
+                />
+              ))}
             </div>
-          </button>
+          </section>
         )
       })}
     </div>
@@ -740,35 +898,44 @@ function GradesTab({ meta, items }: { meta: TabData; items: CanvasGrade[] }): JS
   if (items.length === 0) return <TabStatus kind="empty" message="No graded courses found." />
 
   return (
-    <div className="flex flex-col gap-2">
-      {items.map((g, i) => {
-        const hasScore = typeof g.score === 'number'
-        return (
-          <div
-            key={g.courseId ?? `${g.name ?? 'g'}-${i}`}
-            className="flex items-center gap-3 rounded-lg border border-line bg-bg-elevated px-3 py-2.5"
-          >
-            <span
-              className={`h-2 w-2 shrink-0 rounded-full ${courseColor(g.courseId ?? g.name)} bg-current`}
-            />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium text-txt-1">
-                {g.name ?? g.courseCode ?? 'Course'}
+    <>
+      <SectionHeading count={items.length}>Course grades</SectionHeading>
+      <div className="flex flex-col gap-2">
+        {items.map((g, i) => {
+          const hasScore = typeof g.score === 'number'
+          const c = courseColor(g.courseId ?? g.name)
+          return (
+            <button
+              key={g.courseId ?? `${g.name ?? 'g'}-${i}`}
+              type="button"
+              onClick={() => openExternal(g.htmlUrl)}
+              disabled={!g.htmlUrl}
+              title={g.htmlUrl ? 'Open course in Canvas' : undefined}
+              className="flex w-full items-center gap-3 overflow-hidden rounded-lg border border-line bg-bg-elevated py-2.5 pr-3 text-left transition-colors enabled:cursor-pointer enabled:hover:border-accent-ring disabled:cursor-default"
+              style={{ borderLeft: `3px solid ${c.hue}`, paddingLeft: 'calc(0.75rem - 3px)' }}
+            >
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: c.hue }} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-txt-1">
+                  {g.name ?? g.courseCode ?? 'Course'}
+                </div>
+                {g.courseCode && g.name && (
+                  <div className="truncate text-xs text-txt-4">{g.courseCode}</div>
+                )}
               </div>
-              {g.courseCode && g.name && (
-                <div className="truncate text-xs text-txt-4">{g.courseCode}</div>
-              )}
-            </div>
-            <div className="shrink-0 text-right">
-              <div className={`text-sm font-semibold tabular-nums ${scoreColor(g.score)}`}>
-                {hasScore ? `${g.score}%` : '—'}
+              <div className="flex shrink-0 items-baseline gap-1.5 text-right">
+                <span className={`text-lg font-bold tabular-nums ${scoreColor(g.score)}`}>
+                  {hasScore ? `${g.score}%` : '—'}
+                </span>
+                {g.grade && (
+                  <span className={`text-sm font-semibold ${scoreColor(g.score)}`}>{g.grade}</span>
+                )}
               </div>
-              {g.grade && <div className="text-xs text-txt-3">{g.grade}</div>}
-            </div>
-          </div>
-        )
-      })}
-    </div>
+            </button>
+          )
+        })}
+      </div>
+    </>
   )
 }
 
@@ -789,37 +956,42 @@ function AnnouncementsTab({
   if (items.length === 0) return <TabStatus kind="empty" message="No recent announcements." />
 
   return (
-    <div className="flex flex-col gap-2">
-      {items.map((a, i) => {
-        const label = courseName(a.courseId)
-        return (
-          <button
-            key={a.id ?? `${a.title ?? 'an'}-${i}`}
-            type="button"
-            onClick={() => openExternal(a.htmlUrl)}
-            disabled={!a.htmlUrl}
-            className="flex w-full flex-col items-start gap-1 rounded-lg border border-line bg-bg-elevated px-3 py-2.5 text-left transition-colors enabled:hover:border-accent-ring disabled:cursor-default"
-          >
-            <div className="flex w-full items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-sm font-medium text-txt-1">
-                {a.title ?? 'Announcement'}
-              </span>
-              {a.postedAt && (
-                <span className="shrink-0 text-xs text-txt-4" title={formatWhen(a.postedAt)}>
-                  {relative(a.postedAt)}
+    <>
+      <SectionHeading count={items.length}>Recent announcements</SectionHeading>
+      <div className="flex flex-col gap-2">
+        {items.map((a, i) => {
+          const label = courseName(a.courseId)
+          const c = courseColor(a.courseId ?? label)
+          return (
+            <button
+              key={a.id ?? `${a.title ?? 'an'}-${i}`}
+              type="button"
+              onClick={() => openExternal(a.htmlUrl)}
+              disabled={!a.htmlUrl}
+              className="flex w-full flex-col items-start gap-1 overflow-hidden rounded-lg border border-line bg-bg-elevated py-2.5 pr-3 text-left transition-colors enabled:hover:border-accent-ring disabled:cursor-default"
+              style={{ borderLeft: `3px solid ${c.hue}`, paddingLeft: 'calc(0.75rem - 3px)' }}
+            >
+              <div className="flex w-full items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-txt-1">
+                  {a.title ?? 'Announcement'}
                 </span>
+                {a.postedAt && (
+                  <span className="shrink-0 text-xs text-txt-4" title={formatWhen(a.postedAt)}>
+                    {relative(a.postedAt)}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <CourseChip label={label} colorKey={a.courseId ?? label} />
+              </div>
+              {a.message && (
+                <p className="line-clamp-2 text-xs leading-relaxed text-txt-3">{a.message}</p>
               )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <CourseChip label={label} colorKey={a.courseId ?? label} />
-            </div>
-            {a.message && (
-              <p className="line-clamp-2 text-xs leading-relaxed text-txt-3">{a.message}</p>
-            )}
-          </button>
-        )
-      })}
-    </div>
+            </button>
+          )
+        })}
+      </div>
+    </>
   )
 }
 
@@ -863,18 +1035,22 @@ function CalendarTab({
     <div className="flex flex-col gap-4">
       {groups.map((group) => (
         <section key={group.day}>
-          <SectionHeading>{group.iso ? formatDate(group.iso) : 'No date'}</SectionHeading>
+          <SectionHeading count={group.events.length}>
+            {group.iso ? formatDate(group.iso) : 'No date'}
+          </SectionHeading>
           <div className="flex flex-col gap-2">
             {group.events.map((ev, i) => {
               const label = courseName(ev.courseId)
               const isAssignment = ev.type === 'assignment'
+              const c = courseColor(ev.courseId ?? label)
               return (
                 <button
                   key={ev.id ?? `${ev.title ?? 'ev'}-${i}`}
                   type="button"
                   onClick={() => openExternal(ev.htmlUrl)}
                   disabled={!ev.htmlUrl}
-                  className="flex w-full items-start gap-2.5 rounded-lg border border-line bg-bg-elevated px-3 py-2.5 text-left transition-colors enabled:hover:border-accent-ring disabled:cursor-default"
+                  className="flex w-full items-start gap-2.5 overflow-hidden rounded-lg border border-line bg-bg-elevated py-2.5 pr-3 text-left transition-colors enabled:hover:border-accent-ring disabled:cursor-default"
+                  style={{ borderLeft: `3px solid ${c.hue}`, paddingLeft: 'calc(0.75rem - 3px)' }}
                 >
                   <span
                     className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${isAssignment ? 'bg-warn' : 'bg-accent'}`}

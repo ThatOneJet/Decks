@@ -249,7 +249,7 @@ export class CanvasClient implements ProviderClient {
 
   private async fetchCourses(
     creds: CanvasCreds
-  ): Promise<Array<{ id?: string; name?: string; courseCode?: string }>> {
+  ): Promise<Array<{ id?: string; name?: string; courseCode?: string; htmlUrl?: string }>> {
     const data = (await this.apiGet(
       creds,
       '/api/v1/courses?enrollment_state=active&per_page=50'
@@ -257,10 +257,12 @@ export class CanvasClient implements ProviderClient {
     if (!Array.isArray(data)) return []
     return data.map((c) => {
       const course = c as { id?: unknown; name?: unknown; course_code?: unknown }
+      const id = asId(course.id)
       return {
-        id: asId(course.id),
+        id,
         name: typeof course.name === 'string' ? course.name : undefined,
-        courseCode: typeof course.course_code === 'string' ? course.course_code : undefined
+        courseCode: typeof course.course_code === 'string' ? course.course_code : undefined,
+        htmlUrl: id ? `${creds.instanceUrl}/courses/${id}` : undefined
       }
     })
   }
@@ -310,7 +312,14 @@ export class CanvasClient implements ProviderClient {
   private async fetchUpcoming(
     creds: CanvasCreds
   ): Promise<
-    Array<{ id?: string; title?: string; startAt?: string; type?: string; htmlUrl?: string }>
+    Array<{
+      id?: string
+      title?: string
+      startAt?: string
+      type?: string
+      courseId?: string
+      htmlUrl?: string
+    }>
   > {
     const data = (await this.apiGet(creds, '/api/v1/users/self/upcoming_events')) as unknown
     if (!Array.isArray(data)) return []
@@ -320,13 +329,16 @@ export class CanvasClient implements ProviderClient {
         title?: unknown
         start_at?: unknown
         type?: unknown
+        context_code?: unknown
         html_url?: unknown
       }
+      const ctx = typeof ev.context_code === 'string' ? ev.context_code : ''
       return {
         id: asId(ev.id),
         title: typeof ev.title === 'string' ? ev.title : undefined,
         startAt: typeof ev.start_at === 'string' ? ev.start_at : undefined,
         type: typeof ev.type === 'string' ? ev.type : undefined,
+        courseId: ctx.startsWith('course_') ? ctx.slice('course_'.length) : undefined,
         htmlUrl: typeof ev.html_url === 'string' ? ev.html_url : undefined
       }
     })
@@ -340,6 +352,7 @@ export class CanvasClient implements ProviderClient {
       courseCode?: string
       score?: number
       grade?: string
+      htmlUrl?: string
     }>
   > {
     const data = (await this.apiGet(
@@ -358,12 +371,14 @@ export class CanvasClient implements ProviderClient {
         }>
       }
       const enr = Array.isArray(course.enrollments) ? course.enrollments[0] : undefined
+      const courseId = asId(course.id)
       return {
-        courseId: asId(course.id),
+        courseId,
         name: typeof course.name === 'string' ? course.name : undefined,
         courseCode: typeof course.course_code === 'string' ? course.course_code : undefined,
         score: asNum(enr?.computed_current_score),
-        grade: typeof enr?.computed_current_grade === 'string' ? enr.computed_current_grade : undefined
+        grade: typeof enr?.computed_current_grade === 'string' ? enr.computed_current_grade : undefined,
+        htmlUrl: courseId ? `${creds.instanceUrl}/courses/${courseId}` : undefined
       }
     })
   }
