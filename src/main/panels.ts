@@ -104,10 +104,10 @@ function isYouTube(url: string): boolean {
   }
 }
 
-// ── Mini-player corner geometry ──
-const MINI_WIDTH = 320
-const MINI_HEIGHT = 180
-const MINI_MARGIN = 16
+// ── Mini-player bar geometry (just the control strip — no corner video) ──
+const BAR_WIDTH = 340
+const BAR_HEIGHT = 60
+const BAR_MARGIN = 14
 
 /**
  * Page-injected metadata/playstate sentinel prefix. The injected script (which
@@ -139,6 +139,7 @@ const MP_INJECT_SCRIPT = `(() => {
         artist: md ? (md.artist || '') : '',
         artwork: art,
         paused: v ? !!v.paused : true,
+        loop: v ? !!v.loop : false,
         currentTime: v ? (v.currentTime || 0) : 0,
         duration: v && isFinite(v.duration) ? v.duration : 0
       };
@@ -243,7 +244,7 @@ export class PanelManager {
       let victim: PanelId | null = null
       let oldest = Infinity
       for (const [id, entry] of this.panels) {
-        if (entry.attached || this.keepAlive.has(id)) continue
+        if (entry.attached || this.keepAlive.has(id) || id === this.miniPanelId) continue
         try {
           if (entry.view.webContents.isCurrentlyAudible()) continue
         } catch {
@@ -424,12 +425,14 @@ export class PanelManager {
           artist?: string
           artwork?: string
           paused?: boolean
+          loop?: boolean
         }
         const meta: MiniPlayerMeta = {
           title: data.title || '',
           artist: data.artist || '',
           artwork: data.artwork || undefined,
-          paused: !!data.paused
+          paused: !!data.paused,
+          loop: !!data.loop
         }
         const e = this.panels.get(panelId)
         if (e) e.meta = meta
@@ -549,41 +552,6 @@ export class PanelManager {
     entry.view.setVisible(true)
   }
 
-  /**
-   * Force a view to the TOP of the z-order. addChildView only raises when the
-   * view isn't already a child, so an already-attached view (e.g. the corner
-   * mini-player that was the active deck a moment ago) must be removed and
-   * re-added to actually rise above the just-attached workspace panels.
-   */
-  private raise(entry: PanelEntry): void {
-    if (!this.window || this.window.isDestroyed()) return
-    try {
-      if (entry.attached) this.window.contentView.removeChildView(entry.view)
-    } catch {
-      /* ignore */
-    }
-    this.window.contentView.addChildView(entry.view)
-    entry.attached = true
-    entry.view.setVisible(true)
-  }
-
-  /**
-   * Nudge a freshly-resized view to repaint. A WebContentsView whose bounds jump
-   * (full deck → tiny corner) can show a stale/blank grey frame until the next
-   * compositor frame; re-applying the bounds on the next tick forces one.
-   */
-  private repaintNudge(entry: PanelEntry, bounds: PanelBounds): void {
-    setTimeout(() => {
-      try {
-        if (entry.view.webContents.isDestroyed()) return
-        entry.view.setBounds(this.toIntBounds(bounds))
-        entry.view.setVisible(true)
-      } catch {
-        /* ignore */
-      }
-    }, 60)
-  }
-
   /** Detach a view from the window and hide/zero it. */
   private detach(entry: PanelEntry): void {
     try {
@@ -607,46 +575,49 @@ export class PanelManager {
     const show = new Set(payload.panelIds)
     const now = Date.now()
 
-    // ── Decide who (if anyone) should remain as a corner mini-player ──
-    // A panel qualifies when it is a YouTube view, currently audible, and NOT in
-    // the incoming show-set (the user is switching AWAY from it while it plays).
-    const nextMini = this.pickMiniCandidate(show)
-    // If the existing mini panel is being shown again (user returned) or it no
-    // longer qualifies, it must be torn down below; only keep it if it's still
-    // the chosen mini AND not in the show-set.
-    if (this.miniPanelId && (show.has(this.miniPanelId) || this.miniPanelId !== nextMini)) {
-      this.endMiniPlayer()
-    }
-
-    // Detach everything not in the show set first; mark it hidden for the sweep.
-    // EXCEPTION: the chosen mini-player panel stays attached (sized to the corner
-    // afterwards), so it keeps playing as a real, watchable corner video.
+    // Detach everything not in the show set. A mini-player deck just stays hidden
+    // here — it keeps playing audio while the floating bar shows its controls; we
+    // never show the actual video.
     for (const [id, entry] of this.panels) {
       if (show.has(id)) continue
-      if (id === nextMini) continue
       this.detach(entry)
       if (entry.hiddenSince == null) entry.hiddenSince = now
     }
 
-    // Attach + position the requested panels, honoring the array's z-order
-    // (later entries are added last → drawn on top). Recreate any discarded ones.
+    // Attach + position the requested panels (z-order = array order). Recreate any
+    // discarded ones.
     for (const id of payload.panelIds) {
       const entry = this.ensureLive(id)
       if (!entry) continue
       const b = payload.bounds[id]
       this.attach(entry)
-      // Shown ⇒ active and no longer hidden.
       entry.lastActiveAt = now
       entry.hiddenSince = null
       if (b) entry.view.setBounds(this.toIntBounds(b))
     }
 
-    // Activate / re-raise the corner mini-player LAST so it stays on top.
-    if (nextMini) this.activateMini(nextMini)
+    this.refreshMini(show)
   }
 
   /**
-   * Pick the panel that should be the corner mini-player: the first YouTube view
+   * Keep / pick / refresh the corner mini-player BAR. The bar shows now-playing
+   * controls for an audible YouTube deck you've switched away from (the deck
+   * itself stays hidden — audio keeps playing). An active mini stays until you
+   * RETURN to that deck (it enters `show`) or its view is gone; audible state only
+   * PICKS a new mini, it never ends one.
+   */
+  private refreshMini(show: Set<PanelId>): void {
+    let mini = this.miniPanelId
+    if (mini && (show.has(mini) || !this.panels.has(mini))) {
+      this.endMiniPlayer()
+      mini = null
+    }
+    if (!mini) mini = this.pickMiniCandidate(show)
+    if (mini) this.activateMini(mini)
+  }
+
+  /**
+   * Pick the panel that should become the mini-player: the first YouTube view
    * that is currently audible and NOT in the `show` set (the user is switching
    * away from it while it plays). Returns null if none qualifies.
    */
@@ -666,68 +637,53 @@ export class PanelManager {
   }
 
   /**
-   * Corner + raise a panel as the mini-player and (re)draw the overlay control
-   * bar. addChildView raises to the top of z-order, so the corner video is never
-   * covered. Shared by showOnly() and hideAll().
+   * Make a panel the mini-player and (re)draw the floating overlay control bar.
+   * The deck's view is NOT shown — it stays hidden and keeps playing audio; only
+   * the bar (artwork + title + poster + controls) is drawn. Idempotent: called on
+   * every showOnly/hideAll to keep the bar pinned + positioned.
    */
   private activateMini(panelId: PanelId): void {
     const entry = this.panels.get(panelId)
     if (!entry) return
-    const rect = this.cornerRect()
-    this.raise(entry)
-    entry.view.setBounds(rect)
-    // Re-apply bounds next tick so the shrunk view actually repaints (avoids the
-    // blank grey frame).
-    this.repaintNudge(entry, rect)
-    entry.lastActiveAt = Date.now()
-    entry.hiddenSince = null
     this.miniPanelId = panelId
     const meta = entry.meta ?? { title: '', artist: '', paused: false }
-    this.miniHooks?.onStart(rect, meta)
+    this.miniHooks?.onStart(this.barRect(), meta)
   }
 
   /**
-   * The mini-player rectangle. Defaults to the bottom-right corner; once the user
-   * has dragged it, uses the remembered `miniPos` (clamped to stay on-screen,
-   * leaving room for the control strip below the video).
+   * The floating bar's rectangle. Defaults to the TOP-RIGHT corner; once the user
+   * has dragged it, uses the remembered `miniPos` (clamped on-screen). Fixed size
+   * — it never grows.
    */
-  private cornerRect(): PanelBounds {
+  private barRect(): PanelBounds {
     const c = this.window?.getContentBounds()
-    const w = c?.width ?? MINI_WIDTH + MINI_MARGIN * 2
-    const h = c?.height ?? MINI_HEIGHT + MINI_MARGIN * 2
-    // Reserve space under the video for the ~54px control strip + margin.
-    const STRIP = 54
-    const maxX = Math.max(0, w - MINI_WIDTH - MINI_MARGIN)
-    const maxY = Math.max(0, h - MINI_HEIGHT - STRIP - MINI_MARGIN)
-    let x = w - MINI_WIDTH - MINI_MARGIN
-    let y = h - MINI_HEIGHT - STRIP - MINI_MARGIN
+    const w = c?.width ?? BAR_WIDTH + BAR_MARGIN * 2
+    const h = c?.height ?? BAR_HEIGHT + BAR_MARGIN * 2
+    const maxX = Math.max(0, w - BAR_WIDTH - BAR_MARGIN)
+    const maxY = Math.max(0, h - BAR_HEIGHT - BAR_MARGIN)
+    let x = maxX // right
+    let y = BAR_MARGIN // top
     if (this.miniPos) {
-      x = Math.min(Math.max(this.miniPos.x, MINI_MARGIN), maxX)
-      y = Math.min(Math.max(this.miniPos.y, MINI_MARGIN), maxY)
+      x = Math.min(Math.max(this.miniPos.x, BAR_MARGIN), maxX)
+      y = Math.min(Math.max(this.miniPos.y, BAR_MARGIN), maxY)
     }
-    return this.toIntBounds({ x, y, width: MINI_WIDTH, height: MINI_HEIGHT })
+    return this.toIntBounds({ x, y, width: BAR_WIDTH, height: BAR_HEIGHT })
   }
 
-  /** Begin a drag: snapshot the current corner top-left as the delta anchor. */
+  /** Begin a drag: snapshot the bar's current top-left as the delta anchor. */
   miniMoveStart(): void {
-    const r = this.cornerRect()
+    const r = this.barRect()
     this.miniDragAnchor = { x: r.x, y: r.y }
   }
 
-  /**
-   * Move the mini-player by a screen-pixel delta from the drag anchor. Repositions
-   * the corner video and tells the overlay to move the control strip with it.
-   */
+  /** Move the bar by a screen-pixel delta from the drag anchor (fixed size). */
   miniMove(dx: number, dy: number): void {
     if (!this.miniPanelId) return
-    const anchor = this.miniDragAnchor ?? { x: this.cornerRect().x, y: this.cornerRect().y }
+    const anchor = this.miniDragAnchor ?? { x: this.barRect().x, y: this.barRect().y }
     this.miniPos = { x: anchor.x + dx, y: anchor.y + dy }
     const entry = this.panels.get(this.miniPanelId)
-    if (!entry) return
-    const rect = this.cornerRect()
-    entry.view.setBounds(rect)
-    const meta = entry.meta ?? { title: '', artist: '', paused: false }
-    this.miniHooks?.onStart(rect, meta)
+    const meta = entry?.meta ?? { title: '', artist: '', paused: false }
+    this.miniHooks?.onStart(this.barRect(), meta)
   }
 
   /** End a drag. */
@@ -736,21 +692,12 @@ export class PanelManager {
   }
 
   /**
-   * Tear down the corner mini-player: detach/hide the view (back to a normal
-   * hidden panel, eligible for the sweep again) and tell the overlay to hide the
-   * control bar. Safe to call when no mini-player is active.
+   * Clear the mini-player and hide the bar. The deck's view stays hidden (it's
+   * detached/attached by the normal showOnly flow). Safe when none is active.
    */
   private endMiniPlayer(): void {
-    const id = this.miniPanelId
-    if (!id) return
+    if (!this.miniPanelId) return
     this.miniPanelId = null
-    const entry = this.panels.get(id)
-    if (entry && !entry.attached) {
-      // Already detached by the showOnly sweep — nothing to do for the view.
-    } else if (entry) {
-      this.detach(entry)
-      if (entry.hiddenSince == null) entry.hiddenSince = Date.now()
-    }
     this.miniHooks?.onEnd()
   }
 
@@ -776,6 +723,24 @@ export class PanelManager {
   miniPause(): void {
     void this.miniWc()
       ?.executeJavaScript("document.querySelector('video')?.pause()")
+      .catch(() => {})
+  }
+
+  /** Toggle loop on the current video. STABLE (web-standard HTMLMediaElement). */
+  miniToggleLoop(): void {
+    const wc = this.miniWc()
+    if (!wc) return
+    void wc
+      .executeJavaScript(
+        "(()=>{var v=document.querySelector('video');if(v){v.loop=!v.loop;return v.loop;}return false;})()"
+      )
+      .then((looped: unknown) => {
+        const e = this.miniPanelId ? this.panels.get(this.miniPanelId) : null
+        if (e?.meta) {
+          e.meta = { ...e.meta, loop: !!looped }
+          this.miniHooks?.onUpdate(e.meta)
+        }
+      })
       .catch(() => {})
   }
 
@@ -820,17 +785,14 @@ export class PanelManager {
   /** Detach/hide every panel so pure-renderer UI is fully visible. */
   hideAll(): void {
     const now = Date.now()
-    // Keep an audible YouTube deck cornered even when everything is hidden — e.g.
-    // going Home, switching to a native-only workspace, or opening the palette.
-    // (Without this, those paths used to silently drop the mini-player.)
-    const nextMini = this.pickMiniCandidate(new Set())
-    if (this.miniPanelId && this.miniPanelId !== nextMini) this.endMiniPlayer()
-    for (const [id, entry] of this.panels) {
-      if (id === nextMini) continue
+    // Detach everything (a mini-player deck stays hidden but keeps its audio +
+    // bar). Without refreshing the mini here, going Home / to a native-only
+    // workspace / opening the palette used to silently drop the bar.
+    for (const entry of this.panels.values()) {
       this.detach(entry)
       if (entry.hiddenSince == null) entry.hiddenSince = now
     }
-    if (nextMini) this.activateMini(nextMini)
+    this.refreshMini(new Set())
   }
 
   // ── Discard manager ─────────────────────────────────────────────────────
@@ -854,6 +816,8 @@ export class PanelManager {
       if (entry.hiddenSince == null || entry.attached) continue
       // Keep-alive panels are pinned by the user — never discard them.
       if (this.keepAlive.has(id)) continue
+      // The active mini-player's deck must stay alive (its bar drives it).
+      if (id === this.miniPanelId) continue
       // Audible playback pins the panel even while hidden.
       try {
         if (entry.view.webContents.isCurrentlyAudible()) {

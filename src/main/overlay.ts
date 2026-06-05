@@ -30,11 +30,6 @@ const OVERLAY_HEIGHT = 200
 const MENU_WIDTH = 240
 const MENU_HEIGHT = 320
 
-/** Height of the mini-player control strip drawn under the corner video. */
-const MINI_BAR_HEIGHT = 48
-/** Vertical gap between the corner video and the control strip. */
-const MINI_BAR_GAP = 6
-
 export interface OverlayController {
   showHover(payload: HoverShowPayload): void
   hideHover(): void
@@ -119,28 +114,19 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
   }
 
   /**
-   * Position+size the window for the mini-player control strip and (re)show it.
-   * The strip spans the corner video's width and sits just below it. Window-
-   * relative rect → screen coords the same way showHover does, clamped to the
-   * parent's content area. Interactive (buttons) but never steals focus.
+   * Position+size the window to the mini-player BAR rect (main computes it —
+   * top-right by default, or wherever the user dragged it). `miniRect` IS the bar
+   * rect (window-relative); convert to screen coords like showHover does and set
+   * the window bounds exactly. Fixed size — never grows. Interactive but never
+   * steals focus.
    */
   const showMiniBar = (): void => {
     if (!alive() || parent.isDestroyed() || !miniRect || !miniMeta) return
     const content = parent.getContentBounds()
-    const barW = miniRect.width
-    const barH = MINI_BAR_HEIGHT
-    // Place the strip just under the corner video; if it would overflow the
-    // bottom, tuck it back up to sit flush against the content bottom edge.
-    let relX = miniRect.x
-    let relY = miniRect.y + miniRect.height + MINI_BAR_GAP
-    if (relY + barH > content.height) relY = content.height - barH
-    if (relX + barW > content.width) relX = content.width - barW
-    const screenX = Math.round(content.x + Math.max(0, relX))
-    const screenY = Math.round(content.y + Math.max(0, relY))
-    win.setSize(barW, barH)
-    win.setPosition(screenX, screenY)
+    const screenX = Math.round(content.x + Math.max(0, miniRect.x))
+    const screenY = Math.round(content.y + Math.max(0, miniRect.y))
+    win.setBounds({ x: screenX, y: screenY, width: miniRect.width, height: miniRect.height })
     sendMini({ show: true, meta: miniMeta })
-    // Interactive buttons need mouse events, but never steal focus from the video.
     win.setIgnoreMouseEvents(false)
     win.showInactive()
   }

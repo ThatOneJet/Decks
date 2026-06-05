@@ -222,6 +222,8 @@ export interface MiniPlayerMeta {
   artwork?: string
   /** True while playback is paused. */
   paused: boolean
+  /** True while the corner video is set to loop. */
+  loop?: boolean
 }
 
 /** event: OverlayMiniPlayer (main → the overlay window). */
@@ -232,7 +234,7 @@ export interface OverlayMiniPlayerEvent {
 
 /** payload: MiniPlayerControl (overlay → main). A control button / drag event. */
 export interface MiniPlayerControlEvent {
-  action: 'play' | 'pause' | 'next' | 'prev' | 'close' | 'move-start' | 'move' | 'move-end'
+  action: 'play' | 'pause' | 'next' | 'prev' | 'loop' | 'close' | 'move-start' | 'move' | 'move-end'
   /** Optional seek target (seconds), for action === 'play'/'pause' scrubbing. */
   time?: number
   /** For action === 'move': drag delta (screen px) since 'move-start'. */

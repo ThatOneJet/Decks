@@ -237,6 +237,9 @@ function registerIpc(): void {
       case 'prev':
         panels.miniPrevious()
         break
+      case 'loop':
+        panels.miniToggleLoop()
+        break
       case 'close': {
         // "Close" = this isn't a song, let me actually watch it. Tell the MAIN
         // renderer to focus the deck; it owns workspace state and will activate
