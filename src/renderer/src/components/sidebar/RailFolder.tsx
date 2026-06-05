@@ -69,7 +69,7 @@ export default function RailFolder({
             setRenaming(true)
           }}
           title={`${name} · ${members.length} workspace${members.length === 1 ? '' : 's'}`}
-          className={`grid h-11 w-11 grid-cols-2 grid-rows-2 gap-0.5 overflow-hidden bg-bg-elevated p-1 transition-all duration-150 ${
+          className={`grid h-9 w-9 grid-cols-2 grid-rows-2 gap-0.5 overflow-hidden bg-bg-elevated p-1 transition-all duration-150 ${
             open ? 'rounded-xl' : 'rounded-2xl hover:rounded-xl'
           } ${dropOver ? 'rounded-xl' : ''}`}
           style={

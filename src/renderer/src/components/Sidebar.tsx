@@ -220,7 +220,7 @@ function Sidebar(): JSX.Element {
       <button
         onClick={openAddDeck}
         title={`Add a deck (${MOD === '⌘' ? '⌘N' : 'Ctrl+N'})`}
-        className="grid h-11 w-11 place-items-center rounded-2xl bg-bg-elevated text-2xl font-light leading-none text-txt-3 transition-all duration-150 hover:rounded-xl hover:bg-accent-soft hover:text-accent"
+        className="grid h-9 w-9 place-items-center rounded-2xl bg-bg-elevated text-2xl font-light leading-none text-txt-3 transition-all duration-150 hover:rounded-xl hover:bg-accent-soft hover:text-accent"
       >
         +
       </button>
@@ -228,7 +228,7 @@ function Sidebar(): JSX.Element {
       <button
         onClick={goHome}
         title="Home"
-        className={`grid h-11 w-11 place-items-center rounded-2xl transition-all duration-150 hover:rounded-xl ${
+        className={`grid h-9 w-9 place-items-center rounded-2xl transition-all duration-150 hover:rounded-xl ${
           view === 'home' ? 'bg-accent-soft text-accent' : 'bg-bg-elevated text-txt-3 hover:text-txt-1'
         }`}
       >
@@ -241,7 +241,7 @@ function Sidebar(): JSX.Element {
       <button
         onClick={openSettings}
         title="Settings"
-        className={`grid h-11 w-11 place-items-center rounded-2xl transition-all duration-150 hover:rounded-xl ${
+        className={`grid h-9 w-9 place-items-center rounded-2xl transition-all duration-150 hover:rounded-xl ${
           view === 'settings' ? 'bg-accent-soft text-accent' : 'bg-bg-elevated text-txt-3 hover:text-txt-1'
         }`}
       >

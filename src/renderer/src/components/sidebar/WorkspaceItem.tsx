@@ -114,7 +114,7 @@ export default function RailTile({
           openMenu()
         }}
         title={hoverDetails}
-        className={`relative grid h-11 w-11 place-items-center overflow-hidden bg-bg-elevated transition-all duration-200 ease-out group-hover:translate-x-1.5 ${
+        className={`relative grid h-9 w-9 place-items-center overflow-hidden bg-bg-elevated transition-all duration-200 ease-out group-hover:translate-x-1.5 ${
           active ? 'translate-x-1 rounded-xl' : 'rounded-2xl group-hover:rounded-xl'
         } ${dragging ? 'scale-90 opacity-40' : ''} ${dropOver ? 'rounded-xl' : ''}`}
         style={dropOver ? { outline: '2px solid #7c5cff', outlineOffset: '1px' } : undefined}

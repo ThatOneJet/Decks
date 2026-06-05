@@ -48,13 +48,16 @@ export function logoFor(url: string): string {
 export function iconCandidates(url: string, liveFavicon?: string): string[] {
   const host = hostOf(url)
   if (!host) return liveFavicon ? [liveFavicon] : []
+  // Prefer the site's actual FAVICON (designed as a full-bleed app icon — fills
+  // the square, no letterboxing) over brand-logo services (Clearbit/unavatar
+  // often return padded/letterboxed images that show dark bars). DuckDuckGo and
+  // Google s2 @128 are crisp and square for major brands.
   return [
-    `https://logo.clearbit.com/${host}?size=128`,
-    `https://icon.horse/icon/${host}`,
-    `https://unavatar.io/${host}?fallback=false`,
-    liveFavicon || '',
     `https://icons.duckduckgo.com/ip3/${host}.ico`,
-    faviconFor(url, 128)
+    `https://www.google.com/s2/favicons?domain=${host}&sz=128`,
+    liveFavicon || '',
+    `https://icon.horse/icon/${host}`,
+    `https://logo.clearbit.com/${host}?size=128`
   ].filter(Boolean)
 }
 
