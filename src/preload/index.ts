@@ -15,6 +15,7 @@ import type {
   PanelSetBoundsPayload,
   PanelShowOnlyPayload,
   PanelUpdateEvent,
+  PanelDiscardStateEvent,
   WorkspaceContextMenuPayload,
   WorkspaceMenuActionEvent
 } from '@shared/ipc'
@@ -36,6 +37,9 @@ const api: DecksApi = {
     load: () => ipcRenderer.invoke(IPC.StateLoad),
     save: (state: PersistedState) => ipcRenderer.invoke(IPC.StateSave, state)
   },
+  metrics: {
+    get: () => ipcRenderer.invoke(IPC.MetricsGet)
+  },
   window: {
     minimize: () => ipcRenderer.send(IPC.WindowMinimize),
     maximize: () => ipcRenderer.send(IPC.WindowMaximize),
@@ -53,6 +57,11 @@ const api: DecksApi = {
     const listener = (_: unknown, e: WorkspaceMenuActionEvent): void => cb(e)
     ipcRenderer.on(IPC.WorkspaceMenuAction, listener)
     return () => ipcRenderer.removeListener(IPC.WorkspaceMenuAction, listener)
+  },
+  onPanelDiscardState: (cb: (e: PanelDiscardStateEvent) => void) => {
+    const listener = (_: unknown, e: PanelDiscardStateEvent): void => cb(e)
+    ipcRenderer.on(IPC.PanelDiscardState, listener)
+    return () => ipcRenderer.removeListener(IPC.PanelDiscardState, listener)
   }
 }
 

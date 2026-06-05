@@ -30,6 +30,10 @@ export const IPC = {
   StateLoad: 'state:load',
   StateSave: 'state:save',
 
+  // ── Process metrics — renderer → main (invoke) ──
+  /** Total RAM + live/discarded panel counts for the sidebar readout. */
+  MetricsGet: 'metrics:get',
+
   // ── Window controls — renderer → main (send) ──
   WindowMinimize: 'window:minimize',
   WindowMaximize: 'window:maximize',
@@ -42,7 +46,12 @@ export const IPC = {
   /** A panel's live WebContents changed (title/url/favicon/loading/nav state). */
   PanelUpdate: 'panel:update',
   /** A native workspace menu item was chosen. */
-  WorkspaceMenuAction: 'workspace:menu-action'
+  WorkspaceMenuAction: 'workspace:menu-action',
+  /**
+   * The discard manager freed a panel's renderer (event carries the saved URL),
+   * or recreated it on return (discarded:false). Renderer applies via patchPanel.
+   */
+  PanelDiscardState: 'panel:discard-state'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
@@ -104,6 +113,25 @@ export interface PanelUpdateEvent {
   }
 }
 
+/** event: PanelDiscardState (main → renderer) */
+export interface PanelDiscardStateEvent {
+  panelId: PanelId
+  /** True = renderer was discarded (free RAM); false = view recreated on return. */
+  discarded: boolean
+  /** The saved URL to reload on return. Only meaningful when discarded === true. */
+  url?: string
+}
+
+/** result: MetricsGet (main → renderer) */
+export interface MetricsResult {
+  /** Summed workingSetSize across all app processes, in MB. */
+  ramMB: number
+  /** Number of live WebContentsViews (renderer processes for panels). */
+  liveRenderers: number
+  /** Number of panels currently discarded (renderer freed, URL remembered). */
+  discarded: number
+}
+
 /**
  * The full API surface exposed on `window.decks` by the preload.
  * Renderer code depends ONLY on this interface.
@@ -124,6 +152,10 @@ export interface DecksApi {
     load(): Promise<PersistedState | null>
     save(state: PersistedState): Promise<void>
   }
+  metrics: {
+    /** Total RAM + live/discarded panel counts for the sidebar readout. */
+    get(): Promise<MetricsResult>
+  }
   window: {
     minimize(): void
     maximize(): void
@@ -137,4 +169,6 @@ export interface DecksApi {
   onPanelUpdate(cb: (e: PanelUpdateEvent) => void): () => void
   /** Subscribe to native workspace-menu choices. Returns an unsubscribe fn. */
   onWorkspaceMenuAction(cb: (e: WorkspaceMenuActionEvent) => void): () => void
+  /** Subscribe to discard/recreate state changes. Returns an unsubscribe fn. */
+  onPanelDiscardState(cb: (e: PanelDiscardStateEvent) => void): () => void
 }

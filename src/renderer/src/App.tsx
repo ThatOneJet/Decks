@@ -63,11 +63,16 @@ function App(): JSX.Element {
 
   // ── 2. Ensure every panel of the active workspace exists as a native view. ──
   // SplitView reports slot rects via showOnly; the view must exist first.
+  // LAZY: views are created only when a workspace is active — nothing at boot,
+  // and never for inactive workspaces. Discarded panels are intentionally NOT
+  // recreated here; main recreates them automatically when SplitView's showOnly
+  // references them, so they stay freed until actually shown.
   useEffect(() => {
     if (view !== 'workspace' || !activeWorkspaceId) return
     const ws = workspaces.find((w) => w.id === activeWorkspaceId)
     if (!ws) return
     for (const panel of ws.panels) {
+      if (panel.discarded) continue
       if (createdPanels.current.has(panel.id)) continue
       createdPanels.current.add(panel.id)
       window.decks?.panel
@@ -86,6 +91,23 @@ function App(): JSX.Element {
   useEffect(() => {
     const off = window.decks?.onPanelUpdate(({ panelId, patch }) => {
       patchPanel(panelId, patch)
+    })
+    return () => off?.()
+  }, [patchPanel])
+
+  // ── 3b. Discard/recreate state from the main-process discard manager. ──
+  // On discard: mark the panel discarded with its saved URL (persists across
+  // restart). On recreate (return): clear the flag. `createdPanels` is updated
+  // so effect 2's idempotence stays in sync with main's actual view set.
+  useEffect(() => {
+    const off = window.decks?.onPanelDiscardState(({ panelId, discarded, url }) => {
+      if (discarded) {
+        createdPanels.current.delete(panelId)
+        patchPanel(panelId, url ? { discarded: true, url } : { discarded: true })
+      } else {
+        createdPanels.current.add(panelId)
+        patchPanel(panelId, { discarded: false })
+      }
     })
     return () => off?.()
   }, [patchPanel])

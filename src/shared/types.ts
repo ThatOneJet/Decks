@@ -25,6 +25,12 @@ export interface Panel {
   badge?: number
   /** REAL media state — true while a media element is actively playing in the deck. */
   playing?: boolean
+  /**
+   * True when the panel's renderer process has been discarded to free RAM. Its
+   * WebContentsView no longer exists; the saved `url` is reloaded automatically
+   * the next time the panel is shown. Persists across restarts via the store.
+   */
+  discarded?: boolean
 }
 
 /**

@@ -5,6 +5,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store'
+import type { MetricsResult } from '@shared/ipc'
 import RailTile, { DECKS_WS_DND } from './sidebar/WorkspaceItem'
 import RailFolder from './sidebar/RailFolder'
 import WorkspaceEditModal from './sidebar/WorkspaceEditModal'
@@ -42,6 +43,43 @@ function buildRail(workspaces: Workspace[]): RailEntry[] {
 }
 
 const EMPTY_LAYOUT: LayoutNode = { type: 'leaf', panelId: '' }
+
+/**
+ * Quiet RAM/process readout pinned at the very bottom of the rail. Polls the
+ * main process every ~3s: total working-set RAM (MB) and how many panel
+ * renderers are live vs discarded. Compact, two tiny stacked lines — not a
+ * dashboard. Matches the rail's dark tokens.
+ */
+function RamMeter(): JSX.Element | null {
+  const [m, setM] = useState<MetricsResult | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    const poll = async (): Promise<void> => {
+      const next = await window.decks?.metrics.get().catch(() => null)
+      if (alive && next) setM(next)
+    }
+    void poll()
+    const id = setInterval(poll, 3000)
+    return () => {
+      alive = false
+      clearInterval(id)
+    }
+  }, [])
+
+  if (!m) return null
+  return (
+    <div
+      title={`${m.ramMB} MB · ${m.liveRenderers} live / ${m.discarded} discarded`}
+      className="flex w-11 flex-col items-center rounded-lg bg-bg-elevated px-1 py-1 text-center leading-tight"
+    >
+      <span className="text-[10px] font-medium tabular-nums text-txt-3">{m.ramMB} MB</span>
+      <span className="text-[9px] tabular-nums text-txt-4">
+        {m.liveRenderers} live · {m.discarded} disc
+      </span>
+    </div>
+  )
+}
 
 function Sidebar(): JSX.Element {
   const workspaces = useStore((s) => s.workspaces)
@@ -198,6 +236,9 @@ function Sidebar(): JSX.Element {
           <path d="M5 10v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V10" />
         </svg>
       </button>
+
+      <div className="my-0.5 h-px w-7 bg-line/70" />
+      <RamMeter />
 
       {edit && <WorkspaceEditModal workspace={edit.ws} mode={edit.mode} onClose={() => setEdit(null)} />}
       {addDeckOpen && <AddDeckModal onClose={closeAddDeck} />}

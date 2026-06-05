@@ -13,12 +13,24 @@ import type {
   PanelCreatePayload,
   PanelNavigatePayload,
   PanelSetBoundsPayload,
-  PanelShowOnlyPayload
+  PanelShowOnlyPayload,
+  MetricsResult
 } from '@shared/ipc'
 import type { PanelId, PersistedState } from '@shared/types'
 import { PanelManager } from './panels'
 import { loadState, saveState } from './persistence'
 import { killTrackedChildren } from './lifecycle'
+
+/**
+ * Cap the number of Chromium renderer processes the app will spin up. With one
+ * renderer per visible WebContentsView this bounds RAM hard, and the discard
+ * manager keeps hidden panels from holding processes. Tradeoff: fewer processes
+ * means less site isolation — panels sharing a process aren't memory-isolated,
+ * and a heavy or crashing site can affect others in its process. 4 balances RAM
+ * against isolation for a handful of simultaneously-visible decks.
+ */
+const RENDERER_PROCESS_LIMIT = 4
+app.commandLine.appendSwitch('renderer-process-limit', String(RENDERER_PROCESS_LIMIT))
 
 let mainWindow: BrowserWindow | null = null
 const panels = new PanelManager()
@@ -112,6 +124,18 @@ function registerIpc(): void {
   // ── Persistence (renderer → main, invoke) ──
   ipcMain.handle(IPC.StateLoad, (): Promise<PersistedState | null> => loadState())
   ipcMain.handle(IPC.StateSave, (_e, state: PersistedState): Promise<void> => saveState(state))
+
+  // ── Process metrics (renderer → main, invoke) ──
+  ipcMain.handle(IPC.MetricsGet, (): MetricsResult => {
+    // Sum workingSetSize (KB) across every app process → MB.
+    let kb = 0
+    for (const m of app.getAppMetrics()) kb += m.memory?.workingSetSize ?? 0
+    return {
+      ramMB: Math.round(kb / 1024),
+      liveRenderers: panels.liveCount,
+      discarded: panels.discardedCount
+    }
+  })
 
   // ── Native workspace context menu (renders ABOVE web views; page stays put) ──
   ipcMain.on(IPC.WorkspaceContextMenu, (_e, p: { workspaceId: string; hasNotes: boolean }) => {
