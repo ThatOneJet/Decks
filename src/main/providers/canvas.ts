@@ -16,6 +16,9 @@
  * SECURITY: the token never leaves main and is never logged or returned to the
  * renderer. fetch() returns only mapped, sanitized fields.
  */
+import { dialog, BrowserWindow } from 'electron'
+import * as fs from 'fs'
+import * as path from 'path'
 import type { ProviderClient } from './types'
 import type { ProviderId, ProviderStatus } from '@shared/types'
 import type { AccountSummary } from '@shared/types'
@@ -103,6 +106,17 @@ function stripHtml(html: unknown, max = 200): string | undefined {
   return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text
 }
 
+/** One threaded discussion entry (recursive: replies are the same shape). */
+interface DiscussionEntry {
+  id?: string
+  userId?: string
+  authorName?: string
+  message?: string
+  createdAt?: string
+  parentId: string | null
+  replies: DiscussionEntry[]
+}
+
 /** Lightweight active-course descriptor used to drive the per-course fetches. */
 interface ActiveCourse {
   id: string
@@ -139,6 +153,84 @@ export class CanvasClient implements ProviderClient {
     } finally {
       clearTimeout(timer)
     }
+  }
+
+  /**
+   * Authenticated write (POST/PUT/DELETE) against the configured instance.
+   * Mirrors apiGet (Bearer auth, Accept json, 15s timeout). When `body` is a
+   * URLSearchParams it's sent as application/x-www-form-urlencoded — Canvas
+   * accepts bracketed keys like `submission[submission_type]`. On a non-2xx
+   * response throws `Canvas API error (status)` augmented with the response
+   * body's message/error when one is present (never the token).
+   */
+  private async apiSend(
+    creds: CanvasCreds,
+    method: 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    body?: URLSearchParams
+  ): Promise<unknown> {
+    const url = `${creds.instanceUrl}${path}`
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 15_000)
+    try {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${creds.token}`,
+        Accept: 'application/json'
+      }
+      if (body) headers['Content-Type'] = 'application/x-www-form-urlencoded'
+      const res = await fetch(url, {
+        method,
+        headers,
+        body: body ? body.toString() : undefined,
+        signal: ctrl.signal
+      })
+      const text = await res.text()
+      let parsed: unknown = undefined
+      if (text) {
+        try {
+          parsed = JSON.parse(text)
+        } catch {
+          parsed = undefined
+        }
+      }
+      if (!res.ok) {
+        const detail = this.extractErrorMessage(parsed)
+        throw new Error(detail ? `Canvas API error (${res.status}): ${detail}` : `Canvas API error (${res.status})`)
+      }
+      return parsed
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /** Pull a human message out of a Canvas error body (errors[].message, message, error). */
+  private extractErrorMessage(body: unknown): string | undefined {
+    if (!body || typeof body !== 'object') return undefined
+    const b = body as { message?: unknown; error?: unknown; errors?: unknown }
+    if (typeof b.message === 'string' && b.message.trim()) return b.message.trim()
+    if (typeof b.error === 'string' && b.error.trim()) return b.error.trim()
+    const errs = b.errors
+    if (Array.isArray(errs)) {
+      for (const e of errs) {
+        if (e && typeof e === 'object' && typeof (e as { message?: unknown }).message === 'string') {
+          const m = (e as { message: string }).message.trim()
+          if (m) return m
+        }
+      }
+    } else if (errs && typeof errs === 'object') {
+      // Canvas sometimes returns { errors: { base: [{ message }] } }.
+      for (const v of Object.values(errs as Record<string, unknown>)) {
+        if (Array.isArray(v)) {
+          for (const e of v) {
+            if (e && typeof e === 'object' && typeof (e as { message?: unknown }).message === 'string') {
+              const m = (e as { message: string }).message.trim()
+              if (m) return m
+            }
+          }
+        }
+      }
+    }
+    return undefined
   }
 
   /** Like apiGet but swallows per-call failures, returning null instead. */
@@ -247,6 +339,28 @@ export class CanvasClient implements ProviderClient {
         return this.fetchAnnouncements(creds)
       case 'calendar':
         return this.fetchCalendar(creds)
+      case 'discussions':
+        return this.fetchDiscussions(creds, _params)
+      case 'discussionView':
+        return this.fetchDiscussionView(creds, _params)
+      case 'pages':
+        return this.fetchPages(creds, _params)
+      case 'page':
+        return this.fetchPage(creds, _params)
+      case 'modules':
+        return this.fetchModules(creds, _params)
+      case 'quizzes':
+        return this.fetchQuizzes(creds, _params)
+      case 'submit':
+        return this.submitAssignment(creds, _params)
+      case 'submitFile':
+        return this.submitFile(creds, _params)
+      case 'comment':
+        return this.postComment(creds, _params)
+      case 'postReply':
+        return this.postReply(creds, _params)
+      case 'markModuleItem':
+        return this.markModuleItem(creds, _params)
       case 'dashboard':
       default: {
         const [courses, todo, upcoming] = await Promise.all([
@@ -505,6 +619,9 @@ export class CanvasClient implements ProviderClient {
     submissionState?: string
     score?: number
     submittedAt?: string
+    submissionTypes?: string[]
+    allowedAttempts?: number
+    comments?: Array<{ authorName?: string; comment?: string; createdAt?: string }>
   }> {
     const courseId = asId(params?.courseId)
     const assignmentId = asId(params?.assignmentId)
@@ -513,7 +630,7 @@ export class CanvasClient implements ProviderClient {
     }
     const data = (await this.apiGet(
       creds,
-      `/api/v1/courses/${courseId}/assignments/${assignmentId}?include[]=submission`
+      `/api/v1/courses/${courseId}/assignments/${assignmentId}?include[]=submission&include[]=submission_comments`
     )) as unknown
     const item = (data ?? {}) as {
       id?: unknown
@@ -522,9 +639,40 @@ export class CanvasClient implements ProviderClient {
       points_possible?: unknown
       html_url?: unknown
       description?: unknown
-      submission?: { workflow_state?: unknown; score?: unknown; submitted_at?: unknown }
+      submission_types?: unknown
+      allowed_attempts?: unknown
+      submission?: {
+        workflow_state?: unknown
+        score?: unknown
+        submitted_at?: unknown
+        submission_comments?: unknown
+      }
     }
     const sub = item.submission ?? {}
+    const submissionTypes = Array.isArray(item.submission_types)
+      ? item.submission_types.filter((t): t is string => typeof t === 'string')
+      : undefined
+    const rawComments = sub.submission_comments
+    const comments = Array.isArray(rawComments)
+      ? rawComments.map((c) => {
+          const com = c as {
+            author_name?: unknown
+            author?: { display_name?: unknown }
+            comment?: unknown
+            created_at?: unknown
+          }
+          return {
+            authorName:
+              typeof com.author_name === 'string'
+                ? com.author_name
+                : typeof com.author?.display_name === 'string'
+                  ? com.author.display_name
+                  : undefined,
+            comment: typeof com.comment === 'string' ? com.comment : undefined,
+            createdAt: typeof com.created_at === 'string' ? com.created_at : undefined
+          }
+        })
+      : undefined
     return {
       id: asId(item.id) ?? assignmentId,
       name: typeof item.name === 'string' ? item.name : undefined,
@@ -539,7 +687,10 @@ export class CanvasClient implements ProviderClient {
       description: typeof item.description === 'string' ? item.description : undefined,
       submissionState: typeof sub.workflow_state === 'string' ? sub.workflow_state : undefined,
       score: asNum(sub.score),
-      submittedAt: typeof sub.submitted_at === 'string' ? sub.submitted_at : undefined
+      submittedAt: typeof sub.submitted_at === 'string' ? sub.submitted_at : undefined,
+      submissionTypes,
+      allowedAttempts: asNum(item.allowed_attempts),
+      comments
     }
   }
 
@@ -719,6 +870,524 @@ export class CanvasClient implements ProviderClient {
     })
 
     return all
+  }
+
+  // ───────────────────────────── Discussions ──────────────────────────────
+
+  /** Discussion topics for one course, newest first. */
+  private async fetchDiscussions(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<
+    Array<{
+      id?: string
+      title?: string
+      postedAt?: string
+      htmlUrl?: string
+      isAnnouncement: boolean
+      requireInitialPost: boolean
+      unreadCount?: number
+    }>
+  > {
+    const courseId = asId(params?.courseId)
+    if (!courseId) throw new Error('Missing course id')
+    const data = (await this.apiGet(
+      creds,
+      `/api/v1/courses/${courseId}/discussion_topics?per_page=40`
+    )) as unknown
+    if (!Array.isArray(data)) return []
+    const items = data.map((d) => {
+      const t = d as {
+        id?: unknown
+        title?: unknown
+        posted_at?: unknown
+        created_at?: unknown
+        html_url?: unknown
+        is_announcement?: unknown
+        require_initial_post?: unknown
+        unread_count?: unknown
+      }
+      const posted =
+        typeof t.posted_at === 'string'
+          ? t.posted_at
+          : typeof t.created_at === 'string'
+            ? t.created_at
+            : undefined
+      return {
+        id: asId(t.id),
+        title: typeof t.title === 'string' ? t.title : undefined,
+        postedAt: posted,
+        htmlUrl: typeof t.html_url === 'string' ? t.html_url : undefined,
+        isAnnouncement: !!t.is_announcement,
+        requireInitialPost: !!t.require_initial_post,
+        unreadCount: asNum(t.unread_count)
+      }
+    })
+    items.sort((a, b) => {
+      const ta = a.postedAt ? new Date(a.postedAt).getTime() : 0
+      const tb = b.postedAt ? new Date(b.postedAt).getTime() : 0
+      return tb - ta
+    })
+    return items
+  }
+
+  /**
+   * One discussion topic with its threaded entries. Combines the topic detail
+   * (title/message/author) with the /view endpoint (nested entries +
+   * participants map for author display names).
+   */
+  private async fetchDiscussionView(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<{
+    id?: string
+    title?: string
+    message?: string
+    postedAt?: string
+    entries: DiscussionEntry[]
+  }> {
+    const courseId = asId(params?.courseId)
+    const topicId = asId(params?.topicId)
+    if (!courseId || !topicId) throw new Error('Missing course or topic id')
+
+    const [topicRaw, viewRaw] = await Promise.all([
+      this.apiGet(creds, `/api/v1/courses/${courseId}/discussion_topics/${topicId}`),
+      this.apiGetSafe(creds, `/api/v1/courses/${courseId}/discussion_topics/${topicId}/view`)
+    ])
+
+    const topic = (topicRaw ?? {}) as {
+      id?: unknown
+      title?: unknown
+      message?: unknown
+      posted_at?: unknown
+      created_at?: unknown
+      author?: { display_name?: unknown }
+      user_name?: unknown
+    }
+    const posted =
+      typeof topic.posted_at === 'string'
+        ? topic.posted_at
+        : typeof topic.created_at === 'string'
+          ? topic.created_at
+          : undefined
+
+    // Build participant id → display name map from the /view payload.
+    const participants = new Map<string, string>()
+    const view = (viewRaw ?? {}) as { view?: unknown; participants?: unknown }
+    if (Array.isArray(view.participants)) {
+      for (const p of view.participants) {
+        const pp = p as { id?: unknown; display_name?: unknown }
+        const pid = asId(pp.id)
+        if (pid && typeof pp.display_name === 'string') participants.set(pid, pp.display_name)
+      }
+    }
+
+    const mapEntry = (raw: unknown): DiscussionEntry => {
+      const e = raw as {
+        id?: unknown
+        user_id?: unknown
+        message?: unknown
+        created_at?: unknown
+        parent_id?: unknown
+        deleted?: unknown
+        replies?: unknown
+      }
+      const userId = asId(e.user_id)
+      const deleted = !!e.deleted
+      const replies = Array.isArray(e.replies) ? e.replies.map(mapEntry) : []
+      return {
+        id: asId(e.id),
+        userId,
+        authorName: userId ? participants.get(userId) : undefined,
+        message: deleted ? '' : typeof e.message === 'string' ? e.message : undefined,
+        createdAt: typeof e.created_at === 'string' ? e.created_at : undefined,
+        parentId: asId(e.parent_id) ?? null,
+        replies
+      }
+    }
+
+    const entries = Array.isArray(view.view) ? view.view.map(mapEntry) : []
+
+    return {
+      id: asId(topic.id) ?? topicId,
+      title: typeof topic.title === 'string' ? topic.title : undefined,
+      message: typeof topic.message === 'string' ? topic.message : undefined,
+      postedAt: posted,
+      entries
+    }
+  }
+
+  // ─────────────────────────── Pages & Modules ────────────────────────────
+
+  /** Wiki pages for one course (most-recently-updated first). */
+  private async fetchPages(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<Array<{ url?: string; title?: string; updatedAt?: string; published: boolean }>> {
+    const courseId = asId(params?.courseId)
+    if (!courseId) throw new Error('Missing course id')
+    const data = (await this.apiGet(
+      creds,
+      `/api/v1/courses/${courseId}/pages?sort=updated_at&order=desc&per_page=40`
+    )) as unknown
+    if (!Array.isArray(data)) return []
+    return data.map((p) => {
+      const page = p as { url?: unknown; title?: unknown; updated_at?: unknown; published?: unknown }
+      return {
+        url: typeof page.url === 'string' ? page.url : undefined,
+        title: typeof page.title === 'string' ? page.title : undefined,
+        updatedAt: typeof page.updated_at === 'string' ? page.updated_at : undefined,
+        published: !!page.published
+      }
+    })
+  }
+
+  /** Full body of one wiki page. */
+  private async fetchPage(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<{ title?: string; body?: string; updatedAt?: string }> {
+    const courseId = asId(params?.courseId)
+    const pageUrl = typeof params?.pageUrl === 'string' ? params.pageUrl : asId(params?.pageUrl)
+    if (!courseId || !pageUrl) throw new Error('Missing course or page id')
+    const data = (await this.apiGet(
+      creds,
+      `/api/v1/courses/${courseId}/pages/${encodeURIComponent(pageUrl)}`
+    )) as unknown
+    const page = (data ?? {}) as { title?: unknown; body?: unknown; updated_at?: unknown }
+    return {
+      title: typeof page.title === 'string' ? page.title : undefined,
+      // Raw HTML body; renderer is responsible for safe rendering.
+      body: typeof page.body === 'string' ? page.body : undefined,
+      updatedAt: typeof page.updated_at === 'string' ? page.updated_at : undefined
+    }
+  }
+
+  /** Modules for one course, each with its items. */
+  private async fetchModules(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<
+    Array<{
+      id?: string
+      name?: string
+      position?: number
+      items: Array<{
+        id?: string
+        title?: string
+        type?: string
+        htmlUrl?: string
+        pageUrl?: string
+        contentId?: string
+        completed: boolean
+        requirementType?: string
+      }>
+    }>
+  > {
+    const courseId = asId(params?.courseId)
+    if (!courseId) throw new Error('Missing course id')
+    const data = (await this.apiGet(
+      creds,
+      `/api/v1/courses/${courseId}/modules?include[]=items&per_page=50`
+    )) as unknown
+    if (!Array.isArray(data)) return []
+    return data.map((m) => {
+      const mod = m as { id?: unknown; name?: unknown; position?: unknown; items?: unknown }
+      const items = Array.isArray(mod.items)
+        ? mod.items.map((i) => {
+            const it = i as {
+              id?: unknown
+              title?: unknown
+              type?: unknown
+              html_url?: unknown
+              page_url?: unknown
+              content_id?: unknown
+              completion_requirement?: { type?: unknown; completed?: unknown }
+            }
+            const cr = it.completion_requirement
+            return {
+              id: asId(it.id),
+              title: typeof it.title === 'string' ? it.title : undefined,
+              type: typeof it.type === 'string' ? it.type : undefined,
+              htmlUrl: typeof it.html_url === 'string' ? it.html_url : undefined,
+              pageUrl: typeof it.page_url === 'string' ? it.page_url : undefined,
+              contentId: asId(it.content_id),
+              completed: !!cr?.completed,
+              requirementType: typeof cr?.type === 'string' ? cr.type : undefined
+            }
+          })
+        : []
+      return {
+        id: asId(mod.id),
+        name: typeof mod.name === 'string' ? mod.name : undefined,
+        position: asNum(mod.position),
+        items
+      }
+    })
+  }
+
+  /** Quizzes for one course, sorted by due date. */
+  private async fetchQuizzes(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<
+    Array<{
+      id?: string
+      title?: string
+      dueAt?: string
+      pointsPossible?: number
+      questionCount?: number
+      htmlUrl?: string
+      quizType?: string
+      allowedAttempts?: number
+      locked: boolean
+    }>
+  > {
+    const courseId = asId(params?.courseId)
+    if (!courseId) throw new Error('Missing course id')
+    const data = (await this.apiGet(
+      creds,
+      `/api/v1/courses/${courseId}/quizzes?per_page=40`
+    )) as unknown
+    if (!Array.isArray(data)) return []
+    const items = data.map((q) => {
+      const quiz = q as {
+        id?: unknown
+        title?: unknown
+        due_at?: unknown
+        points_possible?: unknown
+        question_count?: unknown
+        html_url?: unknown
+        quiz_type?: unknown
+        allowed_attempts?: unknown
+        locked_for_user?: unknown
+      }
+      return {
+        id: asId(quiz.id),
+        title: typeof quiz.title === 'string' ? quiz.title : undefined,
+        dueAt: typeof quiz.due_at === 'string' ? quiz.due_at : undefined,
+        pointsPossible: asNum(quiz.points_possible),
+        questionCount: asNum(quiz.question_count),
+        htmlUrl: typeof quiz.html_url === 'string' ? quiz.html_url : undefined,
+        quizType: typeof quiz.quiz_type === 'string' ? quiz.quiz_type : undefined,
+        allowedAttempts: asNum(quiz.allowed_attempts),
+        locked: !!quiz.locked_for_user
+      }
+    })
+    items.sort((a, b) => {
+      const ta = a.dueAt ? new Date(a.dueAt).getTime() : Number.POSITIVE_INFINITY
+      const tb = b.dueAt ? new Date(b.dueAt).getTime() : Number.POSITIVE_INFINITY
+      return ta - tb
+    })
+    return items
+  }
+
+  // ──────────────────────────────── Writes ────────────────────────────────
+
+  /** Submit an assignment as text entry or URL. */
+  private async submitAssignment(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<{ ok: true; submittedAt?: string; state?: string }> {
+    const courseId = asId(params?.courseId)
+    const assignmentId = asId(params?.assignmentId)
+    const kind = params?.kind
+    const value = typeof params?.value === 'string' ? params.value : ''
+    if (!courseId || !assignmentId) throw new Error('Missing course or assignment id')
+    if (kind !== 'text' && kind !== 'url') throw new Error('Invalid submission kind')
+    if (!value.trim()) throw new Error('Submission is empty')
+
+    const form = new URLSearchParams()
+    if (kind === 'text') {
+      form.set('submission[submission_type]', 'online_text_entry')
+      form.set('submission[body]', value)
+    } else {
+      form.set('submission[submission_type]', 'online_url')
+      form.set('submission[url]', value)
+    }
+    const res = (await this.apiSend(
+      creds,
+      'POST',
+      `/api/v1/courses/${courseId}/assignments/${assignmentId}/submissions`,
+      form
+    )) as { submitted_at?: unknown; workflow_state?: unknown } | null
+    return {
+      ok: true,
+      submittedAt: typeof res?.submitted_at === 'string' ? res.submitted_at : undefined,
+      state: typeof res?.workflow_state === 'string' ? res.workflow_state : undefined
+    }
+  }
+
+  /**
+   * Submit a file to an assignment via Canvas's 3-step upload flow:
+   * 1) reserve an upload slot, 2) POST the file bytes to the returned URL,
+   * 3) attach the resulting file id to a new submission.
+   */
+  private async submitFile(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<{ ok: true; fileName: string } | { cancelled: true }> {
+    const courseId = asId(params?.courseId)
+    const assignmentId = asId(params?.assignmentId)
+    if (!courseId || !assignmentId) throw new Error('Missing course or assignment id')
+
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const picked = win
+      ? await dialog.showOpenDialog(win, { properties: ['openFile'] })
+      : await dialog.showOpenDialog({ properties: ['openFile'] })
+    if (picked.canceled || !picked.filePaths.length) return { cancelled: true }
+
+    const filePath = picked.filePaths[0]
+    const fileName = path.basename(filePath)
+
+    try {
+      const bytes = await fs.promises.readFile(filePath)
+
+      // Step 1 — reserve the upload slot.
+      const reserveForm = new URLSearchParams()
+      reserveForm.set('name', fileName)
+      reserveForm.set('size', String(bytes.byteLength))
+      const reservation = (await this.apiSend(
+        creds,
+        'POST',
+        `/api/v1/courses/${courseId}/assignments/${assignmentId}/submissions/self/files`,
+        reserveForm
+      )) as { upload_url?: unknown; upload_params?: unknown } | null
+      const uploadUrl = typeof reservation?.upload_url === 'string' ? reservation.upload_url : ''
+      if (!uploadUrl) throw new Error('Canvas did not return an upload URL')
+      const uploadParams =
+        reservation?.upload_params && typeof reservation.upload_params === 'object'
+          ? (reservation.upload_params as Record<string, unknown>)
+          : {}
+
+      // Step 2 — POST the file as multipart/form-data. Params first, file last.
+      const multipart = new FormData()
+      for (const [k, v] of Object.entries(uploadParams)) {
+        multipart.append(k, v == null ? '' : String(v))
+      }
+      multipart.append('file', new Blob([bytes]), fileName)
+
+      const uploadCtrl = new AbortController()
+      const uploadTimer = setTimeout(() => uploadCtrl.abort(), 15_000)
+      let fileId: string | undefined
+      try {
+        const uploadRes = await fetch(uploadUrl, {
+          method: 'POST',
+          body: multipart,
+          redirect: 'manual',
+          signal: uploadCtrl.signal
+        })
+        // Canvas may 201 with the file JSON, or 3xx with a Location to confirm.
+        if (uploadRes.status >= 300 && uploadRes.status < 400) {
+          const location = uploadRes.headers.get('location')
+          if (!location) throw new Error('Upload confirmation URL missing')
+          const confirmed = (await this.apiGet(
+            creds,
+            location.startsWith('http') ? location.replace(creds.instanceUrl, '') : location
+          )) as { id?: unknown } | null
+          fileId = asId(confirmed?.id)
+        } else if (uploadRes.ok) {
+          const text = await uploadRes.text()
+          try {
+            const parsed = JSON.parse(text) as { id?: unknown }
+            fileId = asId(parsed?.id)
+          } catch {
+            fileId = undefined
+          }
+        } else {
+          throw new Error(`File upload failed (${uploadRes.status})`)
+        }
+      } finally {
+        clearTimeout(uploadTimer)
+      }
+
+      if (!fileId) throw new Error('Could not resolve uploaded file id')
+
+      // Step 3 — attach the file to a submission.
+      const submitForm = new URLSearchParams()
+      submitForm.set('submission[submission_type]', 'online_upload')
+      submitForm.append('submission[file_ids][]', fileId)
+      await this.apiSend(
+        creds,
+        'POST',
+        `/api/v1/courses/${courseId}/assignments/${assignmentId}/submissions`,
+        submitForm
+      )
+
+      return { ok: true, fileName }
+    } catch (err) {
+      throw new Error(`File submission failed: ${safeError(err)}`)
+    }
+  }
+
+  /** Add a submission comment to an assignment. */
+  private async postComment(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<{ ok: true }> {
+    const courseId = asId(params?.courseId)
+    const assignmentId = asId(params?.assignmentId)
+    const text = typeof params?.text === 'string' ? params.text : ''
+    if (!courseId || !assignmentId) throw new Error('Missing course or assignment id')
+    if (!text.trim()) throw new Error('Comment is empty')
+    const form = new URLSearchParams()
+    form.set('comment[text_comment]', text)
+    await this.apiSend(
+      creds,
+      'PUT',
+      `/api/v1/courses/${courseId}/assignments/${assignmentId}/submissions/self`,
+      form
+    )
+    return { ok: true }
+  }
+
+  /** Post a discussion entry, or a reply to an existing entry. */
+  private async postReply(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<{ ok: true; id?: string; createdAt?: string }> {
+    const courseId = asId(params?.courseId)
+    const topicId = asId(params?.topicId)
+    const message = typeof params?.message === 'string' ? params.message : ''
+    const parentEntryId = asId(params?.parentEntryId)
+    if (!courseId || !topicId) throw new Error('Missing course or topic id')
+    if (!message.trim()) throw new Error('Reply is empty')
+
+    const form = new URLSearchParams()
+    form.set('message', message)
+    const path = parentEntryId
+      ? `/api/v1/courses/${courseId}/discussion_topics/${topicId}/entries/${parentEntryId}/replies`
+      : `/api/v1/courses/${courseId}/discussion_topics/${topicId}/entries`
+    const res = (await this.apiSend(creds, 'POST', path, form)) as {
+      id?: unknown
+      created_at?: unknown
+    } | null
+    return {
+      ok: true,
+      id: asId(res?.id),
+      createdAt: typeof res?.created_at === 'string' ? res.created_at : undefined
+    }
+  }
+
+  /** Mark a module item done/not-done. Tolerates 404 (item has no requirement). */
+  private async markModuleItem(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<{ ok: true }> {
+    const courseId = asId(params?.courseId)
+    const moduleId = asId(params?.moduleId)
+    const itemId = asId(params?.itemId)
+    const done = !!params?.done
+    if (!courseId || !moduleId || !itemId) throw new Error('Missing course, module, or item id')
+    const path = `/api/v1/courses/${courseId}/modules/${moduleId}/items/${itemId}/done`
+    try {
+      await this.apiSend(creds, done ? 'PUT' : 'DELETE', path)
+    } catch (err) {
+      // Not every item supports completion-marking; swallow 404s.
+      const msg = safeError(err)
+      if (!/\(404\)/.test(msg)) throw err
+    }
+    return { ok: true }
   }
 
   async disconnect(accountId: string): Promise<void> {
