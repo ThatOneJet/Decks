@@ -80,20 +80,8 @@ function Titlebar(): JSX.Element {
         <span className="text-sm font-medium text-txt-1">{title}</span>
       </div>
 
-      {/* Right: focus toggle + window controls */}
+      {/* Right: window controls */}
       <div className="no-drag flex items-center gap-0.5">
-        {onWorkspace && (
-          <button
-            onClick={() => useStore.getState().toggleFocusMode()}
-            aria-label="Focus mode"
-            title="Focus mode (Ctrl/⌘+.)"
-            className="mr-1 grid h-6 w-7 place-items-center rounded-md text-txt-3 hover:bg-bg-elevated hover:text-txt-1"
-          >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4" />
-            </svg>
-          </button>
-        )}
         <button
           onClick={() => window.decks?.window.minimize()}
           aria-label="Minimize"

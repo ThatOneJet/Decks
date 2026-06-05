@@ -30,8 +30,10 @@ export default function TileIcon({
         key={iconUrl}
         src={iconUrl}
         alt={name}
-        className="h-full w-full select-none object-cover"
-        style={{ imageRendering: 'auto', backfaceVisibility: 'hidden' }}
+        // Scale slightly past cover so brand logos with built-in transparent
+        // padding (e.g. YouTube) still fill the whole square edge-to-edge.
+        className="h-full w-full select-none object-cover scale-[1.18]"
+        style={{ backfaceVisibility: 'hidden' }}
         loading="eager"
         decoding="async"
         onError={() => setIdx((i) => i + 1)}

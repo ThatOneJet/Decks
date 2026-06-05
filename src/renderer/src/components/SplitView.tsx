@@ -34,6 +34,8 @@ function DeckCard({
   registerContent: (id: PanelId, el: HTMLElement | null) => void
 }): JSX.Element {
   const removePanel = useStore((s) => s.removePanel)
+  const focusMode = useStore((s) => s.focusMode)
+  const toggleFocusMode = useStore((s) => s.toggleFocusMode)
   const deck = ws.panels.find((p) => p.id === panelId)
   const title = deck?.title || panelId
   const icon = deck ? deck.favicon || faviconFor(deck.url) : ''
@@ -54,6 +56,21 @@ function DeckCard({
           <span className="text-xs">{ws.glyph ?? '◻'}</span>
         )}
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-txt-2">{title}</span>
+        <button
+          onClick={toggleFocusMode}
+          title={focusMode ? 'Exit focus (Ctrl/⌘+.)' : 'Focus this deck (Ctrl/⌘+.)'}
+          className="grid h-5 w-5 place-items-center rounded text-txt-4 hover:bg-bg-panel hover:text-txt-1"
+        >
+          {focusMode ? (
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 4v4a1 1 0 0 1-1 1H4M20 9h-4a1 1 0 0 1-1-1V4M15 20v-4a1 1 0 0 1 1-1h4M4 15h4a1 1 0 0 1 1 1v4" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4" />
+            </svg>
+          )}
+        </button>
         <button
           onClick={onReload}
           title="Reload"
@@ -95,7 +112,7 @@ function renderNode(
   }
   const isRow = node.direction === 'row'
   return (
-    <div className={`flex min-h-0 min-w-0 flex-1 gap-px bg-line ${isRow ? 'flex-row' : 'flex-col'}`}>
+    <div className={`flex min-h-0 min-w-0 flex-1 gap-px bg-bg-rail ${isRow ? 'flex-row' : 'flex-col'}`}>
       {node.children.map((child, i) => (
         <div
           key={i}
@@ -172,8 +189,8 @@ function SplitView(): JSX.Element {
   if (!ws || !layout) return <div className="h-full w-full bg-bg" />
 
   return (
-    <div className="h-full w-full bg-bg">
-      <div key={activeWorkspaceId ?? 'none'} ref={containerRef} className="splitview-enter flex h-full w-full gap-px bg-line">
+    <div className="h-full w-full bg-bg-rail">
+      <div key={activeWorkspaceId ?? 'none'} ref={containerRef} className="splitview-enter flex h-full w-full gap-px bg-bg-rail">
         {renderNode(layout, ws, registerContent)}
       </div>
     </div>
