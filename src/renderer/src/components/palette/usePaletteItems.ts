@@ -25,7 +25,8 @@ export const PINNED_SITES: { id: string; label: string; url: string; glyph: stri
   { id: 'pin-mdn', label: 'MDN', url: 'https://developer.mozilla.org', glyph: '📘' },
   { id: 'pin-reddit', label: 'Reddit', url: 'https://reddit.com', glyph: '👽' },
   { id: 'pin-chatgpt', label: 'ChatGPT', url: 'https://chat.openai.com', glyph: '🤖' },
-  { id: 'pin-stackoverflow', label: 'Stack Overflow', url: 'https://stackoverflow.com', glyph: '🧮' }
+  { id: 'pin-stackoverflow', label: 'Stack Overflow', url: 'https://stackoverflow.com', glyph: '🧮' },
+  { id: 'pin-vscode', label: 'VS Code', url: 'https://vscode.dev', glyph: '🧑‍💻' }
 ]
 
 export interface UsePaletteItems {

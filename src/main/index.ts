@@ -29,14 +29,15 @@ import { killTrackedChildren } from './lifecycle'
 import { createOverlay, type OverlayController } from './overlay'
 
 /**
- * Cap the number of Chromium renderer processes the app will spin up. With one
- * renderer per visible WebContentsView this bounds RAM hard, and the discard
- * manager keeps hidden panels from holding processes. Tradeoff: fewer processes
- * means less site isolation — panels sharing a process aren't memory-isolated,
- * and a heavy or crashing site can affect others in its process. 4 balances RAM
- * against isolation for a handful of simultaneously-visible decks.
+ * Cap the number of Chromium renderer processes. NOTE this counts ALL renderers,
+ * including the app's own main window + the overlay window (2). So the cap must
+ * comfortably exceed "2 + a 4-deck split + a few not-yet-discarded background
+ * panels" — a too-low cap (we shipped 4) silently prevents extra panels from
+ * getting a renderer, so they never load. The discard manager is the real RAM
+ * control; this is just a sane ceiling. Tradeoff: lower = less RAM but less site
+ * isolation.
  */
-const RENDERER_PROCESS_LIMIT = 4
+const RENDERER_PROCESS_LIMIT = 16
 app.commandLine.appendSwitch('renderer-process-limit', String(RENDERER_PROCESS_LIMIT))
 
 let mainWindow: BrowserWindow | null = null
@@ -180,6 +181,11 @@ function registerIpc(): void {
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.decks.app')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
+
+  // Present as plain Chrome to embedded sites: the default UA contains
+  // "decks/x" and "Electron/x" tokens that some sites (Google sign-in, etc.)
+  // reject outright. Strip them so pages load like in a normal browser.
+  app.userAgentFallback = app.userAgentFallback.replace(/\s(decks|Electron)\/[^\s]+/gi, '')
 
   // NOTE: do NOT free the renderer dev port here. By the time main runs,
   // electron-vite has already started the dev server ON that port — freeing it
