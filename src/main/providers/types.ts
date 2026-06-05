@@ -10,18 +10,26 @@
  * Phase 0 ships no concrete clients — only this seam. Phase 1 agents implement
  * one class per provider and register it in ./index.
  */
-import type { ProviderId, ProviderStatus } from '@shared/types'
+import type { ProviderId, ProviderStatus, AccountSummary } from '@shared/types'
 
+/**
+ * A ProviderClient is ACCOUNT-AWARE: every operation is scoped to one connected
+ * account (`accountId`), so a provider can hold several at once (two Canvas
+ * schools, two GitHubs). Credentials are stored per account under
+ * `accountKey(id, accountId)` (see ../accounts); the account list is the index
+ * `listAccounts(id)` returns.
+ */
 export interface ProviderClient {
   /** The provider this client backs. Must be unique in the registry. */
   readonly id: ProviderId
 
   /**
-   * Connect the provider. `mode === 'token'` stores the pasted token (via
-   * tokens.ts); `mode === 'oauth'` runs the OAuth helper (../oauth) and stores
-   * the resulting token. Resolves with the new status.
+   * Connect (or re-connect) ONE account. `mode === 'token'` stores the pasted
+   * token; `mode === 'oauth'` runs the OAuth helper. On success the client
+   * persists the credential under `accountId` and adds it to the account index.
    */
   connect(opts: {
+    accountId: string
     mode: 'token' | 'oauth'
     token?: string
     /** Extra non-secret connection fields (instanceUrl, handle, clientId, …). */
@@ -29,14 +37,17 @@ export interface ProviderClient {
   }): Promise<ProviderStatus>
 
   /**
-   * Fetch a sanitized resource. `resource` and `params` are provider-defined.
-   * Implementations MUST strip secrets before returning.
+   * Fetch a sanitized resource for one account. `resource`/`params` are
+   * provider-defined. Implementations MUST strip secrets before returning.
    */
-  fetch(resource: string, params?: Record<string, unknown>): Promise<unknown>
+  fetch(accountId: string, resource: string, params?: Record<string, unknown>): Promise<unknown>
 
-  /** Disconnect: forget the stored token (via tokens.ts) and any cached session. */
-  disconnect(): Promise<void>
+  /** Disconnect one account: forget its stored credential + index entry. */
+  disconnect(accountId: string): Promise<void>
 
-  /** Report current connection status (typically derived from the stored token). */
-  status(): Promise<ProviderStatus>
+  /** Report one account's connection status (derived from stored credentials). */
+  status(accountId: string): Promise<ProviderStatus>
+
+  /** List this provider's connected accounts (for the Settings UI). */
+  listAccounts(): Promise<AccountSummary[]>
 }

@@ -15,6 +15,8 @@ import type { ProviderId } from '@shared/types'
 export interface NativeDeckProps {
   /** The backing provider this deck renders. */
   provider: ProviderId
+  /** Which connected account this deck reads (a provider may have several). */
+  accountId: string
   /** The owning panel's id (stable across the panel's lifetime). */
   panelId: string
   /** The workspace this deck lives in (for per-workspace scoping if needed). */

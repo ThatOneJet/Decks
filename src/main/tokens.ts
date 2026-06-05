@@ -16,12 +16,17 @@
 import { app, safeStorage } from 'electron'
 import { readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from 'fs'
 import { join } from 'path'
-import type { ProviderId } from '@shared/types'
 
 const FILE_NAME = 'tokens.json'
 
-/** On-disk shape: provider id → base64 of the safeStorage-encrypted token. */
-type TokenFile = Partial<Record<ProviderId, string>>
+/**
+ * On-disk shape: storage key → base64 of the safeStorage-encrypted value.
+ *
+ * Keys are arbitrary strings so a provider can store several accounts, e.g.
+ * `canvas:<accountId>` for one account's credentials and `canvas#index` for that
+ * provider's account list. Single-credential providers still just use their id.
+ */
+type TokenFile = Record<string, string>
 
 function tokensPath(): string {
   return join(app.getPath('userData'), FILE_NAME)
@@ -70,46 +75,46 @@ function writeAll(data: TokenFile): void {
  * Encrypt and persist a provider's token. Fails closed (no-op + warning) if
  * OS encryption is unavailable, so we never write a plaintext secret to disk.
  */
-export function saveToken(provider: ProviderId, token: string): void {
+export function saveToken(key: string, token: string): void {
   if (!encryptionAvailable()) {
     console.warn(
-      `[decks] safeStorage encryption unavailable — refusing to store ${provider} token (fail closed)`
+      `[decks] safeStorage encryption unavailable — refusing to store ${key} (fail closed)`
     )
     return
   }
   try {
     const encrypted = safeStorage.encryptString(token)
     const data = readAll()
-    data[provider] = encrypted.toString('base64')
+    data[key] = encrypted.toString('base64')
     writeAll(data)
   } catch (err) {
     // Note: never log the token value.
-    console.error(`[decks] failed to encrypt/save token for ${provider}:`, err)
+    console.error(`[decks] failed to encrypt/save value for ${key}:`, err)
   }
 }
 
-/** Decrypt and return a provider's token, or null if absent/undecryptable. */
-export function getToken(provider: ProviderId): string | null {
+/** Decrypt and return the value at `key`, or null if absent/undecryptable. */
+export function getToken(key: string): string | null {
   if (!encryptionAvailable()) return null
-  const blob = readAll()[provider]
+  const blob = readAll()[key]
   if (!blob) return null
   try {
     return safeStorage.decryptString(Buffer.from(blob, 'base64'))
   } catch (err) {
-    console.error(`[decks] failed to decrypt token for ${provider}:`, err)
+    console.error(`[decks] failed to decrypt value for ${key}:`, err)
     return null
   }
 }
 
-/** Forget a provider's stored token. Never throws. */
-export function removeToken(provider: ProviderId): void {
+/** Forget the stored value at `key`. Never throws. */
+export function removeToken(key: string): void {
   const data = readAll()
-  if (data[provider] === undefined) return
-  delete data[provider]
+  if (data[key] === undefined) return
+  delete data[key]
   writeAll(data)
 }
 
-/** True if an encrypted token blob exists for the provider on disk. */
-export function hasToken(provider: ProviderId): boolean {
-  return readAll()[provider] !== undefined
+/** True if an encrypted blob exists at `key` on disk. */
+export function hasToken(key: string): boolean {
+  return readAll()[key] !== undefined
 }

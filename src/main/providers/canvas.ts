@@ -18,7 +18,9 @@
  */
 import type { ProviderClient } from './types'
 import type { ProviderId, ProviderStatus } from '@shared/types'
+import type { AccountSummary } from '@shared/types'
 import { saveToken, getToken, removeToken } from '../tokens'
+import { accountKey, listAccounts as listProviderAccounts, upsertAccount, removeAccount } from '../accounts'
 
 const PROVIDER: ProviderId = 'canvas'
 
@@ -45,9 +47,9 @@ function normalizeInstanceUrl(raw: string): string {
   return url
 }
 
-/** Read and parse the stored creds blob, or null if absent/unparseable. */
-function readCreds(): CanvasCreds | null {
-  const raw = getToken(PROVIDER)
+/** Read and parse the stored creds blob for one account, or null if absent/unparseable. */
+function readCreds(key: string): CanvasCreds | null {
+  const raw = getToken(key)
   if (!raw) return null
   try {
     const parsed = JSON.parse(raw) as Partial<CanvasCreds>
@@ -76,6 +78,11 @@ function asId(v: unknown): string | undefined {
 export class CanvasClient implements ProviderClient {
   readonly id: ProviderId = PROVIDER
 
+  /** Secure-store key for one account's credential blob. */
+  private key(accountId: string): string {
+    return accountKey(this.id, accountId)
+  }
+
   /** Authenticated GET against the configured instance; returns parsed JSON. */
   private async apiGet(creds: CanvasCreds, path: string): Promise<unknown> {
     const url = `${creds.instanceUrl}${path}`
@@ -92,10 +99,12 @@ export class CanvasClient implements ProviderClient {
   }
 
   async connect(opts: {
+    accountId: string
     mode: 'token' | 'oauth'
     token?: string
     fields?: Record<string, string>
   }): Promise<ProviderStatus> {
+    const { accountId } = opts
     const token = (opts.token ?? '').trim()
     const rawInstance = opts.fields?.instanceUrl ?? ''
     const instanceUrl = normalizeInstanceUrl(rawInstance)
@@ -125,7 +134,8 @@ export class CanvasClient implements ProviderClient {
       const account = user.name ?? user.short_name ?? 'Canvas'
 
       const creds: CanvasCreds = { instanceUrl, token, account }
-      saveToken(PROVIDER, JSON.stringify(creds))
+      saveToken(this.key(accountId), JSON.stringify(creds))
+      upsertAccount(this.id, { id: accountId, label: account })
 
       return { provider: PROVIDER, connected: true, account }
     } catch (err) {
@@ -137,8 +147,12 @@ export class CanvasClient implements ProviderClient {
     }
   }
 
-  async fetch(resource: string, _params?: Record<string, unknown>): Promise<unknown> {
-    const creds = readCreds()
+  async fetch(
+    accountId: string,
+    resource: string,
+    _params?: Record<string, unknown>
+  ): Promise<unknown> {
+    const creds = readCreds(this.key(accountId))
     if (!creds) throw new Error('Canvas not connected')
 
     switch (resource) {
@@ -245,15 +259,20 @@ export class CanvasClient implements ProviderClient {
     })
   }
 
-  async disconnect(): Promise<void> {
-    removeToken(PROVIDER)
+  async disconnect(accountId: string): Promise<void> {
+    removeToken(this.key(accountId))
+    removeAccount(this.id, accountId)
   }
 
-  async status(): Promise<ProviderStatus> {
-    const creds = readCreds()
+  async status(accountId: string): Promise<ProviderStatus> {
+    const creds = readCreds(this.key(accountId))
     if (creds) {
       return { provider: PROVIDER, connected: true, account: creds.account }
     }
     return { provider: PROVIDER, connected: false }
+  }
+
+  async listAccounts(): Promise<AccountSummary[]> {
+    return listProviderAccounts(this.id)
   }
 }

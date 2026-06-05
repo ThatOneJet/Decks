@@ -140,8 +140,7 @@ function PostCard({ post }: { post: BlueskyPost }): JSX.Element {
   )
 }
 
-function BlueskyDeck(_props: NativeDeckProps): JSX.Element {
-  void _props
+function BlueskyDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
   const [connected, setConnected] = useState<boolean | null>(null)
   const [account, setAccount] = useState<string | undefined>(undefined)
   const [posts, setPosts] = useState<BlueskyPost[]>([])
@@ -152,7 +151,7 @@ function BlueskyDeck(_props: NativeDeckProps): JSX.Element {
     setLoading(true)
     setError(null)
     try {
-      const status = await window.decks.provider.status('bluesky')
+      const status = await window.decks.provider.status(provider, accountId)
       setConnected(status.connected)
       setAccount(status.account)
       if (!status.connected) {
@@ -160,7 +159,8 @@ function BlueskyDeck(_props: NativeDeckProps): JSX.Element {
         return
       }
       const data = (await window.decks.provider.fetch({
-        provider: 'bluesky',
+        provider,
+        accountId,
         resource: 'timeline'
       })) as BlueskyPost[]
       setPosts(Array.isArray(data) ? data : [])
@@ -169,7 +169,7 @@ function BlueskyDeck(_props: NativeDeckProps): JSX.Element {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [provider, accountId])
 
   useEffect(() => {
     void refresh()

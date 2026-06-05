@@ -11,8 +11,14 @@
  */
 import { runOAuth } from '../oauth'
 import { saveToken, getToken, removeToken } from '../tokens'
+import {
+  accountKey,
+  listAccounts as listProviderAccounts,
+  upsertAccount,
+  removeAccount
+} from '../accounts'
 import type { ProviderClient } from './types'
-import type { ProviderId, ProviderStatus } from '@shared/types'
+import type { ProviderId, ProviderStatus, AccountSummary } from '@shared/types'
 
 const ID: ProviderId = 'github'
 const API = 'https://api.github.com'
@@ -56,9 +62,14 @@ interface GhIssue {
 export class GithubClient implements ProviderClient {
   readonly id: ProviderId = ID
 
+  /** Secure-store key for one account's credentials. */
+  private key(accountId: string): string {
+    return accountKey(this.id, accountId)
+  }
+
   /** Decrypt + parse the stored credential blob, or null if absent/corrupt. */
-  private readCreds(): GithubCreds | null {
-    const raw = getToken(this.id)
+  private readCreds(accountId: string): GithubCreds | null {
+    const raw = getToken(this.key(accountId))
     if (!raw) return null
     try {
       const parsed = JSON.parse(raw) as GithubCreds
@@ -89,6 +100,7 @@ export class GithubClient implements ProviderClient {
   }
 
   async connect(opts: {
+    accountId: string
     mode: 'token' | 'oauth'
     token?: string
     fields?: Record<string, string>
@@ -122,7 +134,10 @@ export class GithubClient implements ProviderClient {
       const account = user.login
 
       const creds: GithubCreds = { token, account }
-      saveToken(this.id, JSON.stringify(creds))
+      saveToken(this.key(opts.accountId), JSON.stringify(creds))
+
+      const label = account ? `@${account}` : opts.accountId
+      upsertAccount(this.id, { id: opts.accountId, label })
 
       return { provider: this.id, connected: true, account }
     } catch {
@@ -134,8 +149,12 @@ export class GithubClient implements ProviderClient {
     }
   }
 
-  async fetch(resource: string, _params?: Record<string, unknown>): Promise<unknown> {
-    const creds = this.readCreds()
+  async fetch(
+    accountId: string,
+    resource: string,
+    _params?: Record<string, unknown>
+  ): Promise<unknown> {
+    const creds = this.readCreds(accountId)
     if (!creds) throw new Error('GitHub is not connected.')
     const { token } = creds
 
@@ -210,13 +229,18 @@ export class GithubClient implements ProviderClient {
     return repo ? `https://github.com/${repo}` : 'https://github.com/notifications'
   }
 
-  async disconnect(): Promise<void> {
-    removeToken(this.id)
+  async disconnect(accountId: string): Promise<void> {
+    removeToken(this.key(accountId))
+    removeAccount(this.id, accountId)
   }
 
-  async status(): Promise<ProviderStatus> {
-    const creds = this.readCreds()
+  async status(accountId: string): Promise<ProviderStatus> {
+    const creds = this.readCreds(accountId)
     if (!creds) return { provider: this.id, connected: false }
     return { provider: this.id, connected: true, account: creds.account }
+  }
+
+  async listAccounts(): Promise<AccountSummary[]> {
+    return listProviderAccounts(this.id)
   }
 }

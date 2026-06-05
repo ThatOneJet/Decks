@@ -12,8 +12,14 @@
  */
 import { runOAuth } from '../oauth'
 import { saveToken, getToken, removeToken } from '../tokens'
+import {
+  accountKey,
+  listAccounts as listProviderAccounts,
+  upsertAccount,
+  removeAccount
+} from '../accounts'
 import type { ProviderClient } from './types'
-import type { ProviderId, ProviderStatus } from '@shared/types'
+import type { ProviderId, ProviderStatus, AccountSummary } from '@shared/types'
 
 const ID: ProviderId = 'spotify'
 const API = 'https://api.spotify.com'
@@ -73,9 +79,14 @@ interface SpRecentItem {
 export class SpotifyClient implements ProviderClient {
   readonly id: ProviderId = ID
 
+  /** Secure-store key for one account's credential blob. */
+  private key(accountId: string): string {
+    return accountKey(this.id, accountId)
+  }
+
   /** Decrypt + parse the stored credential blob, or null if absent/corrupt. */
-  private readCreds(): SpotifyCreds | null {
-    const raw = getToken(this.id)
+  private readCreds(accountId: string): SpotifyCreds | null {
+    const raw = getToken(this.key(accountId))
     if (!raw) return null
     try {
       const parsed = JSON.parse(raw) as SpotifyCreds
@@ -88,16 +99,16 @@ export class SpotifyClient implements ProviderClient {
     }
   }
 
-  private save(creds: SpotifyCreds): void {
-    saveToken(this.id, JSON.stringify(creds))
+  private save(accountId: string, creds: SpotifyCreds): void {
+    saveToken(this.key(accountId), JSON.stringify(creds))
   }
 
   /**
    * Return a valid access token, refreshing (and re-saving) if it has expired
    * or is within a 60s safety margin. Throws if not connected or refresh fails.
    */
-  private async validToken(): Promise<{ token: string; creds: SpotifyCreds }> {
-    const creds = this.readCreds()
+  private async validToken(accountId: string): Promise<{ token: string; creds: SpotifyCreds }> {
+    const creds = this.readCreds(accountId)
     if (!creds) throw new Error('Spotify is not connected.')
 
     const margin = 60_000
@@ -131,7 +142,7 @@ export class SpotifyClient implements ProviderClient {
       refreshToken: json.refresh_token ?? creds.refreshToken,
       expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000
     }
-    this.save(next)
+    this.save(accountId, next)
     return { token: next.accessToken, creds: next }
   }
 
@@ -155,11 +166,13 @@ export class SpotifyClient implements ProviderClient {
   }
 
   async connect(opts: {
+    accountId: string
     mode: 'token' | 'oauth'
     token?: string
     fields?: Record<string, string>
   }): Promise<ProviderStatus> {
     try {
+      const { accountId } = opts
       const fields = opts.fields ?? {}
       const clientId = fields.clientId
       const clientSecret = fields.clientSecret
@@ -207,7 +220,8 @@ export class SpotifyClient implements ProviderClient {
         /* account label is optional */
       }
 
-      this.save(creds)
+      this.save(accountId, creds)
+      upsertAccount(this.id, { id: accountId, label: creds.account ?? 'Spotify' })
       return { provider: this.id, connected: true, account: creds.account }
     } catch {
       return {
@@ -218,12 +232,16 @@ export class SpotifyClient implements ProviderClient {
     }
   }
 
-  async fetch(resource: string, _params?: Record<string, unknown>): Promise<unknown> {
+  async fetch(
+    accountId: string,
+    resource: string,
+    _params?: Record<string, unknown>
+  ): Promise<unknown> {
     if (resource.startsWith('control:')) {
-      return this.control(resource.slice('control:'.length))
+      return this.control(accountId, resource.slice('control:'.length))
     }
 
-    const { token } = await this.validToken()
+    const { token } = await this.validToken(accountId)
 
     switch (resource) {
       case 'now-playing':
@@ -294,8 +312,11 @@ export class SpotifyClient implements ProviderClient {
    * Playback controls. Spotify control endpoints require Premium; a 403 is
    * surfaced as `{ ok: false, premiumRequired: true }` so the UI can hint.
    */
-  private async control(action: string): Promise<{ ok: boolean; premiumRequired?: boolean }> {
-    const { token } = await this.validToken()
+  private async control(
+    accountId: string,
+    action: string
+  ): Promise<{ ok: boolean; premiumRequired?: boolean }> {
+    const { token } = await this.validToken(accountId)
 
     let path: string
     let method: string
@@ -325,13 +346,18 @@ export class SpotifyClient implements ProviderClient {
     return { ok: res.ok }
   }
 
-  async disconnect(): Promise<void> {
-    removeToken(this.id)
+  async disconnect(accountId: string): Promise<void> {
+    removeToken(this.key(accountId))
+    removeAccount(this.id, accountId)
   }
 
-  async status(): Promise<ProviderStatus> {
-    const creds = this.readCreds()
+  async status(accountId: string): Promise<ProviderStatus> {
+    const creds = this.readCreds(accountId)
     if (!creds) return { provider: this.id, connected: false }
     return { provider: this.id, connected: true, account: creds.account }
+  }
+
+  async listAccounts(): Promise<AccountSummary[]> {
+    return listProviderAccounts(this.id)
   }
 }

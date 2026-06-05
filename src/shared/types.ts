@@ -40,6 +40,15 @@ export interface ProviderStatus {
   error?: string
 }
 
+/**
+ * One connected account for a provider. A provider can have many (e.g. two
+ * Canvas schools). `id` is a stable opaque key; `label` is what the UI shows.
+ */
+export interface AccountSummary {
+  id: string
+  label: string
+}
+
 /** A single deck inside a workspace — either an embedded web view or a native one. */
 export interface Panel {
   id: PanelId
@@ -53,6 +62,13 @@ export interface Panel {
   kind?: 'web' | 'native'
   /** The backing service provider. Only set when `kind === 'native'`. */
   provider?: ProviderId
+  /**
+   * Which connected account this native deck reads. Only set when
+   * `kind === 'native'`. A provider can have several connected accounts (e.g. two
+   * Canvas schools); this binds the deck to one. Credentials live in main keyed
+   * by `<provider>:<accountId>`.
+   */
+  accountId?: string
   /** Last known favicon URL (updated by main via panel:navigated events). */
   favicon?: string
   /** Navigation capabilities, kept fresh from the live WebContents. */

@@ -6,9 +6,11 @@
  * main (the provider owns the feed list), and we render a merged, date-sorted
  * river of items from every feed.
  *
- * All I/O goes through `window.decks.provider.fetch({ provider:'rss', … })`;
- * this component never touches the network directly. Styling mirrors the dark
- * theme idiom (bg, txt, line, accent tokens, rounded-xl2) used across the app.
+ * RSS is ACCOUNT-AWARE: each account is a separate FEED COLLECTION, so this deck
+ * is scoped to the `accountId` from its props. All I/O goes through
+ * `window.decks.provider.fetch({ provider, accountId, … })`; this component never
+ * touches the network directly. Styling mirrors the dark theme idiom (bg, txt,
+ * line, accent tokens, rounded-xl2) used across the app.
  */
 import { useCallback, useEffect, useState } from 'react'
 import type { JSX } from 'react'
@@ -24,9 +26,14 @@ interface RssItem {
   summary: string
 }
 
-/** Thin wrapper around the provider IPC for the 'rss' provider. */
-async function rssFetch<T>(resource: string, params?: Record<string, unknown>): Promise<T> {
-  const result = await window.decks?.provider.fetch({ provider: 'rss', resource, params })
+/** Thin wrapper around the provider IPC, scoped to one account (feed collection). */
+async function rssFetch<T>(
+  provider: NativeDeckProps['provider'],
+  accountId: string,
+  resource: string,
+  params?: Record<string, unknown>
+): Promise<T> {
+  const result = await window.decks?.provider.fetch({ provider, accountId, resource, params })
   return result as T
 }
 
@@ -56,7 +63,7 @@ function hostLabel(url: string): string {
   }
 }
 
-function RssDeck(_props: NativeDeckProps): JSX.Element {
+function RssDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
   const [feeds, setFeeds] = useState<string[]>([])
   const [items, setItems] = useState<RssItem[]>([])
   const [input, setInput] = useState('')
@@ -69,21 +76,21 @@ function RssDeck(_props: NativeDeckProps): JSX.Element {
     setLoading(true)
     setError(null)
     try {
-      const next = await rssFetch<RssItem[]>('items')
+      const next = await rssFetch<RssItem[]>(provider, accountId, 'items')
       setItems(Array.isArray(next) ? next : [])
     } catch {
       setError('Could not load feed items.')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [provider, accountId])
 
   /** Load the feed list + items on mount. */
   useEffect(() => {
     let alive = true
     void (async () => {
       try {
-        const list = await rssFetch<string[]>('feeds:list')
+        const list = await rssFetch<string[]>(provider, accountId, 'feeds:list')
         if (alive) setFeeds(Array.isArray(list) ? list : [])
       } catch {
         /* feeds:list is non-fatal; items load below still runs */
@@ -93,7 +100,7 @@ function RssDeck(_props: NativeDeckProps): JSX.Element {
     return () => {
       alive = false
     }
-  }, [reloadItems])
+  }, [provider, accountId, reloadItems])
 
   /** Add the pasted feed URL, then refresh the list + items. */
   const addFeed = useCallback(async (): Promise<void> => {
@@ -102,7 +109,7 @@ function RssDeck(_props: NativeDeckProps): JSX.Element {
     setAdding(true)
     setError(null)
     try {
-      const list = await rssFetch<string[]>('feeds:add', { url })
+      const list = await rssFetch<string[]>(provider, accountId, 'feeds:add', { url })
       setFeeds(Array.isArray(list) ? list : [])
       setInput('')
       await reloadItems()
@@ -111,21 +118,21 @@ function RssDeck(_props: NativeDeckProps): JSX.Element {
     } finally {
       setAdding(false)
     }
-  }, [input, adding, reloadItems])
+  }, [provider, accountId, input, adding, reloadItems])
 
   /** Remove a feed, then refresh the list + items. */
   const removeFeed = useCallback(
     async (url: string): Promise<void> => {
       setError(null)
       try {
-        const list = await rssFetch<string[]>('feeds:remove', { url })
+        const list = await rssFetch<string[]>(provider, accountId, 'feeds:remove', { url })
         setFeeds(Array.isArray(list) ? list : [])
         await reloadItems()
       } catch {
         setError('Could not remove that feed.')
       }
     },
-    [reloadItems]
+    [provider, accountId, reloadItems]
   )
 
   const openLink = (link: string): void => {

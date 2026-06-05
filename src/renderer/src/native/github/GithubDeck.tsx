@@ -3,8 +3,8 @@
  *
  * Renders OUR React UI over the GitHub provider inside a deck card body. It never
  * holds the token or talks to GitHub directly — it asks main via
- * `window.decks.provider.status('github')` and
- * `window.decks.provider.fetch({ provider: 'github', resource: 'dashboard' })`
+ * `window.decks.provider.status(provider, accountId)` and
+ * `window.decks.provider.fetch({ provider, accountId, resource: 'dashboard' })`
  * and renders the sanitized JSON it gets back.
  *
  * Two tabs: Notifications (inbox list with reason + repo) and Repositories
@@ -194,7 +194,7 @@ function RepoRow({ r }: { r: GhRepo }): JSX.Element {
   return inner
 }
 
-export default function GithubDeck({ provider }: NativeDeckProps): JSX.Element {
+export default function GithubDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
   const [state, setState] = useState<LoadState>('loading')
   const [account, setAccount] = useState<string | undefined>(undefined)
   const [data, setData] = useState<GithubDashboard | null>(null)
@@ -205,7 +205,7 @@ export default function GithubDeck({ provider }: NativeDeckProps): JSX.Element {
     setState('loading')
     setError('')
     try {
-      const status = await window.decks?.provider.status(provider)
+      const status = await window.decks?.provider.status(provider, accountId)
       if (!status?.connected) {
         setState('disconnected')
         return
@@ -214,6 +214,7 @@ export default function GithubDeck({ provider }: NativeDeckProps): JSX.Element {
 
       const result = (await window.decks?.provider.fetch({
         provider,
+        accountId,
         resource: 'dashboard'
       })) as GithubDashboard | undefined
 
@@ -226,7 +227,7 @@ export default function GithubDeck({ provider }: NativeDeckProps): JSX.Element {
       setError(err instanceof Error ? err.message : 'Failed to load GitHub data')
       setState('error')
     }
-  }, [provider])
+  }, [provider, accountId])
 
   useEffect(() => {
     void load()

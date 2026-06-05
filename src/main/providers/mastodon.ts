@@ -11,7 +11,14 @@
  */
 import type { ProviderClient } from './types'
 import type { ProviderId, ProviderStatus } from '@shared/types'
+import type { AccountSummary } from '@shared/types'
 import { saveToken, getToken, removeToken } from '../tokens'
+import {
+  accountKey,
+  listAccounts as listProviderAccounts,
+  upsertAccount,
+  removeAccount
+} from '../accounts'
 
 /** Persisted credential blob (encrypted at rest, main-only). */
 interface MastodonCreds {
@@ -81,8 +88,13 @@ export class MastodonClient implements ProviderClient {
 
   // ── credential helpers ──────────────────────────────────────────────────
 
-  private load(): MastodonCreds | null {
-    const raw = getToken(this.id)
+  /** Secure-store key for one account's credentials. */
+  private key(accountId: string): string {
+    return accountKey(this.id, accountId)
+  }
+
+  private load(accountId: string): MastodonCreds | null {
+    const raw = getToken(this.key(accountId))
     if (!raw) return null
     try {
       const parsed = JSON.parse(raw) as Partial<MastodonCreds>
@@ -97,13 +109,14 @@ export class MastodonClient implements ProviderClient {
     }
   }
 
-  private save(creds: MastodonCreds): void {
-    saveToken(this.id, JSON.stringify(creds))
+  private save(accountId: string, creds: MastodonCreds): void {
+    saveToken(this.key(accountId), JSON.stringify(creds))
   }
 
   // ── ProviderClient ──────────────────────────────────────────────────────
 
   async connect(opts: {
+    accountId: string
     mode: 'token' | 'oauth'
     token?: string
     fields?: Record<string, string>
@@ -136,7 +149,16 @@ export class MastodonClient implements ProviderClient {
       const account = (await res.json()) as MastoAccount
       const acct = account.acct ?? account.username ?? ''
       const creds: MastodonCreds = { instanceUrl, token, account: acct }
-      this.save(creds)
+      this.save(opts.accountId, creds)
+      // Label the account with the handle plus the instance host so two accounts
+      // on different instances stay distinguishable in the Settings UI.
+      const host = instanceUrl.replace(/^https?:\/\//, '')
+      const label = acct
+        ? acct.includes('@')
+          ? `@${acct}`
+          : `@${acct}@${host}`
+        : host
+      upsertAccount(this.id, { id: opts.accountId, label })
       return { provider: this.id, connected: true, account: acct ? `@${acct}` : undefined }
     } catch (err) {
       return { provider: this.id, connected: false, error: safeError(err, 'Could not reach the instance.') }
@@ -144,28 +166,32 @@ export class MastodonClient implements ProviderClient {
   }
 
   /** GET an API path on the connected instance with the Bearer token. */
-  private async authedGet(path: string): Promise<Response> {
-    const creds = this.load()
+  private async authedGet(accountId: string, path: string): Promise<Response> {
+    const creds = this.load(accountId)
     if (!creds) throw new Error('Not connected to Mastodon.')
     return fetch(`${creds.instanceUrl}${path}`, {
       headers: { Authorization: `Bearer ${creds.token}` }
     })
   }
 
-  async fetch(resource: string, _params?: Record<string, unknown>): Promise<unknown> {
+  async fetch(
+    accountId: string,
+    resource: string,
+    _params?: Record<string, unknown>
+  ): Promise<unknown> {
     void _params
     switch (resource) {
       case 'home':
-        return this.home()
+        return this.home(accountId)
       case 'notifications':
-        return this.notifications()
+        return this.notifications(accountId)
       default:
-        return { home: await this.home() }
+        return { home: await this.home(accountId) }
     }
   }
 
-  private async home(): Promise<unknown[]> {
-    const res = await this.authedGet('/api/v1/timelines/home?limit=40')
+  private async home(accountId: string): Promise<unknown[]> {
+    const res = await this.authedGet(accountId, '/api/v1/timelines/home?limit=40')
     if (!res.ok) throw new Error(`Could not load timeline (${res.status}).`)
     const data = (await res.json()) as MastoStatus[]
     return (Array.isArray(data) ? data : []).map((status) => {
@@ -195,8 +221,8 @@ export class MastodonClient implements ProviderClient {
     })
   }
 
-  private async notifications(): Promise<unknown[]> {
-    const res = await this.authedGet('/api/v1/notifications?limit=40')
+  private async notifications(accountId: string): Promise<unknown[]> {
+    const res = await this.authedGet(accountId, '/api/v1/notifications?limit=40')
     if (!res.ok) throw new Error(`Could not load notifications (${res.status}).`)
     const data = (await res.json()) as MastoNotification[]
     return (Array.isArray(data) ? data : []).map((n) => ({
@@ -207,17 +233,22 @@ export class MastodonClient implements ProviderClient {
     }))
   }
 
-  async disconnect(): Promise<void> {
-    removeToken(this.id)
+  async disconnect(accountId: string): Promise<void> {
+    removeToken(this.key(accountId))
+    removeAccount(this.id, accountId)
   }
 
-  async status(): Promise<ProviderStatus> {
-    const creds = this.load()
+  async status(accountId: string): Promise<ProviderStatus> {
+    const creds = this.load(accountId)
     if (!creds) return { provider: this.id, connected: false }
     return {
       provider: this.id,
       connected: true,
       account: creds.account ? `@${creds.account}` : undefined
     }
+  }
+
+  async listAccounts(): Promise<AccountSummary[]> {
+    return listProviderAccounts(this.id)
   }
 }

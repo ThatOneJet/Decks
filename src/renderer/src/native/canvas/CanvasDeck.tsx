@@ -3,8 +3,8 @@
  *
  * Renders OUR React UI over the Canvas LMS provider inside a deck card body. It
  * never holds the Canvas token or talks to Canvas directly — it asks main via
- * `window.decks.provider.status('canvas')` and
- * `window.decks.provider.fetch({ provider: 'canvas', resource: 'dashboard' })`
+ * `window.decks.provider.status(provider, accountId)` and
+ * `window.decks.provider.fetch({ provider, accountId, resource: 'dashboard' })`
  * and renders the sanitized JSON it gets back.
  *
  * States: loading spinner → (not connected) tidy empty state → (connected)
@@ -218,7 +218,7 @@ function buildAgenda(data: CanvasDashboard): AgendaItem[] {
   return items
 }
 
-export default function CanvasDeck({ provider }: NativeDeckProps): JSX.Element {
+export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
   const [state, setState] = useState<LoadState>('loading')
   const [account, setAccount] = useState<string | undefined>(undefined)
   const [data, setData] = useState<CanvasDashboard | null>(null)
@@ -228,7 +228,7 @@ export default function CanvasDeck({ provider }: NativeDeckProps): JSX.Element {
     setState('loading')
     setError('')
     try {
-      const status = await window.decks?.provider.status(provider)
+      const status = await window.decks?.provider.status(provider, accountId)
       if (!status?.connected) {
         setState('disconnected')
         return
@@ -237,6 +237,7 @@ export default function CanvasDeck({ provider }: NativeDeckProps): JSX.Element {
 
       const result = (await window.decks?.provider.fetch({
         provider,
+        accountId,
         resource: 'dashboard'
       })) as CanvasDashboard | undefined
 
@@ -250,7 +251,7 @@ export default function CanvasDeck({ provider }: NativeDeckProps): JSX.Element {
       setError(err instanceof Error ? err.message : 'Failed to load Canvas data')
       setState('error')
     }
-  }, [provider])
+  }, [provider, accountId])
 
   useEffect(() => {
     void load()

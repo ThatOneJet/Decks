@@ -47,8 +47,11 @@ const api: DecksApi = {
   provider: {
     connect: (p: ProviderConnectPayload) => ipcRenderer.invoke(IPC.ProviderConnect, p),
     fetch: (p: ProviderFetchPayload) => ipcRenderer.invoke(IPC.ProviderFetch, p),
-    disconnect: (provider: ProviderId) => ipcRenderer.invoke(IPC.ProviderDisconnect, provider),
-    status: (provider: ProviderId) => ipcRenderer.invoke(IPC.ProviderStatus, provider)
+    disconnect: (provider: ProviderId, accountId: string) =>
+      ipcRenderer.invoke(IPC.ProviderDisconnect, provider, accountId),
+    status: (provider: ProviderId, accountId: string) =>
+      ipcRenderer.invoke(IPC.ProviderStatus, provider, accountId),
+    accounts: (provider: ProviderId) => ipcRenderer.invoke(IPC.ProviderAccounts, provider)
   },
   codeserver: {
     start: () => ipcRenderer.invoke(IPC.CodeServerStart),

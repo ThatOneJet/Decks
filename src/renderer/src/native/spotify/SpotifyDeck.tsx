@@ -3,9 +3,10 @@
  *
  * Renders OUR React UI over the Spotify provider inside a deck card body. It never
  * holds tokens or talks to Spotify directly — it asks main via
- * `window.decks.provider.status('spotify')` and
- * `window.decks.provider.fetch({ provider: 'spotify', resource })` and renders the
- * sanitized JSON it gets back.
+ * `window.decks.provider.status(provider, accountId)` and
+ * `window.decks.provider.fetch({ provider, accountId, resource })` and renders the
+ * sanitized JSON it gets back. Every call is scoped to the deck's `accountId`, so a
+ * provider can hold several connected accounts.
  *
  * Layout: a now-playing card (artwork, track/artist, progress bar, prev/play-
  * pause/next controls) that polls every ~5s while connected, then a Playlists grid
@@ -266,7 +267,7 @@ function RecentRow({ r }: { r: RecentItem }): JSX.Element {
   )
 }
 
-export default function SpotifyDeck({ provider }: NativeDeckProps): JSX.Element {
+export default function SpotifyDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
   const [state, setState] = useState<LoadState>('loading')
   const [account, setAccount] = useState<string | undefined>(undefined)
   const [data, setData] = useState<SpotifyDashboard | null>(null)
@@ -276,16 +277,16 @@ export default function SpotifyDeck({ provider }: NativeDeckProps): JSX.Element 
 
   const fetchResource = useCallback(
     async <T,>(resource: string): Promise<T | undefined> => {
-      return (await window.decks?.provider.fetch({ provider, resource })) as T | undefined
+      return (await window.decks?.provider.fetch({ provider, accountId, resource })) as T | undefined
     },
-    [provider]
+    [provider, accountId]
   )
 
   const load = useCallback(async (): Promise<void> => {
     setState('loading')
     setError('')
     try {
-      const status = await window.decks?.provider.status(provider)
+      const status = await window.decks?.provider.status(provider, accountId)
       if (!status?.connected) {
         connectedRef.current = false
         setState('disconnected')
@@ -306,7 +307,7 @@ export default function SpotifyDeck({ provider }: NativeDeckProps): JSX.Element 
       setError(err instanceof Error ? err.message : 'Failed to load Spotify data')
       setState('error')
     }
-  }, [provider, fetchResource])
+  }, [provider, accountId, fetchResource])
 
   useEffect(() => {
     void load()
@@ -337,6 +338,7 @@ export default function SpotifyDeck({ provider }: NativeDeckProps): JSX.Element 
       try {
         const res = (await window.decks?.provider.fetch({
           provider,
+          accountId,
           resource: `control:${action}`
         })) as ControlResult | undefined
         if (res?.premiumRequired) setPremiumNote(true)
@@ -349,7 +351,7 @@ export default function SpotifyDeck({ provider }: NativeDeckProps): JSX.Element 
         /* ignore transient control errors */
       }
     },
-    [provider, fetchResource]
+    [provider, accountId, fetchResource]
   )
 
   if (state === 'loading') {

@@ -6,8 +6,9 @@
  * covers YouTube via per-channel feeds). No algorithm, nothing ranked.
  *
  * It owns no tokens and talks to no service — it asks the main process via
- * `window.decks.provider.fetch({ provider:'follows-wall', resource:'wall' })`
- * and gets back the sanitized, normalized WallItem[] shape.
+ * `window.decks.provider.fetch({ provider, accountId, resource:'wall' })` (the
+ * provider/account identity comes from the host props) and gets back the
+ * sanitized, normalized WallItem[] shape.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
@@ -120,30 +121,34 @@ function Row({ item }: { item: WallItem }): JSX.Element {
   )
 }
 
-function FollowsWallDeck(_props: NativeDeckProps): JSX.Element {
+function FollowsWallDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
   const [items, setItems] = useState<WallItem[]>([])
   const [state, setState] = useState<LoadState>('loading')
   const [error, setError] = useState<string>('')
   const alive = useRef(true)
 
-  const load = useCallback(async (initial = false): Promise<void> => {
-    if (initial) setState('loading')
-    try {
-      const raw = await window.decks?.provider.fetch({
-        provider: 'follows-wall',
-        resource: 'wall'
-      })
-      const next = Array.isArray(raw) ? (raw as WallItem[]) : []
-      if (!alive.current) return
-      setItems(next)
-      setState('ready')
-      setError('')
-    } catch (e) {
-      if (!alive.current) return
-      setError(e instanceof Error ? e.message : 'Failed to load the wall.')
-      setState('error')
-    }
-  }, [])
+  const load = useCallback(
+    async (initial = false): Promise<void> => {
+      if (initial) setState('loading')
+      try {
+        const raw = await window.decks?.provider.fetch({
+          provider,
+          accountId,
+          resource: 'wall'
+        })
+        const next = Array.isArray(raw) ? (raw as WallItem[]) : []
+        if (!alive.current) return
+        setItems(next)
+        setState('ready')
+        setError('')
+      } catch (e) {
+        if (!alive.current) return
+        setError(e instanceof Error ? e.message : 'Failed to load the wall.')
+        setState('error')
+      }
+    },
+    [provider, accountId]
+  )
 
   useEffect(() => {
     alive.current = true

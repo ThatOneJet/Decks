@@ -1,11 +1,13 @@
 /**
  * Decks — RSS / Atom provider client (main process).
  *
- * Backs the native RSS deck. Unlike token providers, RSS has NO auth: the only
- * thing we persist is the user's FEED LIST. For simplicity we reuse the
+ * Backs the native RSS deck. Unlike token providers, RSS has NO auth — and it is
+ * ACCOUNT-AWARE: each "account" is a separate FEED COLLECTION (e.g. a "Tech"
+ * deck and a "News" deck, each with its own feeds). For simplicity we reuse the
  * per-provider encrypted store (../tokens) to hold a small JSON blob
- * `{ feeds: string[] }` — it isn't a secret, but the store gives us atomic,
- * per-provider persistence for free.
+ * `{ feeds: string[] }` PER ACCOUNT, keyed by `accountKey(this.id, accountId)`
+ * (see ../accounts) — it isn't a secret, but the store gives us atomic
+ * persistence for free. The non-secret account index lives in ../accounts.
  *
  * All HTTP happens here with the global `fetch` (a real User-Agent + a ~10s
  * abort timeout). Feeds are parsed with a small, dependency-free regex parser
@@ -13,8 +15,14 @@
  * The renderer only ever receives sanitized JSON.
  */
 import { saveToken, getToken, removeToken } from '../tokens'
+import {
+  accountKey,
+  listAccounts as listProviderAccounts,
+  upsertAccount,
+  removeAccount
+} from '../accounts'
 import type { ProviderClient } from './types'
-import type { ProviderId, ProviderStatus } from '@shared/types'
+import type { ProviderId, ProviderStatus, AccountSummary } from '@shared/types'
 
 const ID: ProviderId = 'rss'
 
@@ -63,9 +71,14 @@ export class RssClient implements ProviderClient {
 
   // ── Store ──────────────────────────────────────────────────────────────
 
-  /** Read + parse the persisted store, or a fresh empty store on any error. */
-  private readStore(): RssStore {
-    const raw = getToken(this.id)
+  /** Secure-store key for one account's feed collection. */
+  private key(accountId: string): string {
+    return accountKey(this.id, accountId)
+  }
+
+  /** Read + parse one account's feed collection, or a fresh empty store. */
+  private readStore(accountId: string): RssStore {
+    const raw = getToken(this.key(accountId))
     if (!raw) return { feeds: [] }
     try {
       const parsed = JSON.parse(raw) as Partial<RssStore>
@@ -78,19 +91,21 @@ export class RssClient implements ProviderClient {
     }
   }
 
-  /** Persist the store (dedup + trim handled by callers). */
-  private writeStore(store: RssStore): void {
-    saveToken(this.id, JSON.stringify(store))
+  /** Persist one account's feed collection (dedup + trim handled by callers). */
+  private writeStore(accountId: string, store: RssStore): void {
+    saveToken(this.key(accountId), JSON.stringify(store))
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────
 
   async connect(opts: {
+    accountId: string
     mode: 'token' | 'oauth'
     token?: string
     fields?: Record<string, string>
   }): Promise<ProviderStatus> {
-    const store = this.readStore()
+    const { accountId } = opts
+    const store = this.readStore(accountId)
 
     // Seed the feed list from a comma / newline separated string if provided.
     const seed = opts.fields?.feeds
@@ -100,49 +115,69 @@ export class RssClient implements ProviderClient {
       for (const url of urls) {
         if (!merged.includes(url)) merged.push(url)
       }
-      this.writeStore({ feeds: merged })
-    } else if (!getToken(this.id)) {
+      this.writeStore(accountId, { feeds: merged })
+    } else if (!getToken(this.key(accountId))) {
       // No blob yet — initialize an empty one so status()/list are well-defined.
-      this.writeStore({ feeds: store.feeds })
+      this.writeStore(accountId, { feeds: store.feeds })
     }
 
+    // Label this feed collection (the deck's display name), default 'RSS'.
+    const label = opts.fields?.label?.trim() || 'RSS'
+    upsertAccount(this.id, { id: accountId, label })
+
     // RSS needs no auth — always "connected".
-    return { provider: this.id, connected: true, account: 'RSS' }
+    return { provider: this.id, connected: true, account: label }
   }
 
-  async disconnect(): Promise<void> {
-    removeToken(this.id)
+  async disconnect(accountId: string): Promise<void> {
+    removeToken(this.key(accountId))
+    removeAccount(this.id, accountId)
   }
 
-  async status(): Promise<ProviderStatus> {
-    return { provider: this.id, connected: true, account: 'RSS' }
+  async status(accountId: string): Promise<ProviderStatus> {
+    const entry = listProviderAccounts(this.id).find((a) => a.id === accountId)
+    const connected = !!entry || !!getToken(this.key(accountId))
+    return {
+      provider: this.id,
+      connected,
+      account: entry?.label ?? (connected ? 'RSS' : undefined)
+    }
+  }
+
+  /** List this provider's connected feed collections (for the Settings UI). */
+  async listAccounts(): Promise<AccountSummary[]> {
+    return listProviderAccounts(this.id)
   }
 
   // ── Resources ──────────────────────────────────────────────────────────
 
-  async fetch(resource: string, params?: Record<string, unknown>): Promise<unknown> {
+  async fetch(
+    accountId: string,
+    resource: string,
+    params?: Record<string, unknown>
+  ): Promise<unknown> {
     switch (resource) {
       case 'feeds:list':
-        return this.readStore().feeds
+        return this.readStore(accountId).feeds
 
       case 'feeds:add':
-        return this.addFeed(this.asUrl(params?.url))
+        return this.addFeed(accountId, this.asUrl(params?.url))
 
       case 'feeds:remove':
-        return this.removeFeed(this.asUrl(params?.url))
+        return this.removeFeed(accountId, this.asUrl(params?.url))
 
       case 'items':
       default:
-        return this.fetchItems()
+        return this.fetchItems(accountId)
     }
   }
 
   /** Validate a URL fetches + parses, then add it to the list (deduped). */
-  private async addFeed(url: string): Promise<string[]> {
+  private async addFeed(accountId: string, url: string): Promise<string[]> {
     if (!url) throw new Error('No feed URL provided.')
     const normalized = this.normalizeUrl(url)
 
-    const store = this.readStore()
+    const store = this.readStore(accountId)
     if (store.feeds.includes(normalized)) return store.feeds
 
     // Validate by actually fetching + parsing the document.
@@ -158,23 +193,23 @@ export class RssClient implements ProviderClient {
     }
 
     const feeds = [...store.feeds, normalized]
-    this.writeStore({ feeds })
+    this.writeStore(accountId, { feeds })
     return feeds
   }
 
   /** Remove a feed from the list and persist. */
-  private async removeFeed(url: string): Promise<string[]> {
+  private async removeFeed(accountId: string, url: string): Promise<string[]> {
     if (!url) throw new Error('No feed URL provided.')
     const normalized = this.normalizeUrl(url)
-    const store = this.readStore()
+    const store = this.readStore(accountId)
     const feeds = store.feeds.filter((f) => f !== normalized && f !== url)
-    this.writeStore({ feeds })
+    this.writeStore(accountId, { feeds })
     return feeds
   }
 
   /** Fetch ALL stored feeds in parallel, merge, sort by date DESC, cap. */
-  private async fetchItems(): Promise<RssItem[]> {
-    const { feeds } = this.readStore()
+  private async fetchItems(accountId: string): Promise<RssItem[]> {
+    const { feeds } = this.readStore(accountId)
     if (feeds.length === 0) return []
 
     const results = await Promise.allSettled(feeds.map((url) => this.fetchOne(url)))

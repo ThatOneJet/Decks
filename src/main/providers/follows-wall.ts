@@ -2,11 +2,15 @@
  * Decks — Follows Wall provider (main process).
  *
  * A unified, strictly CHRONOLOGICAL "new from who I follow" feed. It aggregates
- * ONLY real, open API / RSS sources at RUNTIME:
- *   - Bluesky timeline   (getProvider('bluesky').fetch('timeline'))
- *   - Mastodon home      (getProvider('mastodon').fetch('home'))
- *   - RSS items          (getProvider('rss').fetch('items')) — also covers YouTube
- *                         via per-channel RSS feeds.
+ * ONLY real, open API / RSS sources at RUNTIME, across EVERY connected account of
+ * each sub-provider (sub-providers are account-aware now):
+ *   - Bluesky timeline   (getProvider('bluesky').fetch(acct, 'timeline'))
+ *   - Mastodon home      (getProvider('mastodon').fetch(acct, 'home'))
+ *   - RSS items          (getProvider('rss').fetch(acct, 'items')) — also covers
+ *                         YouTube via per-channel RSS feeds.
+ *
+ * Each sub-provider's accounts come from its `listAccounts()`; the wall fans out
+ * one isolated fetch per (provider, account) pair and merges the results.
  *
  * It is the chronological antidote to algorithmic feeds: NO Instagram / TikTok /
  * X / Reddit / YouTube-Home, nothing ranked or closed.
@@ -18,7 +22,7 @@
  * provider may be absent, disconnected, or fail without sinking the wall.
  */
 import type { ProviderClient } from './types'
-import type { ProviderId, ProviderStatus } from '@shared/types'
+import type { ProviderId, ProviderStatus, AccountSummary } from '@shared/types'
 import { getProvider } from './registry'
 
 /** The sub-providers the wall aggregates, in a stable order. */
@@ -184,6 +188,18 @@ const MAPPERS: Record<WallSource, (raw: unknown, idx: number) => WallItem> = {
 
 /* ────────────────────────────── the client ───────────────────────────── */
 
+/** The single implicit account this wall exposes. */
+const DEFAULT_ACCOUNT_ID = 'default'
+
+/** Coerce a sub-provider's listAccounts() result to a safe AccountSummary[]. */
+function asAccounts(x: unknown): AccountSummary[] {
+  if (!Array.isArray(x)) return []
+  return x.filter(
+    (a): a is AccountSummary =>
+      Boolean(a) && typeof a === 'object' && typeof (a as AccountSummary).id === 'string'
+  )
+}
+
 export class FollowsWallClient implements ProviderClient {
   readonly id: ProviderId = 'follows-wall'
 
@@ -197,39 +213,54 @@ export class FollowsWallClient implements ProviderClient {
     // intentionally empty
   }
 
-  /** Connected if ANY aggregated sub-provider reports connected. */
+  /**
+   * Connected if ANY aggregated sub-provider exposes at least one account.
+   * Sub-providers are account-aware now, so we count their accounts rather than
+   * a single boolean. Every probe is isolated (allSettled + tolerate undefined).
+   */
   async status(): Promise<ProviderStatus> {
     const sources: WallSource[] = ['bluesky', 'mastodon', 'rss']
     const checks = await Promise.allSettled(
-      sources.map(async (id) => {
-        const sub = getProvider(id)
-        if (!sub) return false
-        const s = await sub.status()
-        return Boolean(s?.connected)
-      })
+      sources.map(async (id) => asAccounts(await getProvider(id)?.listAccounts()).length)
     )
-    const connectedCount = checks.filter(
-      (c) => c.status === 'fulfilled' && c.value === true
-    ).length
+    const sourceCount = checks.reduce(
+      (n, c) => n + (c.status === 'fulfilled' && c.value > 0 ? 1 : 0),
+      0
+    )
     return {
       provider: 'follows-wall',
-      connected: connectedCount > 0,
-      account: `${connectedCount} source${connectedCount === 1 ? '' : 's'}`
+      connected: sourceCount > 0,
+      account: `${sourceCount} source${sourceCount === 1 ? '' : 's'}`
     }
   }
 
+  /** A single implicit account — the wall is always one logical "Follows" feed. */
+  async listAccounts(): Promise<AccountSummary[]> {
+    return [{ id: DEFAULT_ACCOUNT_ID, label: 'Follows' }]
+  }
+
   /**
-   * Pull every connected sub-provider in parallel, normalize, merge,
-   * sort newest-first, and cap. One source failing never sinks the wall.
+   * Pull EVERY connected account across every sub-provider in parallel,
+   * normalize, merge, sort newest-first, and cap. Each per-account call is
+   * isolated so one account (or one provider) failing never sinks the wall.
    */
-  async fetch(resource = 'wall'): Promise<WallItem[]> {
+  async fetch(_accountId: string, resource = 'wall'): Promise<WallItem[]> {
     if (resource !== 'wall') return []
 
     const sources: WallSource[] = ['bluesky', 'mastodon', 'rss']
-    const settled = await Promise.allSettled(
-      sources.map((id) => this.pullSource(id))
-    )
 
+    // Build one isolated pull task per (source, account) pair.
+    const tasks: Promise<WallItem[]>[] = []
+    for (const id of sources) {
+      const client = getProvider(id)
+      if (!client) continue
+      const accts = await this.safeListAccounts(client)
+      for (const acct of accts) {
+        tasks.push(this.pullAccount(id, client, acct.id))
+      }
+    }
+
+    const settled = await Promise.allSettled(tasks)
     const merged: WallItem[] = []
     for (const result of settled) {
       if (result.status === 'fulfilled') merged.push(...result.value)
@@ -239,12 +270,30 @@ export class FollowsWallClient implements ProviderClient {
     return merged.slice(0, MAX_ITEMS)
   }
 
-  /** Fetch + normalize a single sub-provider; isolated so failures stay local. */
-  private async pullSource(id: WallSource): Promise<WallItem[]> {
-    const sub = getProvider(id)
-    if (!sub) return []
-    const raw = await sub.fetch(SOURCE_RESOURCE[id])
-    const map = MAPPERS[id]
-    return asArray(raw).map((item, idx) => map(item, idx))
+  /** listAccounts() that never throws — a flaky provider yields no accounts. */
+  private async safeListAccounts(client: ProviderClient): Promise<AccountSummary[]> {
+    try {
+      return asAccounts(await client.listAccounts())
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Fetch + normalize one account of one sub-provider. Isolated so a single
+   * account's failure stays local (returns []) and never rejects the wall.
+   */
+  private async pullAccount(
+    id: WallSource,
+    client: ProviderClient,
+    accountId: string
+  ): Promise<WallItem[]> {
+    try {
+      const raw = await client.fetch(accountId, SOURCE_RESOURCE[id])
+      const map = MAPPERS[id]
+      return asArray(raw).map((item, idx) => map(item, idx))
+    } catch {
+      return []
+    }
   }
 }

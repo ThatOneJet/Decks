@@ -10,7 +10,7 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { ProviderConnectPayload, ProviderFetchPayload } from '@shared/ipc'
-import type { ProviderId, ProviderStatus } from '@shared/types'
+import type { ProviderId, ProviderStatus, AccountSummary } from '@shared/types'
 import type { ProviderClient } from './types'
 
 const registry = new Map<ProviderId, ProviderClient>()
@@ -53,21 +53,38 @@ export function registerProviderIpc(): void {
     (_e, p: ProviderConnectPayload): Promise<ProviderStatus> => {
       const client = registry.get(p.provider)
       if (!client) return Promise.resolve(notRegisteredStatus(p.provider))
-      return client.connect({ mode: p.mode, token: p.token, fields: p.fields })
+      return client.connect({
+        accountId: p.accountId,
+        mode: p.mode,
+        token: p.token,
+        fields: p.fields
+      })
     }
   )
 
   ipcMain.handle(IPC.ProviderFetch, (_e, p: ProviderFetchPayload): Promise<unknown> => {
-    return requireProvider(p.provider).fetch(p.resource, p.params)
+    return requireProvider(p.provider).fetch(p.accountId, p.resource, p.params)
   })
 
-  ipcMain.handle(IPC.ProviderDisconnect, (_e, provider: ProviderId): Promise<void> => {
-    return requireProvider(provider).disconnect()
-  })
+  ipcMain.handle(
+    IPC.ProviderDisconnect,
+    (_e, provider: ProviderId, accountId: string): Promise<void> => {
+      return requireProvider(provider).disconnect(accountId)
+    }
+  )
 
-  ipcMain.handle(IPC.ProviderStatus, (_e, provider: ProviderId): Promise<ProviderStatus> => {
+  ipcMain.handle(
+    IPC.ProviderStatus,
+    (_e, provider: ProviderId, accountId: string): Promise<ProviderStatus> => {
+      const client = registry.get(provider)
+      if (!client) return Promise.resolve(notRegisteredStatus(provider))
+      return client.status(accountId)
+    }
+  )
+
+  ipcMain.handle(IPC.ProviderAccounts, (_e, provider: ProviderId): Promise<AccountSummary[]> => {
     const client = registry.get(provider)
-    if (!client) return Promise.resolve(notRegisteredStatus(provider))
-    return client.status()
+    if (!client) return Promise.resolve([])
+    return client.listAccounts()
   })
 }

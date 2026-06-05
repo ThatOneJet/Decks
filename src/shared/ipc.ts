@@ -16,7 +16,8 @@ import type {
   PanelId,
   WorkspaceId,
   ProviderId,
-  ProviderStatus
+  ProviderStatus,
+  AccountSummary
 } from './types'
 
 export const IPC = {
@@ -40,8 +41,10 @@ export const IPC = {
   ProviderFetch: 'provider:fetch',
   /** Disconnect a provider (forget its stored token). */
   ProviderDisconnect: 'provider:disconnect',
-  /** Query a provider's current connection status. */
+  /** Query one account's connection status. */
   ProviderStatus: 'provider:status',
+  /** List a provider's connected accounts. */
+  ProviderAccounts: 'provider:accounts',
 
   // ── code-server (local VS Code in a deck) — renderer → main (invoke) ──
   /** Pick a folder + spawn code-server; resolves its loopback URL. */
@@ -119,6 +122,8 @@ export interface PanelCreatePayload {
 /** payload: ProviderConnect — connect a native deck's backing provider. */
 export interface ProviderConnectPayload {
   provider: ProviderId
+  /** Which account to connect (a provider may hold several). */
+  accountId: string
   /** 'token' = the user pastes a personal access token; 'oauth' = run the helper. */
   mode: 'token' | 'oauth'
   /** The pasted token. Only used (and required) when mode === 'token'. */
@@ -135,10 +140,18 @@ export interface ProviderConnectPayload {
 /** payload: ProviderFetch — request a sanitized resource from a provider. */
 export interface ProviderFetchPayload {
   provider: ProviderId
+  /** Which connected account to read. */
+  accountId: string
   /** Provider-defined resource name (e.g. 'courses', 'feed', 'repos'). */
   resource: string
   /** Optional provider-defined query params. */
   params?: Record<string, unknown>
+}
+
+/** payload: ProviderDisconnect / ProviderStatus — scope to one account. */
+export interface ProviderAccountPayload {
+  provider: ProviderId
+  accountId: string
 }
 
 /** payload: PanelNavigate */
@@ -333,10 +346,12 @@ export interface DecksApi {
     connect(payload: ProviderConnectPayload): Promise<ProviderStatus>
     /** Fetch a sanitized resource from a connected provider. */
     fetch(payload: ProviderFetchPayload): Promise<unknown>
-    /** Disconnect a provider (forget its stored token). */
-    disconnect(provider: ProviderId): Promise<void>
-    /** Query a provider's current connection status. */
-    status(provider: ProviderId): Promise<ProviderStatus>
+    /** Disconnect one connected account (forget its stored credential). */
+    disconnect(provider: ProviderId, accountId: string): Promise<void>
+    /** Query one account's connection status. */
+    status(provider: ProviderId, accountId: string): Promise<ProviderStatus>
+    /** List a provider's connected accounts. */
+    accounts(provider: ProviderId): Promise<AccountSummary[]>
   }
   codeserver: {
     /** Pick a folder + spawn code-server; resolves a result with the URL. */

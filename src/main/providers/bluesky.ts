@@ -10,8 +10,14 @@
  * tokens.ts). They are never logged and never returned to the renderer.
  */
 import type { ProviderClient } from './types'
-import type { ProviderId, ProviderStatus } from '@shared/types'
+import type { ProviderId, ProviderStatus, AccountSummary } from '@shared/types'
 import { saveToken, getToken, removeToken } from '../tokens'
+import {
+  accountKey,
+  listAccounts as listProviderAccounts,
+  upsertAccount,
+  removeAccount
+} from '../accounts'
 
 const SERVICE_DEFAULT = 'https://bsky.social'
 
@@ -73,10 +79,15 @@ interface NotificationsResponse {
 export class BlueskyClient implements ProviderClient {
   readonly id: ProviderId = 'bluesky'
 
+  /** Secure-store key for one account's credentials. */
+  private key(accountId: string): string {
+    return accountKey(this.id, accountId)
+  }
+
   // ── credential helpers ──────────────────────────────────────────────────
 
-  private load(): BlueskyCreds | null {
-    const raw = getToken(this.id)
+  private load(accountId: string): BlueskyCreds | null {
+    const raw = getToken(this.key(accountId))
     if (!raw) return null
     try {
       const parsed = JSON.parse(raw) as Partial<BlueskyCreds>
@@ -93,13 +104,14 @@ export class BlueskyClient implements ProviderClient {
     }
   }
 
-  private save(creds: BlueskyCreds): void {
-    saveToken(this.id, JSON.stringify(creds))
+  private save(accountId: string, creds: BlueskyCreds): void {
+    saveToken(this.key(accountId), JSON.stringify(creds))
   }
 
   // ── ProviderClient ──────────────────────────────────────────────────────
 
   async connect(opts: {
+    accountId: string
     mode: 'token' | 'oauth'
     token?: string
     fields?: Record<string, string>
@@ -140,7 +152,8 @@ export class BlueskyClient implements ProviderClient {
         accessJwt: session.accessJwt,
         refreshJwt: session.refreshJwt
       }
-      this.save(creds)
+      this.save(opts.accountId, creds)
+      upsertAccount(this.id, { id: opts.accountId, label: creds.handle })
       return { provider: this.id, connected: true, account: creds.handle }
     } catch (err) {
       return { provider: this.id, connected: false, error: safeError(err, 'Could not reach Bluesky.') }
@@ -151,14 +164,14 @@ export class BlueskyClient implements ProviderClient {
    * Return a valid access JWT, refreshing it (and re-saving creds) if the
    * current one is rejected. Throws a user-safe Error if no session exists.
    */
-  private async auth(): Promise<{ creds: BlueskyCreds }> {
-    const creds = this.load()
+  private async auth(accountId: string): Promise<{ creds: BlueskyCreds }> {
+    const creds = this.load(accountId)
     if (!creds) throw new Error('Not connected to Bluesky.')
     return { creds }
   }
 
   /** Refresh the session using the refresh JWT; persists and returns new creds. */
-  private async refresh(creds: BlueskyCreds): Promise<BlueskyCreds> {
+  private async refresh(accountId: string, creds: BlueskyCreds): Promise<BlueskyCreds> {
     const res = await fetch(`${creds.service}/xrpc/com.atproto.server.refreshSession`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${creds.refreshJwt}` }
@@ -172,7 +185,7 @@ export class BlueskyClient implements ProviderClient {
       accessJwt: session.accessJwt,
       refreshJwt: session.refreshJwt
     }
-    this.save(next)
+    this.save(accountId, next)
     return next
   }
 
@@ -180,33 +193,37 @@ export class BlueskyClient implements ProviderClient {
    * GET an XRPC endpoint with the access JWT, transparently refreshing once on a
    * 401/expired response and retrying.
    */
-  private async authedGet(path: string): Promise<Response> {
-    let { creds } = await this.auth()
+  private async authedGet(accountId: string, path: string): Promise<Response> {
+    let { creds } = await this.auth(accountId)
     const call = (jwt: string): Promise<Response> =>
       fetch(`${creds.service}${path}`, { headers: { Authorization: `Bearer ${jwt}` } })
 
     let res = await call(creds.accessJwt)
     if (res.status === 401) {
-      creds = await this.refresh(creds)
+      creds = await this.refresh(accountId, creds)
       res = await call(creds.accessJwt)
     }
     return res
   }
 
-  async fetch(resource: string, _params?: Record<string, unknown>): Promise<unknown> {
+  async fetch(
+    accountId: string,
+    resource: string,
+    _params?: Record<string, unknown>
+  ): Promise<unknown> {
     void _params
     switch (resource) {
       case 'timeline':
-        return this.timeline()
+        return this.timeline(accountId)
       case 'notifications':
-        return this.notifications()
+        return this.notifications(accountId)
       default:
-        return { timeline: await this.timeline() }
+        return { timeline: await this.timeline(accountId) }
     }
   }
 
-  private async timeline(): Promise<unknown[]> {
-    const res = await this.authedGet('/xrpc/app.bsky.feed.getTimeline?limit=40')
+  private async timeline(accountId: string): Promise<unknown[]> {
+    const res = await this.authedGet(accountId, '/xrpc/app.bsky.feed.getTimeline?limit=40')
     if (!res.ok) throw new Error(`Could not load timeline (${res.status}).`)
     const data = (await res.json()) as TimelineResponse
     return (data.feed ?? []).map((item) => {
@@ -230,8 +247,11 @@ export class BlueskyClient implements ProviderClient {
     })
   }
 
-  private async notifications(): Promise<unknown[]> {
-    const res = await this.authedGet('/xrpc/app.bsky.notification.listNotifications?limit=40')
+  private async notifications(accountId: string): Promise<unknown[]> {
+    const res = await this.authedGet(
+      accountId,
+      '/xrpc/app.bsky.notification.listNotifications?limit=40'
+    )
     if (!res.ok) throw new Error(`Could not load notifications (${res.status}).`)
     const data = (await res.json()) as NotificationsResponse
     return (data.notifications ?? []).map((n) => {
@@ -249,13 +269,18 @@ export class BlueskyClient implements ProviderClient {
     })
   }
 
-  async disconnect(): Promise<void> {
-    removeToken(this.id)
+  async disconnect(accountId: string): Promise<void> {
+    removeToken(this.key(accountId))
+    removeAccount(this.id, accountId)
   }
 
-  async status(): Promise<ProviderStatus> {
-    const creds = this.load()
+  async status(accountId: string): Promise<ProviderStatus> {
+    const creds = this.load(accountId)
     if (!creds) return { provider: this.id, connected: false }
     return { provider: this.id, connected: true, account: creds.handle }
+  }
+
+  async listAccounts(): Promise<AccountSummary[]> {
+    return listProviderAccounts(this.id)
   }
 }

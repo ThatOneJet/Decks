@@ -1,19 +1,20 @@
 /**
- * Accounts — connect native-deck providers and drop their decks into a workspace.
+ * Accounts — connect native-deck providers (multiple accounts each) and drop
+ * their decks into their own workspace.
  *
- * Each native provider (Canvas, GitHub, Spotify, Bluesky, Mastodon, RSS, the
- * Follows wall) is connected here: the form collects only the non-secret fields
- * + a token where needed, and hands them to `window.decks.provider.connect`.
- * Tokens live exclusively in the main process (OS-keychain encrypted) — this UI
- * never stores or echoes them back. "Add deck" creates a native panel in the
- * active workspace; native decks have no WebContentsView, so they cost no extra
- * renderer process (the RAM win over an embedded deck).
+ * A provider can hold SEVERAL connected accounts (two Canvas schools, two
+ * GitHubs, several RSS collections). Each account is connected with a stable
+ * `accountId` (a uuid generated here) + a human label the client derives. Tokens
+ * live only in the main process (OS-keychain encrypted); this UI never stores or
+ * echoes them. "Add deck" creates a NATIVE deck in its OWN new workspace bound to
+ * that account — native decks have no WebContentsView, so they cost no extra
+ * renderer process.
  *
  * code-server is integrated, not reskinned: "Open a folder" spawns local VS Code
- * and opens it as a normal web deck.
+ * and opens it as a normal web deck in its own workspace.
  */
-import { useEffect, useState } from 'react'
-import type { ProviderId, ProviderStatus } from '@shared/types'
+import { useCallback, useEffect, useState } from 'react'
+import type { ProviderId, AccountSummary, Workspace } from '@shared/types'
 import { useStore } from '../../store'
 
 interface FieldDef {
@@ -27,13 +28,14 @@ interface ProviderDef {
   id: ProviderId
   label: string
   glyph: string
+  color: string
   blurb: string
+  /** 'login' = credentials; 'collection' = RSS feed sets; 'aggregate' = no connect. */
+  kind: 'login' | 'collection' | 'aggregate'
   mode: 'token' | 'oauth'
-  /** Whether connecting requires credentials (RSS / follows-wall do not). */
-  needsConnect: boolean
-  /** When true, the connect form has a primary "token" input (PAT / access token). */
+  /** Primary pasted token input (PAT / access token), when the flow uses one. */
   tokenField?: { label: string; placeholder?: string }
-  /** Extra non-secret (or app-credential) fields passed in `fields`. */
+  /** Extra connect fields passed in `fields`. */
   fields: FieldDef[]
 }
 
@@ -42,19 +44,21 @@ const PROVIDERS: ProviderDef[] = [
     id: 'canvas',
     label: 'Canvas',
     glyph: '🎓',
+    color: '#e2484d',
     blurb: 'Courses, to-dos and upcoming assignments.',
+    kind: 'login',
     mode: 'token',
-    needsConnect: true,
-    tokenField: { label: 'Access token', placeholder: 'Canvas → Account → Settings → New access token' },
+    tokenField: { label: 'Access token', placeholder: 'Account → Settings → New access token' },
     fields: [{ key: 'instanceUrl', label: 'Canvas URL', placeholder: 'https://school.instructure.com' }]
   },
   {
     id: 'github',
     label: 'GitHub',
     glyph: '🐙',
+    color: '#6e7681',
     blurb: 'Your notifications and recently-updated repos.',
+    kind: 'login',
     mode: 'token',
-    needsConnect: true,
     tokenField: { label: 'Personal access token', placeholder: 'ghp_… (repo, notifications, read:user)' },
     fields: []
   },
@@ -62,9 +66,10 @@ const PROVIDERS: ProviderDef[] = [
     id: 'spotify',
     label: 'Spotify',
     glyph: '🎧',
+    color: '#1db954',
     blurb: 'Now playing, playlists, recently played. Playback needs Premium.',
+    kind: 'login',
     mode: 'oauth',
-    needsConnect: true,
     fields: [
       { key: 'clientId', label: 'Client ID', placeholder: 'from your Spotify app' },
       { key: 'clientSecret', label: 'Client secret', placeholder: 'from your Spotify app', secret: true },
@@ -75,9 +80,10 @@ const PROVIDERS: ProviderDef[] = [
     id: 'bluesky',
     label: 'Bluesky',
     glyph: '🦋',
+    color: '#1185fe',
     blurb: 'Your chronological following timeline.',
+    kind: 'login',
     mode: 'token',
-    needsConnect: true,
     fields: [
       { key: 'handle', label: 'Handle', placeholder: 'you.bsky.social' },
       { key: 'appPassword', label: 'App password', placeholder: 'Settings → App passwords', secret: true }
@@ -87,95 +93,110 @@ const PROVIDERS: ProviderDef[] = [
     id: 'mastodon',
     label: 'Mastodon',
     glyph: '🐘',
+    color: '#6364ff',
     blurb: 'Your home timeline.',
+    kind: 'login',
     mode: 'token',
-    needsConnect: true,
-    tokenField: { label: 'Access token', placeholder: 'Preferences → Development → New application', },
+    tokenField: { label: 'Access token', placeholder: 'Preferences → Development → New application' },
     fields: [{ key: 'instanceUrl', label: 'Instance URL', placeholder: 'https://mastodon.social' }]
   },
   {
     id: 'rss',
     label: 'RSS',
     glyph: '📡',
-    blurb: 'Any feed — blogs, news, even YouTube channels. No account needed.',
+    color: '#f5b342',
+    blurb: 'Feed collections — blogs, news, even YouTube channels. No account needed.',
+    kind: 'collection',
     mode: 'token',
-    needsConnect: false,
-    fields: []
+    fields: [{ key: 'label', label: 'Collection name', placeholder: 'e.g. Tech, News' }]
   },
   {
     id: 'follows-wall',
     label: 'Follows wall',
     glyph: '🧱',
+    color: '#7c5cff',
     blurb: 'One chronological river of Bluesky + Mastodon + RSS. No algorithm.',
+    kind: 'aggregate',
     mode: 'token',
-    needsConnect: false,
     fields: []
   }
 ]
 
-/** Create a native deck (no WebContentsView) in the active/first workspace. */
-function addNativeDeck(provider: ProviderId, title: string): void {
-  const { activeWorkspaceId, workspaces, addPanel, activateWorkspace } = useStore.getState()
-  const wsId = activeWorkspaceId ?? workspaces[0]?.id
-  if (!wsId) return
-  const id = crypto.randomUUID()
-  addPanel(wsId, { id, title, url: '', kind: 'native', provider })
-  activateWorkspace(wsId)
+/** Create a NATIVE deck (no WebContentsView) in its OWN new workspace. */
+function addNativeDeck(def: ProviderDef, accountId: string, label: string): void {
+  const { addWorkspace, activateWorkspace } = useStore.getState()
+  const id = `ws_${crypto.randomUUID().slice(0, 8)}`
+  const pid = crypto.randomUUID()
+  const ws: Workspace = {
+    id,
+    name: label,
+    subtitle: '1 deck',
+    color: def.color,
+    glyph: def.glyph,
+    partition: `persist:${id}`,
+    live: { status: 'idle' },
+    panels: [{ id: pid, title: label, url: '', kind: 'native', provider: def.id, accountId }],
+    layout: { type: 'leaf', panelId: pid }
+  }
+  addWorkspace(ws)
+  activateWorkspace(id)
 }
 
-/** Create a normal embedded web deck (used for code-server's local URL). */
-function addWebDeck(url: string, title: string): void {
-  const { activeWorkspaceId, workspaces, addPanel, activateWorkspace } = useStore.getState()
-  const wsId = activeWorkspaceId ?? workspaces[0]?.id
-  if (!wsId) return
-  const id = crypto.randomUUID()
-  window.decks?.panel
-    .create({
-      panelId: id,
-      workspaceId: wsId,
-      partition: 'persist:' + wsId,
-      url,
-      bounds: { x: 0, y: 0, width: 800, height: 600 }
-    })
-    .catch(() => {})
-  addPanel(wsId, { id, title, url })
-  activateWorkspace(wsId)
+/** Create a normal embedded web deck (used for code-server) in its own workspace. */
+function addWebDeck(url: string, title: string, color: string, glyph: string): void {
+  const { addWorkspace, activateWorkspace } = useStore.getState()
+  const id = `ws_${crypto.randomUUID().slice(0, 8)}`
+  const pid = crypto.randomUUID()
+  const ws: Workspace = {
+    id,
+    name: title,
+    subtitle: '1 deck',
+    color,
+    glyph,
+    partition: `persist:${id}`,
+    live: { status: 'idle' },
+    panels: [{ id: pid, title, url }],
+    layout: { type: 'leaf', panelId: pid }
+  }
+  addWorkspace(ws)
+  activateWorkspace(id) // App's ensure-create builds the web view for the new deck
 }
 
-function ProviderRow({ def }: { def: ProviderDef }): JSX.Element {
-  const [status, setStatus] = useState<ProviderStatus | null>(null)
+function ProviderCard({ def }: { def: ProviderDef }): JSX.Element {
+  const [accounts, setAccounts] = useState<AccountSummary[]>([])
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
   const [token, setToken] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
 
-  const refreshStatus = (): void => {
+  const refresh = useCallback((): void => {
+    if (def.kind === 'aggregate') return
     void window.decks?.provider
-      .status(def.id)
-      .then((s) => setStatus(s))
-      .catch(() => setStatus(null))
-  }
+      .accounts(def.id)
+      .then((a) => setAccounts(a))
+      .catch(() => setAccounts([]))
+  }, [def.id, def.kind])
 
-  useEffect(refreshStatus, [def.id])
-
-  const connected = !!status?.connected
+  useEffect(refresh, [refresh])
 
   const connect = async (): Promise<void> => {
     setBusy(true)
     setMsg(null)
     try {
+      const accountId = crypto.randomUUID()
       const result = await window.decks?.provider.connect({
         provider: def.id,
+        accountId,
         mode: def.mode,
         token: def.tokenField ? token : undefined,
         fields: Object.keys(values).length ? values : undefined
       })
       if (result?.connected) {
-        setStatus(result)
         setOpen(false)
         setToken('')
-        setMsg(null)
+        setValues({})
+        refresh()
       } else {
         setMsg(result?.error ?? 'Could not connect.')
       }
@@ -186,69 +207,74 @@ function ProviderRow({ def }: { def: ProviderDef }): JSX.Element {
     }
   }
 
-  const disconnect = async (): Promise<void> => {
-    setBusy(true)
+  const disconnect = async (accountId: string): Promise<void> => {
     try {
-      await window.decks?.provider.disconnect(def.id)
+      await window.decks?.provider.disconnect(def.id, accountId)
     } catch {
       /* ignore */
-    } finally {
-      setBusy(false)
-      refreshStatus()
     }
+    refresh()
   }
+
+  const addLabel = def.kind === 'collection' ? 'Add collection' : 'Add account'
 
   return (
     <div className="rounded-xl2 border border-line bg-bg-elevated p-4">
       <div className="flex items-start gap-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-bg-panel text-lg">
+        <span
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-lg"
+          style={{ backgroundColor: def.color + '22' }}
+        >
           {def.glyph}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-txt-1">{def.label}</span>
-            {def.needsConnect &&
-              (connected ? (
-                <span className="rounded-full bg-ok/15 px-2 py-0.5 text-[10px] font-semibold text-ok">
-                  {status?.account ? status.account : 'Connected'}
-                </span>
-              ) : (
-                <span className="rounded-full bg-bg-panel px-2 py-0.5 text-[10px] font-medium text-txt-3">
-                  Not connected
-                </span>
-              ))}
-          </div>
+          <span className="text-sm font-medium text-txt-1">{def.label}</span>
           <p className="mt-0.5 text-xs leading-relaxed text-txt-3">{def.blurb}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {def.needsConnect &&
-            (connected ? (
-              <button
-                onClick={disconnect}
-                disabled={busy}
-                className="rounded-lg border border-line bg-bg-panel px-2.5 py-1.5 text-xs text-txt-2 transition-colors hover:text-err disabled:opacity-40"
-              >
-                Disconnect
-              </button>
-            ) : (
-              <button
-                onClick={() => setOpen((v) => !v)}
-                className="rounded-lg border border-line bg-bg-panel px-2.5 py-1.5 text-xs text-txt-1 transition-colors hover:border-accent"
-              >
-                {open ? 'Cancel' : 'Connect'}
-              </button>
-            ))}
+        {def.kind === 'aggregate' ? (
           <button
-            onClick={() => addNativeDeck(def.id, def.label)}
-            className="rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+            onClick={() => addNativeDeck(def, 'default', def.label)}
+            className="shrink-0 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
           >
             Add deck
           </button>
-        </div>
+        ) : (
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className="shrink-0 rounded-lg border border-line bg-bg-panel px-2.5 py-1.5 text-xs text-txt-1 transition-colors hover:border-accent"
+          >
+            {open ? 'Cancel' : addLabel}
+          </button>
+        )}
       </div>
 
-      {open && def.needsConnect && (
-        <div className="mt-4 flex flex-col gap-2 border-t border-line pt-4">
+      {/* Connected accounts (or feed collections). */}
+      {accounts.length > 0 && (
+        <div className="mt-3 flex flex-col gap-1.5 border-t border-line pt-3">
+          {accounts.map((a) => (
+            <div key={a.id} className="flex items-center gap-2">
+              <span className="grid h-1.5 w-1.5 shrink-0 place-items-center rounded-full bg-ok" />
+              <span className="min-w-0 flex-1 truncate text-xs text-txt-2">{a.label}</span>
+              <button
+                onClick={() => addNativeDeck(def, a.id, a.label)}
+                className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90"
+              >
+                Add deck
+              </button>
+              <button
+                onClick={() => void disconnect(a.id)}
+                className="shrink-0 rounded-lg border border-line bg-bg-panel px-2 py-1 text-xs text-txt-3 transition-colors hover:text-err"
+              >
+                Disconnect
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Connect / add-collection form. */}
+      {open && def.kind !== 'aggregate' && (
+        <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
           {def.fields.map((f) => (
             <label key={f.key} className="flex flex-col gap-1">
               <span className="text-[11px] font-medium text-txt-2">{f.label}</span>
@@ -285,7 +311,7 @@ function ProviderRow({ def }: { def: ProviderDef }): JSX.Element {
             disabled={busy}
             className="mt-1 self-start rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
-            {busy ? 'Connecting…' : 'Connect'}
+            {busy ? 'Connecting…' : def.kind === 'collection' ? 'Create' : 'Connect'}
           </button>
         </div>
       )}
@@ -303,7 +329,7 @@ function CodeServerRow(): JSX.Element {
     try {
       const r = await window.decks?.codeserver.start()
       if (r?.url) {
-        addWebDeck(r.url, 'VS Code')
+        addWebDeck(r.url, 'VS Code', '#3ddc97', '🧑‍💻')
       } else if (r?.cancelled) {
         // user backed out — say nothing
       } else if (r?.notInstalled) {
@@ -347,7 +373,7 @@ export default function Accounts(): JSX.Element {
   return (
     <div className="flex flex-col gap-3">
       {PROVIDERS.map((def) => (
-        <ProviderRow key={def.id} def={def} />
+        <ProviderCard key={def.id} def={def} />
       ))}
       <CodeServerRow />
     </div>

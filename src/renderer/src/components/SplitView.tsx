@@ -125,6 +125,7 @@ function DeckCard({
           <NativeDeckHost
             key={nativeReloadKey}
             provider={deck.provider}
+            accountId={deck.accountId ?? 'default'}
             panelId={panelId}
             workspaceId={ws.id}
           />
