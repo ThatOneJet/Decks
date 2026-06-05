@@ -16,8 +16,11 @@ import type {
   HoverShowPayload,
   MenuShowPayload,
   OverlayRenderEvent,
-  OverlayMenuEvent
+  OverlayMenuEvent,
+  OverlayMiniPlayerEvent,
+  MiniPlayerMeta
 } from '@shared/ipc'
+import type { PanelBounds } from '@shared/types'
 
 /** Overlay window size — just enough to hold the hover card, nothing more. */
 const OVERLAY_WIDTH = 300
@@ -27,11 +30,22 @@ const OVERLAY_HEIGHT = 200
 const MENU_WIDTH = 240
 const MENU_HEIGHT = 320
 
+/** Height of the mini-player control strip drawn under the corner video. */
+const MINI_BAR_HEIGHT = 48
+/** Vertical gap between the corner video and the control strip. */
+const MINI_BAR_GAP = 6
+
 export interface OverlayController {
   showHover(payload: HoverShowPayload): void
   hideHover(): void
   showMenu(payload: MenuShowPayload): void
   hideMenu(): void
+  /** Show the mini-player control bar under the corner video at `rect`. */
+  showMiniPlayer(rect: PanelBounds, meta: MiniPlayerMeta): void
+  /** Update the now-playing metadata on an already-visible mini-player bar. */
+  updateMiniPlayer(meta: MiniPlayerMeta): void
+  /** Hide the mini-player control bar. */
+  hideMiniPlayer(): void
   destroy(): void
 }
 
@@ -75,8 +89,19 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
   /** True while the window is alive and safe to talk to. */
   const alive = (): boolean => !win.isDestroyed()
 
-  /** True while a custom context menu is open (window is interactive). */
-  let menuOpen = false
+  /**
+   * Single-window mode machine. The overlay window is shared by the hover card,
+   * the context menu, and the mini-player bar, so only one can own it at a time.
+   * Priority: menu > miniplayer > hover. The mini-player is the RESTING mode
+   * (stays up while a corner video plays); a menu temporarily takes the window
+   * and restores the mini-player bar when it closes.
+   */
+  type Mode = 'hidden' | 'hover' | 'menu' | 'miniplayer'
+  let mode: Mode = 'hidden'
+
+  /** Remembered mini-player state so we can re-show the bar after a menu closes. */
+  let miniRect: PanelBounds | null = null
+  let miniMeta: MiniPlayerMeta | null = null
 
   const send = (event: OverlayRenderEvent): void => {
     if (!alive()) return
@@ -88,25 +113,64 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
     win.webContents.send(IPC.OverlayMenu, event)
   }
 
-  /** Tear the menu down: go back to small, click-through, hidden state. */
+  const sendMini = (event: OverlayMiniPlayerEvent): void => {
+    if (!alive()) return
+    win.webContents.send(IPC.OverlayMiniPlayer, event)
+  }
+
+  /**
+   * Position+size the window for the mini-player control strip and (re)show it.
+   * The strip spans the corner video's width and sits just below it. Window-
+   * relative rect → screen coords the same way showHover does, clamped to the
+   * parent's content area. Interactive (buttons) but never steals focus.
+   */
+  const showMiniBar = (): void => {
+    if (!alive() || parent.isDestroyed() || !miniRect || !miniMeta) return
+    const content = parent.getContentBounds()
+    const barW = miniRect.width
+    const barH = MINI_BAR_HEIGHT
+    // Place the strip just under the corner video; if it would overflow the
+    // bottom, tuck it back up to sit flush against the content bottom edge.
+    let relX = miniRect.x
+    let relY = miniRect.y + miniRect.height + MINI_BAR_GAP
+    if (relY + barH > content.height) relY = content.height - barH
+    if (relX + barW > content.width) relX = content.width - barW
+    const screenX = Math.round(content.x + Math.max(0, relX))
+    const screenY = Math.round(content.y + Math.max(0, relY))
+    win.setSize(barW, barH)
+    win.setPosition(screenX, screenY)
+    sendMini({ show: true, meta: miniMeta })
+    // Interactive buttons need mouse events, but never steal focus from the video.
+    win.setIgnoreMouseEvents(false)
+    win.showInactive()
+  }
+
+  /** Tear the menu down and restore whatever resting mode should own the window. */
   const closeMenu = (): void => {
     if (!alive()) return
-    menuOpen = false
     sendMenu({ kind: 'workspace', targetId: '', hasNotes: false, hide: true })
-    win.setIgnoreMouseEvents(true)
-    win.hide()
-    // Restore the small hover size for the next hover.
     win.setSize(OVERLAY_WIDTH, OVERLAY_HEIGHT)
+    // Restore the mini-player bar if one is active; otherwise go hidden.
+    if (miniRect && miniMeta) {
+      mode = 'miniplayer'
+      showMiniBar()
+    } else {
+      mode = 'hidden'
+      win.setIgnoreMouseEvents(true)
+      win.hide()
+    }
   }
 
   // Dismiss the menu when the overlay loses focus (click elsewhere, alt-tab…).
   win.on('blur', () => {
-    if (menuOpen) closeMenu()
+    if (mode === 'menu') closeMenu()
   })
 
   return {
     showHover(payload: HoverShowPayload): void {
       if (!alive() || parent.isDestroyed()) return
+      // Menu and mini-player both outrank the hover card — suppress it then.
+      if (mode === 'menu' || mode === 'miniplayer') return
 
       // p.x/p.y are MAIN-WINDOW-relative pixels. Convert to absolute screen
       // coordinates by offsetting from the parent's content origin, then clamp
@@ -117,25 +181,31 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
       const screenX = Math.round(Math.min(Math.max(content.x + payload.x, content.x), maxX))
       const screenY = Math.round(Math.min(Math.max(content.y + payload.y, content.y), maxY))
 
+      win.setSize(OVERLAY_WIDTH, OVERLAY_HEIGHT)
+      win.setIgnoreMouseEvents(true)
       win.setPosition(screenX, screenY)
       send({ show: true, summary: payload.summary })
+      mode = 'hover'
       // showInactive: become visible but NEVER steal focus from the main window.
       win.showInactive()
     },
 
     hideHover(): void {
       if (!alive()) return
-      // A menu owns the window while open — don't let a stray hover-hide kill it.
-      if (menuOpen) return
+      // Only the hover card may be hidden this way; menu/mini-player own the window.
+      if (mode !== 'hover') return
       send({ show: false })
+      mode = 'hidden'
       win.hide()
     },
 
     showMenu(payload: MenuShowPayload): void {
       if (!alive() || parent.isDestroyed()) return
 
-      // Stop showing the hover card; the window now hosts the menu.
+      // Stop showing the hover card / mini-player bar; the window now hosts the
+      // menu. The mini-player rect/meta are REMEMBERED so closeMenu can restore it.
       send({ show: false })
+      sendMini({ show: false })
 
       // Grow the window so the menu fits, then position it at the cursor in
       // screen coords (parent content origin + window-relative x/y), clamped to
@@ -151,7 +221,7 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
       const screenY = Math.round(Math.min(Math.max(rawY, area.y), maxY))
       win.setPosition(screenX, screenY)
 
-      menuOpen = true
+      mode = 'menu'
       win.setIgnoreMouseEvents(false)
       sendMenu({
         kind: payload.kind,
@@ -163,7 +233,41 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
     },
 
     hideMenu(): void {
+      if (mode !== 'menu') return
       closeMenu()
+    },
+
+    showMiniPlayer(rect: PanelBounds, meta: MiniPlayerMeta): void {
+      if (!alive()) return
+      miniRect = rect
+      miniMeta = meta
+      // A menu outranks the mini-player: remember state, let the menu finish; the
+      // bar reappears on closeMenu. Otherwise take the window now.
+      if (mode === 'menu') return
+      mode = 'miniplayer'
+      showMiniBar()
+    },
+
+    updateMiniPlayer(meta: MiniPlayerMeta): void {
+      if (!alive()) return
+      miniMeta = meta
+      // Only push to the visible bar; if a menu is up the new meta is applied
+      // when the bar is restored.
+      if (mode === 'miniplayer') sendMini({ show: true, meta })
+    },
+
+    hideMiniPlayer(): void {
+      if (!alive()) return
+      miniRect = null
+      miniMeta = null
+      sendMini({ show: false })
+      // If the bar currently owns the window, drop to hidden. If a menu is up,
+      // leave it alone — closeMenu will now go hidden since mini state is cleared.
+      if (mode === 'miniplayer') {
+        mode = 'hidden'
+        win.setIgnoreMouseEvents(true)
+        win.hide()
+      }
     },
 
     destroy(): void {

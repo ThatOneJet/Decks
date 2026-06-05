@@ -20,7 +20,9 @@ import type {
   HoverShowPayload,
   SettingsApplyPayload,
   MenuShowPayload,
-  MenuPickPayload
+  MenuPickPayload,
+  MiniPlayerControlEvent,
+  FocusPanelEvent
 } from '@shared/ipc'
 import type { PanelId, PersistedState } from '@shared/types'
 import { PanelManager } from './panels'
@@ -68,6 +70,14 @@ function createWindow(): void {
 
   panels.setWindow(mainWindow)
   overlay = createOverlay(mainWindow)
+
+  // Bridge the corner mini-player (owned by PanelManager) to the overlay window's
+  // control bar. PanelManager decides WHEN (corner/teardown); these hooks draw it.
+  panels.setMiniPlayerHooks({
+    onStart: (rect, meta) => overlay?.showMiniPlayer(rect, meta),
+    onUpdate: (meta) => overlay?.updateMiniPlayer(meta),
+    onEnd: () => overlay?.hideMiniPlayer()
+  })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
 
@@ -182,6 +192,38 @@ function registerIpc(): void {
   })
   // The overlay reports a click outside the menu → just hide it.
   ipcMain.on(IPC.MenuDismiss, () => overlay?.hideMenu())
+
+  // ── Mini-player controls (overlay window → main) ──
+  // play/pause/next/prev drive the corner video in place; close is special: it
+  // EXPANDS the deck back to full size (keep playing) so the user can watch it.
+  ipcMain.on(IPC.MiniPlayerControl, (_e, p: MiniPlayerControlEvent) => {
+    switch (p.action) {
+      case 'play':
+        panels.miniPlay()
+        break
+      case 'pause':
+        panels.miniPause()
+        break
+      case 'next':
+        panels.miniNext()
+        break
+      case 'prev':
+        panels.miniPrevious()
+        break
+      case 'close': {
+        // "Close" = this isn't a song, let me actually watch it. Tell the MAIN
+        // renderer to focus the deck; it owns workspace state and will activate
+        // the owning workspace, whose next showOnly brings the deck back full-size
+        // (mini-player mode clears because the panel is now in the show-set).
+        const panelId = panels.miniPlayerPanelId
+        if (panelId && mainWindow && !mainWindow.isDestroyed()) {
+          const event: FocusPanelEvent = { panelId }
+          mainWindow.webContents.send(IPC.FocusPanel, event)
+        }
+        break
+      }
+    }
+  })
 }
 
 app.whenReady().then(async () => {

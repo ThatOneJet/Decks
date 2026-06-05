@@ -24,6 +24,9 @@ import type {
   HoverShowPayload,
   SettingsApplyPayload,
   OverlayRenderEvent,
+  OverlayMiniPlayerEvent,
+  MiniPlayerControlEvent,
+  FocusPanelEvent,
   ProviderConnectPayload,
   ProviderFetchPayload
 } from '@shared/ipc'
@@ -68,6 +71,9 @@ const api: DecksApi = {
     show: (p: HoverShowPayload) => ipcRenderer.send(IPC.HoverShow, p),
     hide: () => ipcRenderer.send(IPC.HoverHide)
   },
+  miniPlayer: {
+    control: (e: MiniPlayerControlEvent) => ipcRenderer.send(IPC.MiniPlayerControl, e)
+  },
   settings: {
     apply: (p: SettingsApplyPayload) => ipcRenderer.send(IPC.SettingsApply, p)
   },
@@ -100,6 +106,16 @@ const api: DecksApi = {
     const listener = (_: unknown, e: OverlayMenuEvent): void => cb(e)
     ipcRenderer.on(IPC.OverlayMenu, listener)
     return () => ipcRenderer.removeListener(IPC.OverlayMenu, listener)
+  },
+  onMiniPlayer: (cb: (e: OverlayMiniPlayerEvent) => void) => {
+    const listener = (_: unknown, e: OverlayMiniPlayerEvent): void => cb(e)
+    ipcRenderer.on(IPC.OverlayMiniPlayer, listener)
+    return () => ipcRenderer.removeListener(IPC.OverlayMiniPlayer, listener)
+  },
+  onFocusPanel: (cb: (e: FocusPanelEvent) => void) => {
+    const listener = (_: unknown, e: FocusPanelEvent): void => cb(e)
+    ipcRenderer.on(IPC.FocusPanel, listener)
+    return () => ipcRenderer.removeListener(IPC.FocusPanel, listener)
   }
 }
 

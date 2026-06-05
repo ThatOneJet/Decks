@@ -71,6 +71,14 @@ export const IPC = {
   MenuPick: 'menu:pick', // overlay → main (an item was chosen)
   MenuDismiss: 'menu:dismiss', // overlay → main (clicked outside)
 
+  // ── YouTube corner mini-player (overlay control bar over a corner video) ──
+  /** main → the OVERLAY window: show/update/hide the mini-player control bar. */
+  OverlayMiniPlayer: 'overlay:miniplayer',
+  /** overlay → main (send): a mini-player control button was pressed. */
+  MiniPlayerControl: 'miniplayer:control',
+  /** main → the MAIN renderer: focus/expand a panel's deck back to full size. */
+  FocusPanel: 'panel:focus',
+
   // ── Events — main → renderer (on) ──
   /** main → the OVERLAY window only: render/hide the hover card. */
   OverlayRender: 'overlay:render',
@@ -172,6 +180,34 @@ export interface MenuPickPayload {
   kind: MenuKind
   targetId: string
   action: string
+}
+
+/** Now-playing metadata for the corner mini-player control bar. */
+export interface MiniPlayerMeta {
+  title: string
+  artist: string
+  /** Artwork URL from the page's mediaSession metadata (may be absent). */
+  artwork?: string
+  /** True while playback is paused. */
+  paused: boolean
+}
+
+/** event: OverlayMiniPlayer (main → the overlay window). */
+export interface OverlayMiniPlayerEvent {
+  show: boolean
+  meta?: MiniPlayerMeta
+}
+
+/** payload: MiniPlayerControl (overlay → main). A control button was pressed. */
+export interface MiniPlayerControlEvent {
+  action: 'play' | 'pause' | 'next' | 'prev' | 'close'
+  /** Optional seek target (seconds), for action === 'play'/'pause' scrubbing. */
+  time?: number
+}
+
+/** event: FocusPanel (main → the MAIN renderer). Expand a panel's deck full-size. */
+export interface FocusPanelEvent {
+  panelId: PanelId
 }
 
 /** event: FolderMenuAction (main → the MAIN renderer). */
@@ -301,6 +337,10 @@ export interface DecksApi {
     /** Hide the floating hover card. */
     hide(): void
   }
+  miniPlayer: {
+    /** (Overlay window only) report a mini-player control button press. */
+    control(e: MiniPlayerControlEvent): void
+  }
   settings: {
     /** Apply settings that affect the main process (discard timeout, …). */
     apply(payload: SettingsApplyPayload): void
@@ -317,4 +357,8 @@ export interface DecksApi {
   onOverlayRender(cb: (e: OverlayRenderEvent) => void): () => void
   /** (Overlay window only) subscribe to custom context-menu render events. */
   onOverlayMenu(cb: (e: OverlayMenuEvent) => void): () => void
+  /** (Overlay window only) subscribe to mini-player render events. */
+  onMiniPlayer(cb: (e: OverlayMiniPlayerEvent) => void): () => void
+  /** (Main renderer only) subscribe to focus-panel requests. */
+  onFocusPanel(cb: (e: FocusPanelEvent) => void): () => void
 }

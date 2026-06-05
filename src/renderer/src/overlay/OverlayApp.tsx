@@ -8,15 +8,17 @@
  * pointer-events back on so its backdrop can catch outside clicks.
  */
 import { useEffect, useState } from 'react'
-import type { HoverSummary, MenuKind } from '@shared/ipc'
+import type { HoverSummary, MenuKind, MiniPlayerMeta } from '@shared/ipc'
 import FloatingHoverCard from './FloatingHoverCard'
 import OverlayMenu from './OverlayMenu'
+import MiniPlayerBar from './MiniPlayerBar'
 
 type MenuState = { kind: MenuKind; targetId: string; hasNotes: boolean }
 
 export default function OverlayApp(): JSX.Element | null {
   const [summary, setSummary] = useState<HoverSummary | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
+  const [mini, setMini] = useState<MiniPlayerMeta | null>(null)
 
   useEffect(() => {
     return window.decks?.onOverlayRender((e) => {
@@ -31,11 +33,27 @@ export default function OverlayApp(): JSX.Element | null {
     })
   }, [])
 
-  // Menu wins: it owns the interactive window while open.
+  useEffect(() => {
+    return window.decks?.onMiniPlayer((e) => {
+      setMini(e.show && e.meta ? e.meta : null)
+    })
+  }, [])
+
+  // Menu wins: it owns the interactive window while open. (Main hides the
+  // mini-player bar before showing a menu, so they never overlap.)
   if (menu) {
     return (
       <div className="fixed inset-0">
         <OverlayMenu kind={menu.kind} targetId={menu.targetId} hasNotes={menu.hasNotes} />
+      </div>
+    )
+  }
+
+  // Mini-player bar: interactive control strip under the corner video.
+  if (mini) {
+    return (
+      <div className="fixed inset-0">
+        <MiniPlayerBar meta={mini} />
       </div>
     )
   }

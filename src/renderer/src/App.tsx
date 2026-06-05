@@ -142,6 +142,20 @@ function App(): JSX.Element {
     return () => off?.()
   }, [patchPanel])
 
+  // ── 3c. Mini-player "close" → expand that deck back to full size. ──
+  // Main sends only the panelId (it doesn't track workspaces); the renderer owns
+  // the store, so we look up which workspace contains the panel and activate it.
+  // The next showOnly puts the panel in the show-set, clearing mini-player mode.
+  useEffect(() => {
+    const off = window.decks?.onFocusPanel(({ panelId }) => {
+      const ws = useStore
+        .getState()
+        .workspaces.find((w) => w.panels.some((p) => p.id === panelId))
+      if (ws) activateWorkspace(ws.id)
+    })
+    return () => off?.()
+  }, [activateWorkspace])
+
   // ── 4. Debounced persistence on any meaningful change. ──
   useEffect(() => {
     if (!hydrated.current) return
