@@ -20,7 +20,7 @@
  * absolutely, with overdue (err)/missing and soon (warn) highlighting. The card
  * body is scrollable. Matches the app's dark theme.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { NativeDeckProps } from '../types'
 
@@ -295,6 +295,134 @@ function htmlToText(html?: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ')
     .trim()
+}
+
+/**
+ * Render Canvas content HTML as SAFE, styled rich text (markdown-like, the way
+ * Canvas shows it) WITHOUT dangerouslySetInnerHTML: parse with DOMParser, then
+ * map a whitelist of elements to styled React nodes (headings, lists, bold,
+ * links, quotes, code, tables, images). Unknown tags render their children only,
+ * so no scripts/attributes ever execute.
+ */
+function renderHtmlNodes(nodes: NodeListOf<ChildNode>): React.ReactNode[] {
+  return Array.from(nodes).map((n, i) => renderHtmlNode(n, i))
+}
+
+function renderHtmlNode(node: ChildNode, key: number): React.ReactNode {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent
+  if (node.nodeType !== Node.ELEMENT_NODE) return null
+  const el = node as HTMLElement
+  const tag = el.tagName.toLowerCase()
+  const kids = renderHtmlNodes(el.childNodes)
+  switch (tag) {
+    case 'p':
+      return <p key={key} className="mb-2.5">{kids}</p>
+    case 'br':
+      return <br key={key} />
+    case 'strong':
+    case 'b':
+      return <strong key={key} className="font-semibold text-txt-1">{kids}</strong>
+    case 'em':
+    case 'i':
+      return <em key={key} className="italic">{kids}</em>
+    case 'u':
+      return <u key={key}>{kids}</u>
+    case 'h1':
+    case 'h2':
+    case 'h3':
+      return <div key={key} className="mb-1.5 mt-3.5 text-sm font-semibold text-txt-1">{kids}</div>
+    case 'h4':
+    case 'h5':
+    case 'h6':
+      return <div key={key} className="mb-1 mt-3 text-[13px] font-semibold text-txt-1">{kids}</div>
+    case 'ul':
+      return <ul key={key} className="mb-2.5 ml-4 list-disc space-y-1 marker:text-txt-4">{kids}</ul>
+    case 'ol':
+      return <ol key={key} className="mb-2.5 ml-4 list-decimal space-y-1 marker:text-txt-4">{kids}</ol>
+    case 'li':
+      return <li key={key} className="pl-1">{kids}</li>
+    case 'a': {
+      const href = el.getAttribute('href') || ''
+      return (
+        <a
+          key={key}
+          onClick={(e) => {
+            e.preventDefault()
+            if (/^https?:/i.test(href)) window.open(href, '_blank', 'noopener,noreferrer')
+          }}
+          className="cursor-pointer text-accent underline-offset-2 hover:underline"
+        >
+          {kids}
+        </a>
+      )
+    }
+    case 'blockquote':
+      return (
+        <blockquote key={key} className="my-2.5 border-l-2 border-accent-ring/40 pl-3 text-txt-3">
+          {kids}
+        </blockquote>
+      )
+    case 'code':
+      return (
+        <code key={key} className="rounded bg-bg px-1 py-0.5 font-mono text-[11px] text-txt-1">
+          {kids}
+        </code>
+      )
+    case 'pre':
+      return (
+        <pre key={key} className="my-2.5 overflow-auto rounded-lg bg-bg p-2.5 font-mono text-[11px] text-txt-2">
+          {kids}
+        </pre>
+      )
+    case 'hr':
+      return <hr key={key} className="my-3 border-line" />
+    case 'img': {
+      const src = el.getAttribute('src') || ''
+      if (!/^https?:/i.test(src)) return null
+      return (
+        <img
+          key={key}
+          src={src}
+          alt={el.getAttribute('alt') || ''}
+          className="my-2 max-w-full rounded-lg border border-line"
+        />
+      )
+    }
+    case 'table':
+      return (
+        <div key={key} className="my-2.5 overflow-auto">
+          <table className="w-full border-collapse text-[11px]">{kids}</table>
+        </div>
+      )
+    case 'thead':
+      return <thead key={key}>{kids}</thead>
+    case 'tbody':
+      return <tbody key={key}>{kids}</tbody>
+    case 'tr':
+      return <tr key={key}>{kids}</tr>
+    case 'th':
+      return <th key={key} className="border border-line px-2 py-1 text-left font-semibold text-txt-1">{kids}</th>
+    case 'td':
+      return <td key={key} className="border border-line px-2 py-1 align-top">{kids}</td>
+    case 'span':
+      return <span key={key}>{kids}</span>
+    case 'div':
+    case 'section':
+    case 'article':
+      return <div key={key}>{kids}</div>
+    default:
+      return <span key={key}>{kids}</span>
+  }
+}
+
+/** Canvas content rendered as styled rich text (safe — no innerHTML). */
+function RichHtml({ html, className }: { html?: string; className?: string }): JSX.Element | null {
+  const body = useMemo(() => {
+    if (!html || !html.trim()) return null
+    return new DOMParser().parseFromString(html, 'text/html').body
+  }, [html])
+  if (!body) return null
+  return <div className={className}>{renderHtmlNodes(body.childNodes)}</div>
 }
 
 /** True when a past-due assignment has not been submitted/graded. */
@@ -1913,7 +2041,7 @@ function AssignmentDetailView({
   const missing = isMissing(a)
   const u = urgency(a.dueAt)
   const past = a.dueAt ? new Date(a.dueAt).getTime() < Date.now() : false
-  const description = htmlToText(a.description)
+  const hasDescription = !!a.description && a.description.trim().length > 0
   const scored = typeof a.score === 'number'
 
   return (
@@ -1967,11 +2095,11 @@ function AssignmentDetailView({
         )}
       </div>
 
-      {/* Description (safe plain text — no innerHTML) */}
+      {/* Description — rendered as Canvas-style rich text (safe, no innerHTML) */}
       <div className="mt-4">
         <SectionHeading>Description</SectionHeading>
-        {description ? (
-          <p className="whitespace-pre-wrap text-xs leading-relaxed text-txt-2">{description}</p>
+        {hasDescription ? (
+          <RichHtml html={a.description} className="text-xs leading-relaxed text-txt-2" />
         ) : (
           <p className="text-xs text-txt-4">No description.</p>
         )}
@@ -2048,6 +2176,9 @@ function SubmitSection({
   const allowsText = hasType(submissionTypes, 'online_text_entry')
   const allowsUrl = hasType(submissionTypes, 'online_url')
   const allowsUpload = hasType(submissionTypes, 'online_upload')
+  const isQuiz = hasType(submissionTypes, 'online_quiz')
+  const isExternalTool = hasType(submissionTypes, 'external_tool')
+  const isDiscussion = hasType(submissionTypes, 'discussion_topic')
   const anyOnline = allowsText || allowsUrl || allowsUpload
 
   const [text, setText] = useState('')
@@ -2093,13 +2224,49 @@ function SubmitSection({
     [courseId, assignmentId, text, url, onSubmit, onSubmitFile]
   )
 
+  // A quiz: in-app quiz-taking isn't supported by the Canvas API — surface it as
+  // a quiz with a prominent "take it in Canvas" action (NOT "submitted outside").
+  if (isQuiz) {
+    return (
+      <div className="rounded-lg border px-3 py-3" style={{ borderColor: 'var(--accent-ring)', background: 'var(--accent-soft)' }}>
+        <div className="flex items-center gap-2 text-xs font-semibold text-accent">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 11l3 3L22 4" />
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+          </svg>
+          Quiz
+        </div>
+        <p className="mt-1.5 text-xs leading-relaxed text-txt-2">
+          This is a Canvas quiz
+          {typeof allowedAttempts === 'number' && allowedAttempts > 0
+            ? ` · ${allowedAttempts} attempt${allowedAttempts === 1 ? '' : 's'}`
+            : ''}
+          . Take it in Canvas — in-app quiz-taking isn’t supported yet.
+        </p>
+        <button
+          type="button"
+          onClick={() => openExternal(htmlUrl)}
+          disabled={!htmlUrl}
+          className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-[#04222b] transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          Take quiz in Canvas
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 17 17 7M9 7h8v8" />
+          </svg>
+        </button>
+      </div>
+    )
+  }
+
   if (!anyOnline) {
+    const note = isExternalTool
+      ? 'This assignment uses an external tool.'
+      : isDiscussion
+        ? 'This assignment is a graded discussion — reply from the Discussions tab.'
+        : 'This assignment is submitted outside Decks (on paper or no online submission).'
     return (
       <div className="rounded-lg border border-line bg-bg-elevated px-3 py-2.5">
-        <p className="text-xs text-txt-3">
-          This assignment is submitted outside Decks (on paper, an external tool, or no online
-          submission).
-        </p>
+        <p className="text-xs text-txt-3">{note}</p>
         <div className="mt-2">
           <OpenInCanvasLink url={htmlUrl} />
         </div>
@@ -3135,7 +3302,7 @@ function PageView({
     )
   }
   const p = page.data ?? {}
-  const body = htmlToText(p.body)
+  const hasBody = !!p.body && p.body.trim().length > 0
   return (
     <div className="flex-1 overflow-auto px-4 py-4">
       <div className="mb-3">
@@ -3148,8 +3315,8 @@ function PageView({
         </p>
       )}
       <div className="mt-4">
-        {body ? (
-          <p className="whitespace-pre-wrap text-xs leading-relaxed text-txt-2">{body}</p>
+        {hasBody ? (
+          <RichHtml html={p.body} className="text-xs leading-relaxed text-txt-2" />
         ) : (
           <p className="text-xs text-txt-4">This page has no content.</p>
         )}
