@@ -18,7 +18,7 @@ import type {
 import type { PanelId, PersistedState } from '@shared/types'
 import { PanelManager } from './panels'
 import { loadState, saveState } from './persistence'
-import { freeDevPort, killTrackedChildren, rendererDevPort } from './lifecycle'
+import { killTrackedChildren } from './lifecycle'
 
 let mainWindow: BrowserWindow | null = null
 const panels = new PanelManager()
@@ -117,11 +117,10 @@ app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.decks.app')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
 
-  // If a previous crashed run left our own renderer dev port bound, free it.
-  // Only ever targets THIS app's specific port — never a blanket kill.
-  if (is.dev) {
-    await freeDevPort(rendererDevPort(process.env['ELECTRON_RENDERER_URL']))
-  }
+  // NOTE: do NOT free the renderer dev port here. By the time main runs,
+  // electron-vite has already started the dev server ON that port — freeing it
+  // would kill our own live dev server and tear the app down on launch. Stale-
+  // port recovery belongs BEFORE electron-vite starts (see launcher.py).
 
   registerIpc()
   createWindow()
