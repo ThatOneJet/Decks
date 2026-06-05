@@ -249,6 +249,11 @@ function registerIpc(): void {
         if (panelId && mainWindow && !mainWindow.isDestroyed()) {
           const event: FocusPanelEvent = { panelId }
           mainWindow.webContents.send(IPC.FocusPanel, event)
+          // "Close" means "let me actually watch this" → bring Decks forward
+          // (the other controls deliberately do NOT raise the app).
+          if (mainWindow.isMinimized()) mainWindow.restore()
+          mainWindow.show()
+          mainWindow.focus()
         }
         break
       }

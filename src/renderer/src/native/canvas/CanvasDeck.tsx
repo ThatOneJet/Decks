@@ -502,6 +502,10 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
     Record<string, DetailCache<CanvasAssignmentDetail>>
   >({})
 
+  // Tracks which list tabs have a fetch started (loading or done) so we don't
+  // double-fetch. A ref (not the async-updated `meta`) is the reliable guard.
+  const startedTabs = useRef<Set<string>>(new Set())
+
   /** Resolve a course label from the dashboard course list, by id. */
   const courseName = useCallback(
     (courseId?: string): string | undefined => {
@@ -536,6 +540,7 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
         upcoming: Array.isArray(result?.upcoming) ? result!.upcoming : []
       })
       // Reset lazy caches so re-fetch happens on next visit.
+      startedTabs.current.clear()
       setAssignments([])
       setGrades([])
       setAnnouncements([])
@@ -561,16 +566,15 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
     void load()
   }, [load])
 
-  /** Lazy-load a single list tab's resource (skips if already loaded). */
+  /** Lazy-load a single list tab's resource (skips if already started). */
   const loadTab = useCallback(
     async (key: 'assignments' | 'grades' | 'announcements', force = false): Promise<void> => {
-      let shouldFetch = false
-      setMeta((m) => {
-        if (!force && (m[key].state === 'ready' || m[key].state === 'loading')) return m
-        shouldFetch = true
-        return { ...m, [key]: { state: 'loading', error: '' } }
-      })
-      if (!force && !shouldFetch) return
+      // Guard with a ref (the `meta` state updates async, so reading it here is
+      // unreliable). force re-arms a fetch.
+      if (force) startedTabs.current.delete(key)
+      if (startedTabs.current.has(key)) return
+      startedTabs.current.add(key)
+      setMeta((m) => ({ ...m, [key]: { state: 'loading', error: '' } }))
 
       try {
         const result = await window.decks?.provider.fetch({ provider, accountId, resource: key })
@@ -580,6 +584,7 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
         else if (key === 'announcements') setAnnouncements(arr as CanvasAnnouncement[])
         setMeta((m) => ({ ...m, [key]: { state: 'ready', error: '' } }))
       } catch (err) {
+        startedTabs.current.delete(key) // allow a retry
         setMeta((m) => ({
           ...m,
           [key]: { state: 'error', error: err instanceof Error ? err.message : 'Failed to load' }

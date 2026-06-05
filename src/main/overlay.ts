@@ -45,8 +45,12 @@ export interface OverlayController {
 }
 
 export function createOverlay(parent: BrowserWindow): OverlayController {
+  // NOT a child of the main window: a child window pulls its owner to the front
+  // when clicked and can hide when the owner isn't focused. A top-level
+  // always-on-top window lets the mini-player bar float above OTHER apps and be
+  // clicked from the background WITHOUT raising Decks. (Hover cards + menus only
+  // ever show while the app is in use, so this is safe for them too.)
   const win = new BrowserWindow({
-    parent,
     width: OVERLAY_WIDTH,
     height: OVERLAY_HEIGHT,
     frame: false,
@@ -58,7 +62,7 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
     maximizable: false,
     skipTaskbar: true,
     // Focusable so the custom context menu can take focus and dismiss on blur.
-    // The hover card still uses showInactive() and never steals focus.
+    // The hover card + mini-player use showInactive() and never steal focus.
     focusable: true,
     hasShadow: false,
     show: false,
@@ -69,9 +73,10 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
     }
   })
 
-  // Float above the live web views and let every click/hover pass THROUGH the
-  // transparent area to the main window underneath.
-  win.setAlwaysOnTop(true, 'pop-up-menu')
+  // Float above the live web views AND other apps; the transparent area stays
+  // click-through. 'screen-saver' keeps the bar usable over fullscreen content.
+  win.setAlwaysOnTop(true, 'screen-saver')
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   win.setIgnoreMouseEvents(true)
 
   // Load the renderer in OVERLAY mode (hash-routed to <OverlayApp/>).

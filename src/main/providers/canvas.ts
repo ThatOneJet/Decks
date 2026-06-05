@@ -121,16 +121,24 @@ export class CanvasClient implements ProviderClient {
   /** Authenticated GET against the configured instance; returns parsed JSON. */
   private async apiGet(creds: CanvasCreds, path: string): Promise<unknown> {
     const url = `${creds.instanceUrl}${path}`
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${creds.token}`,
-        Accept: 'application/json'
+    // Bound every request so a slow/unreachable instance can't hang the deck.
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 15_000)
+    try {
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${creds.token}`,
+          Accept: 'application/json'
+        },
+        signal: ctrl.signal
+      })
+      if (!res.ok) {
+        throw new Error(`Canvas API error (${res.status})`)
       }
-    })
-    if (!res.ok) {
-      throw new Error(`Canvas API error (${res.status})`)
+      return (await res.json()) as unknown
+    } finally {
+      clearTimeout(timer)
     }
-    return (await res.json()) as unknown
   }
 
   /** Like apiGet but swallows per-call failures, returning null instead. */
