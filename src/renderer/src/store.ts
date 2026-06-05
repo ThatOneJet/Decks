@@ -79,6 +79,8 @@ export interface DecksState {
   // ── actions: panels ──
   addPanel: (workspaceId: WorkspaceId, panel: Panel) => void
   removePanel: (workspaceId: WorkspaceId, panelId: PanelId) => void
+  /** Move a panel out of a split into its own new workspace (rail tile). */
+  popPanelOut: (workspaceId: WorkspaceId, panelId: PanelId) => void
   patchPanel: (panelId: PanelId, patch: Partial<Panel>) => void
   setLayout: (workspaceId: WorkspaceId, layout: LayoutNode) => void
 
@@ -192,6 +194,44 @@ export const useStore = create<DecksState>((set, get) => ({
         return { ...w, panels, layout, subtitle: deckCount(panels.length) }
       })
     })),
+  // Pull a panel out of a split into its OWN new workspace (rail tile), so a
+  // split-screened deck can become a standalone deck. No-op if it's already the
+  // workspace's only deck. The panel keeps its id (and thus its existing view),
+  // so a web deck's session/login is preserved.
+  popPanelOut: (workspaceId, panelId) =>
+    set((s) => {
+      const from = s.workspaces.find((w) => w.id === workspaceId)
+      const panel = from?.panels.find((p) => p.id === panelId)
+      if (!from || !panel || from.panels.length <= 1) return {}
+      const remaining = from.panels.filter((p) => p.id !== panelId)
+      const prunedLayout = removeLeaf(from.layout, panelId) ?? EMPTY_LAYOUT
+      const id = `ws_${crypto.randomUUID().slice(0, 8)}`
+      const newWs: Workspace = {
+        id,
+        name: panel.title || 'Deck',
+        subtitle: '1 deck',
+        color: from.color,
+        glyph: from.glyph,
+        // Native decks have no view/session; web decks keep the source partition
+        // so the moved view's login carries over.
+        partition: panel.kind === 'native' ? `persist:${id}` : from.partition,
+        live: { status: 'idle' },
+        panels: [panel],
+        layout: { type: 'leaf', panelId }
+      }
+      return {
+        workspaces: [
+          ...s.workspaces.map((w) =>
+            w.id === workspaceId
+              ? { ...w, panels: remaining, layout: prunedLayout, subtitle: deckCount(remaining.length) }
+              : w
+          ),
+          newWs
+        ],
+        activeWorkspaceId: id,
+        view: 'workspace'
+      }
+    }),
   patchPanel: (panelId, patch) =>
     set((s) => ({
       workspaces: s.workspaces.map((w) => ({

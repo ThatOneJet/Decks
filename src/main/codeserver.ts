@@ -164,6 +164,12 @@ export async function startCodeServer(folder: string): Promise<{ url: string }> 
   return new Promise<{ url: string }>((resolve, reject) => {
     let settled = false
     let sawListening = false
+    // Keep the tail of stderr so an early exit can explain itself. With shell:true
+    // a missing binary doesn't raise ENOENT — the shell prints "not recognized" /
+    // "command not found" and exits non-zero, so we sniff for that here.
+    let stderrTail = ''
+    const looksMissing = (s: string): boolean =>
+      /not recognized|command not found|No such file|cannot find/i.test(s)
 
     const finishOk = (): void => {
       if (settled) return
@@ -199,8 +205,18 @@ export async function startCodeServer(folder: string): Promise<{ url: string }> 
     }
 
     const onExit = (code: number | null): void => {
-      // Early exit before readiness → failure. ENOENT under sh: true surfaces as a
-      // non-zero exit on some platforms rather than an 'error' event.
+      // Early exit before readiness → failure. With shell:true a missing binary
+      // exits non-zero rather than raising ENOENT, so check stderr for the
+      // shell's "not found" message and report it as a clean not-installed error.
+      if (looksMissing(stderrTail) || code === 127) {
+        finishErr(
+          new Error(
+            'code-server is not installed. Install it (npm i -g code-server, or see ' +
+              'coder/code-server) and try again.'
+          )
+        )
+        return
+      }
       finishErr(
         new Error(
           `code-server exited before it was ready (code ${code ?? 'null'}). ` +
@@ -230,8 +246,10 @@ export async function startCodeServer(folder: string): Promise<{ url: string }> 
     child.on('error', onError)
     child.on('exit', onExit)
     child.stdout?.on('data', onStdout)
-    // Drain stderr so the pipe never fills and blocks the child.
-    child.stderr?.on('data', () => {})
+    // Keep the tail of stderr (so onExit can diagnose) and drain the pipe.
+    child.stderr?.on('data', (buf: Buffer) => {
+      stderrTail = (stderrTail + buf.toString()).slice(-2000)
+    })
 
     // Readiness via /healthz polling, in parallel with the stdout sniff above.
     // Whichever proves the server is up first wins.

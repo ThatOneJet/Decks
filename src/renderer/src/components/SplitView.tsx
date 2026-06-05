@@ -39,9 +39,12 @@ function DeckCard({
   registerContent: (id: PanelId, el: HTMLElement | null) => void
 }): JSX.Element {
   const removePanel = useStore((s) => s.removePanel)
+  const popPanelOut = useStore((s) => s.popPanelOut)
   const focusMode = useStore((s) => s.focusMode)
   const toggleFocusMode = useStore((s) => s.toggleFocusMode)
   const deck = ws.panels.find((p) => p.id === panelId)
+  // Only meaningful when this deck shares the workspace with others (a split).
+  const inSplit = ws.panels.length > 1
   const title = deck?.title || panelId
   // A native deck renders OUR React UI in the body (no WebContentsView in main).
   const isNative = deck?.kind === 'native'
@@ -85,6 +88,17 @@ function DeckCard({
             </svg>
           )}
         </button>
+        {inSplit && (
+          <button
+            onClick={() => popPanelOut(ws.id, panelId)}
+            title="Make this its own deck"
+            className="grid h-5 w-5 place-items-center rounded text-txt-4 hover:bg-bg-panel hover:text-txt-1"
+          >
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 3h6v6M10 14L21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+            </svg>
+          </button>
+        )}
         <button
           onClick={onReload}
           title="Reload"
