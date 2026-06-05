@@ -117,6 +117,13 @@ export interface ProviderConnectPayload {
   mode: 'token' | 'oauth'
   /** The pasted token. Only used (and required) when mode === 'token'. */
   token?: string
+  /**
+   * Extra non-secret connection fields a provider needs alongside (or instead
+   * of) a token — e.g. Canvas/Mastodon `instanceUrl`, Bluesky `handle` +
+   * `appPassword`, an OAuth `clientId`. The client persists whatever it needs
+   * via the secure token store (as a JSON blob); nothing here is logged.
+   */
+  fields?: Record<string, string>
 }
 
 /** payload: ProviderFetch — request a sanitized resource from a provider. */

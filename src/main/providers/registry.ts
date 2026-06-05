@@ -53,7 +53,7 @@ export function registerProviderIpc(): void {
     (_e, p: ProviderConnectPayload): Promise<ProviderStatus> => {
       const client = registry.get(p.provider)
       if (!client) return Promise.resolve(notRegisteredStatus(p.provider))
-      return client.connect({ mode: p.mode, token: p.token })
+      return client.connect({ mode: p.mode, token: p.token, fields: p.fields })
     }
   )
 

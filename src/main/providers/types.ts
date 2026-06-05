@@ -21,7 +21,12 @@ export interface ProviderClient {
    * tokens.ts); `mode === 'oauth'` runs the OAuth helper (../oauth) and stores
    * the resulting token. Resolves with the new status.
    */
-  connect(opts: { mode: 'token' | 'oauth'; token?: string }): Promise<ProviderStatus>
+  connect(opts: {
+    mode: 'token' | 'oauth'
+    token?: string
+    /** Extra non-secret connection fields (instanceUrl, handle, clientId, …). */
+    fields?: Record<string, string>
+  }): Promise<ProviderStatus>
 
   /**
    * Fetch a sanitized resource. `resource` and `params` are provider-defined.
