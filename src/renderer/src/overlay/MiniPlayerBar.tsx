@@ -12,6 +12,7 @@
  *  - close       → EXPAND the deck back to full size (keep playing). This is the
  *                  "actually let me watch this" action, distinct from pause.
  */
+import { useRef } from 'react'
 import type { MiniPlayerMeta } from '@shared/ipc'
 
 function send(action: 'play' | 'pause' | 'next' | 'prev' | 'close'): void {
@@ -20,20 +21,57 @@ function send(action: 'play' | 'pause' | 'next' | 'prev' | 'close'): void {
 
 export default function MiniPlayerBar({ meta }: { meta: MiniPlayerMeta }): JSX.Element {
   const { title, artist, artwork, paused } = meta
+  // Drag the player around the window by grabbing the artwork/title region.
+  // We track the pointer in ABSOLUTE screen coords so deltas stay correct even
+  // as main repositions this overlay window under the cursor mid-drag.
+  const dragStart = useRef<{ x: number; y: number } | null>(null)
+  const rafPending = useRef(false)
+  const lastDelta = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 })
+
+  const onPointerMove = (e: PointerEvent): void => {
+    if (!dragStart.current) return
+    lastDelta.current = { dx: e.screenX - dragStart.current.x, dy: e.screenY - dragStart.current.y }
+    if (rafPending.current) return
+    rafPending.current = true
+    requestAnimationFrame(() => {
+      rafPending.current = false
+      window.decks?.miniPlayer.control({ action: 'move', ...lastDelta.current })
+    })
+  }
+
+  const endDrag = (): void => {
+    dragStart.current = null
+    window.removeEventListener('pointermove', onPointerMove)
+    window.removeEventListener('pointerup', endDrag)
+    window.decks?.miniPlayer.control({ action: 'move-end' })
+  }
+
+  const startDrag = (e: React.PointerEvent): void => {
+    dragStart.current = { x: e.screenX, y: e.screenY }
+    window.decks?.miniPlayer.control({ action: 'move-start' })
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', endDrag)
+  }
 
   return (
     <div className="overlay-pop pointer-events-auto fixed inset-0 flex items-center gap-2 rounded-lg border border-line bg-bg-elevated/95 px-2 shadow-2xl backdrop-blur">
-      {/* Artwork thumbnail (mediaSession artwork; falls back to a placeholder). */}
-      <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-bg">
-        {artwork ? (
-          <img src={artwork} alt="" className="h-full w-full object-cover" draggable={false} />
-        ) : null}
-      </div>
-
-      {/* Title + artist. */}
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-xs font-semibold text-txt-1">{title || 'Playing'}</div>
-        {artist && <div className="truncate text-[10px] text-txt-3">{artist}</div>}
+      {/* Artwork + title double as the drag handle (move the player anywhere). */}
+      <div
+        onPointerDown={startDrag}
+        title="Drag to move"
+        className="flex min-w-0 flex-1 cursor-grab items-center gap-2 active:cursor-grabbing"
+      >
+        {/* Artwork thumbnail (mediaSession artwork; falls back to a placeholder). */}
+        <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-bg">
+          {artwork ? (
+            <img src={artwork} alt="" className="h-full w-full object-cover" draggable={false} />
+          ) : null}
+        </div>
+        {/* Title + artist. */}
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-semibold text-txt-1">{title || 'Playing'}</div>
+          {artist && <div className="truncate text-[10px] text-txt-3">{artist}</div>}
+        </div>
       </div>
 
       {/* Previous. */}

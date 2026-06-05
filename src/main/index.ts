@@ -244,6 +244,15 @@ function registerIpc(): void {
         }
         break
       }
+      case 'move-start':
+        panels.miniMoveStart()
+        break
+      case 'move':
+        panels.miniMove(p.dx ?? 0, p.dy ?? 0)
+        break
+      case 'move-end':
+        panels.miniMoveEnd()
+        break
     }
   })
 }

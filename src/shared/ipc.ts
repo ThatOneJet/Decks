@@ -211,11 +211,14 @@ export interface OverlayMiniPlayerEvent {
   meta?: MiniPlayerMeta
 }
 
-/** payload: MiniPlayerControl (overlay → main). A control button was pressed. */
+/** payload: MiniPlayerControl (overlay → main). A control button / drag event. */
 export interface MiniPlayerControlEvent {
-  action: 'play' | 'pause' | 'next' | 'prev' | 'close'
+  action: 'play' | 'pause' | 'next' | 'prev' | 'close' | 'move-start' | 'move' | 'move-end'
   /** Optional seek target (seconds), for action === 'play'/'pause' scrubbing. */
   time?: number
+  /** For action === 'move': drag delta (screen px) since 'move-start'. */
+  dx?: number
+  dy?: number
 }
 
 /** event: FocusPanel (main → the MAIN renderer). Expand a panel's deck full-size. */

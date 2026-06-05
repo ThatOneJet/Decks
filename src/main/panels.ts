@@ -174,6 +174,13 @@ export class PanelManager {
   private miniPanelId: PanelId | null = null
   /** Glue hooks for driving the overlay control bar (installed by index.ts). */
   private miniHooks: MiniPlayerHooks | null = null
+  /**
+   * User-chosen top-left of the corner video (window-relative px). null → the
+   * default bottom-right corner. Set by dragging; remembered across pops.
+   */
+  private miniPos: { x: number; y: number } | null = null
+  /** Snapshot of the corner top-left at drag start, for delta-based moves. */
+  private miniDragAnchor: { x: number; y: number } | null = null
 
   /** Bind the window the panels are overlaid onto. Call once after creation. */
   setWindow(win: BrowserWindow): void {
@@ -477,6 +484,41 @@ export class PanelManager {
     entry.view.setVisible(true)
   }
 
+  /**
+   * Force a view to the TOP of the z-order. addChildView only raises when the
+   * view isn't already a child, so an already-attached view (e.g. the corner
+   * mini-player that was the active deck a moment ago) must be removed and
+   * re-added to actually rise above the just-attached workspace panels.
+   */
+  private raise(entry: PanelEntry): void {
+    if (!this.window || this.window.isDestroyed()) return
+    try {
+      if (entry.attached) this.window.contentView.removeChildView(entry.view)
+    } catch {
+      /* ignore */
+    }
+    this.window.contentView.addChildView(entry.view)
+    entry.attached = true
+    entry.view.setVisible(true)
+  }
+
+  /**
+   * Nudge a freshly-resized view to repaint. A WebContentsView whose bounds jump
+   * (full deck → tiny corner) can show a stale/blank grey frame until the next
+   * compositor frame; re-applying the bounds on the next tick forces one.
+   */
+  private repaintNudge(entry: PanelEntry, bounds: PanelBounds): void {
+    setTimeout(() => {
+      try {
+        if (entry.view.webContents.isDestroyed()) return
+        entry.view.setBounds(this.toIntBounds(bounds))
+        entry.view.setVisible(true)
+      } catch {
+        /* ignore */
+      }
+    }, 60)
+  }
+
   /** Detach a view from the window and hide/zero it. */
   private detach(entry: PanelEntry): void {
     try {
@@ -553,9 +595,12 @@ export class PanelManager {
       const entry = this.panels.get(nextMini)
       if (entry) {
         const rect = this.cornerRect()
-        // Re-attach to RAISE above the just-attached workspace panels.
-        this.attach(entry)
+        // Force the corner video ABOVE the just-attached workspace panels.
+        this.raise(entry)
         entry.view.setBounds(rect)
+        // Re-apply bounds next tick so the shrunk view actually repaints (avoids
+        // the blank grey frame).
+        this.repaintNudge(entry, rect)
         entry.lastActiveAt = now
         entry.hiddenSince = null
         this.miniPanelId = nextMini
@@ -567,17 +612,53 @@ export class PanelManager {
     }
   }
 
-  /** The corner rectangle for the mini-player: bottom-right, fixed size + margin. */
+  /**
+   * The mini-player rectangle. Defaults to the bottom-right corner; once the user
+   * has dragged it, uses the remembered `miniPos` (clamped to stay on-screen,
+   * leaving room for the control strip below the video).
+   */
   private cornerRect(): PanelBounds {
     const c = this.window?.getContentBounds()
     const w = c?.width ?? MINI_WIDTH + MINI_MARGIN * 2
     const h = c?.height ?? MINI_HEIGHT + MINI_MARGIN * 2
-    return this.toIntBounds({
-      x: w - MINI_WIDTH - MINI_MARGIN,
-      y: h - MINI_HEIGHT - MINI_MARGIN,
-      width: MINI_WIDTH,
-      height: MINI_HEIGHT
-    })
+    // Reserve space under the video for the ~54px control strip + margin.
+    const STRIP = 54
+    const maxX = Math.max(0, w - MINI_WIDTH - MINI_MARGIN)
+    const maxY = Math.max(0, h - MINI_HEIGHT - STRIP - MINI_MARGIN)
+    let x = w - MINI_WIDTH - MINI_MARGIN
+    let y = h - MINI_HEIGHT - STRIP - MINI_MARGIN
+    if (this.miniPos) {
+      x = Math.min(Math.max(this.miniPos.x, MINI_MARGIN), maxX)
+      y = Math.min(Math.max(this.miniPos.y, MINI_MARGIN), maxY)
+    }
+    return this.toIntBounds({ x, y, width: MINI_WIDTH, height: MINI_HEIGHT })
+  }
+
+  /** Begin a drag: snapshot the current corner top-left as the delta anchor. */
+  miniMoveStart(): void {
+    const r = this.cornerRect()
+    this.miniDragAnchor = { x: r.x, y: r.y }
+  }
+
+  /**
+   * Move the mini-player by a screen-pixel delta from the drag anchor. Repositions
+   * the corner video and tells the overlay to move the control strip with it.
+   */
+  miniMove(dx: number, dy: number): void {
+    if (!this.miniPanelId) return
+    const anchor = this.miniDragAnchor ?? { x: this.cornerRect().x, y: this.cornerRect().y }
+    this.miniPos = { x: anchor.x + dx, y: anchor.y + dy }
+    const entry = this.panels.get(this.miniPanelId)
+    if (!entry) return
+    const rect = this.cornerRect()
+    entry.view.setBounds(rect)
+    const meta = entry.meta ?? { title: '', artist: '', paused: false }
+    this.miniHooks?.onStart(rect, meta)
+  }
+
+  /** End a drag. */
+  miniMoveEnd(): void {
+    this.miniDragAnchor = null
   }
 
   /**
