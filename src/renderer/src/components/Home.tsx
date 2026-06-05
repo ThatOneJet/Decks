@@ -11,6 +11,8 @@
 import { useEffect } from 'react'
 import { useStore } from '../store'
 import AnimatedBackground from './home/AnimatedBackground'
+import Logo from './Logo'
+import { MOD, modCombo } from '../lib/platform'
 
 function Home(): JSX.Element {
   const openPalette = useStore((s) => s.openPalette)
@@ -26,10 +28,8 @@ function Home(): JSX.Element {
 
       {/* Wordmark + subtitle */}
       <div className="mb-8 flex flex-col items-center text-center">
-        <div className="flex items-center gap-2">
-          <span className="grid h-9 w-9 place-items-center rounded-xl2 bg-accent text-base font-semibold text-white shadow-lg shadow-accent-soft">
-            D
-          </span>
+        <div className="flex items-center gap-2.5">
+          <Logo size={38} />
           <h1 className="text-3xl font-semibold tracking-tight text-txt-1">Decks</h1>
         </div>
         <p className="mt-3 text-sm text-txt-3">
@@ -59,13 +59,13 @@ function Home(): JSX.Element {
           Jump anywhere…
         </span>
         <kbd className="flex items-center gap-1 rounded-md border border-line bg-bg-elevated px-2 py-1 font-mono text-xs text-txt-3">
-          <span className="text-sm leading-none">⌘</span>K
+          {modCombo('K')}
         </kbd>
       </button>
 
       <p className="mt-6 text-xs text-txt-4">
-        Press <span className="font-mono text-txt-3">⌘K</span> to search
-        workspaces and sites
+        Press <span className="font-mono text-txt-3">{modCombo('K')}</span> to search ·{' '}
+        <span className="font-mono text-txt-3">{MOD === '⌘' ? '⌘N' : 'Ctrl+N'}</span> to add a deck
       </p>
     </div>
   )

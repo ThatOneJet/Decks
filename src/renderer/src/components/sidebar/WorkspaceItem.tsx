@@ -28,6 +28,22 @@ export default function RailTile({
   const unread = workspace.panels.reduce((sum, p) => sum + (p.badge || 0), 0)
   const playing = workspace.panels.some((p) => p.playing)
   const showImg = !!iconUrl && !imgFailed
+  const deckN = workspace.panels.filter((p) => p.id).length
+
+  // Rich hover details — the OS tooltip is the one overlay that reliably renders
+  // ABOVE native web views, so it carries the name + live details.
+  const hoverDetails = [
+    workspace.name,
+    `${deckN} deck${deckN === 1 ? '' : 's'}`,
+    unread > 0 ? `${unread} unread` : null,
+    playing ? '▶ playing' : null,
+    workspace.notes ? `📝 ${workspace.notes}` : null
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const openMenu = (): void =>
+    window.decks?.workspace.contextMenu({ workspaceId: workspace.id, hasNotes: !!workspace.notes })
 
   return (
     <div className="group relative flex w-full items-center justify-center">
@@ -40,13 +56,15 @@ export default function RailTile({
 
       <button
         onClick={onClick}
-        title={workspace.name}
-        className={`relative grid h-11 w-11 place-items-center overflow-hidden border bg-bg-panel transition-all duration-150 ${
-          active
-            ? 'rounded-xl border-accent-ring shadow-lg'
-            : 'rounded-2xl border-line hover:rounded-xl'
+        onContextMenu={(e) => {
+          e.preventDefault()
+          openMenu()
+        }}
+        title={hoverDetails}
+        className={`relative grid h-11 w-11 place-items-center overflow-hidden bg-bg-elevated transition-all duration-150 ${
+          active ? 'rounded-xl' : 'rounded-2xl hover:rounded-xl'
         }`}
-        style={active ? { boxShadow: `0 0 0 2px ${color}55` } : undefined}
+        style={active ? { boxShadow: `0 0 0 2px ${color}, 0 4px 14px ${color}40` } : undefined}
       >
         {showImg ? (
           <img
@@ -83,10 +101,6 @@ export default function RailTile({
         </span>
       )}
 
-      {/* Name tooltip on hover */}
-      <span className="pointer-events-none absolute left-full z-20 ml-2 hidden whitespace-nowrap rounded-md border border-line bg-bg-elevated px-2 py-1 text-xs text-txt-1 shadow-lg group-hover:block">
-        {workspace.name}
-      </span>
     </div>
   )
 }

@@ -35,9 +35,14 @@ export const IPC = {
   WindowMaximize: 'window:maximize',
   WindowClose: 'window:close',
 
+  // ── Native workspace context menu — renderer → main (send) ──
+  WorkspaceContextMenu: 'workspace:context-menu',
+
   // ── Events — main → renderer (on) ──
   /** A panel's live WebContents changed (title/url/favicon/loading/nav state). */
-  PanelUpdate: 'panel:update'
+  PanelUpdate: 'panel:update',
+  /** A native workspace menu item was chosen. */
+  WorkspaceMenuAction: 'workspace:menu-action'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
@@ -70,6 +75,18 @@ export interface PanelShowOnlyPayload {
   panelIds: PanelId[]
   /** Bounds keyed by panelId for the panels being shown. */
   bounds: Record<PanelId, PanelBounds>
+}
+
+/** payload: WorkspaceContextMenu (renderer → main) */
+export interface WorkspaceContextMenuPayload {
+  workspaceId: WorkspaceId
+  hasNotes: boolean
+}
+
+/** event: WorkspaceMenuAction (main → renderer) */
+export interface WorkspaceMenuActionEvent {
+  workspaceId: WorkspaceId
+  action: 'rename' | 'reset' | 'note' | 'delete'
 }
 
 /** event: PanelUpdate (main → renderer) */
@@ -112,6 +129,12 @@ export interface DecksApi {
     maximize(): void
     close(): void
   }
+  workspace: {
+    /** Pop a NATIVE context menu at the cursor (renders above web views). */
+    contextMenu(payload: WorkspaceContextMenuPayload): void
+  }
   /** Subscribe to live panel updates. Returns an unsubscribe fn. */
   onPanelUpdate(cb: (e: PanelUpdateEvent) => void): () => void
+  /** Subscribe to native workspace-menu choices. Returns an unsubscribe fn. */
+  onWorkspaceMenuAction(cb: (e: WorkspaceMenuActionEvent) => void): () => void
 }

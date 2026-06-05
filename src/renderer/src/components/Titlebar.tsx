@@ -13,11 +13,14 @@ import { faviconFor } from '../lib/favicon'
 function NavButton({
   onClick,
   disabled,
+  dim,
   label,
   children
 }: {
   onClick: () => void
   disabled?: boolean
+  /** No history in that direction — clickable but visually muted. */
+  dim?: boolean
   label: string
   children: ReactNode
 }): JSX.Element {
@@ -26,7 +29,9 @@ function NavButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className="no-drag grid h-6 w-6 place-items-center rounded-md text-txt-3 transition-colors enabled:hover:bg-bg-elevated enabled:hover:text-txt-1 disabled:opacity-30"
+      className={`no-drag grid h-6 w-6 place-items-center rounded-md transition-colors enabled:hover:bg-bg-elevated enabled:hover:text-txt-1 disabled:opacity-20 ${
+        dim ? 'text-txt-4' : 'text-txt-2'
+      }`}
     >
       {children}
     </button>
@@ -53,12 +58,12 @@ function Titlebar(): JSX.Element {
     <header className="drag flex h-8 shrink-0 items-center justify-between bg-bg-rail px-2">
       {/* Left: nav arrows */}
       <div className="flex items-center gap-1">
-        <NavButton onClick={back} disabled={!onWorkspace || !primary?.canGoBack} label="Back">
+        <NavButton onClick={back} disabled={!onWorkspace} dim={!primary?.canGoBack} label="Back">
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M15 18l-6-6 6-6" />
           </svg>
         </NavButton>
-        <NavButton onClick={fwd} disabled={!onWorkspace || !primary?.canGoForward} label="Forward">
+        <NavButton onClick={fwd} disabled={!onWorkspace} dim={!primary?.canGoForward} label="Forward">
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M9 18l6-6-6-6" />
           </svg>

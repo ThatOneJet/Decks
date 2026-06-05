@@ -116,9 +116,17 @@ export class PanelManager {
       this.emitUpdate(panelId, { title, badge: parseBadge(title) })
     })
 
-    // REAL media state — many sites (YouTube, etc.) toggle these as media plays.
-    wc.on('media-started-playing', () => this.emitUpdate(panelId, { playing: true }))
+    // REAL media state — gate on actual AUDIBILITY so silent/background media
+    // elements (e.g. Claude's UI) don't light up the badge. Only audible playback
+    // counts as "playing".
+    const syncAudible = (): void => {
+      if (wc.isDestroyed()) return
+      this.emitUpdate(panelId, { playing: wc.isCurrentlyAudible() })
+    }
+    wc.on('media-started-playing', () => setTimeout(syncAudible, 250))
     wc.on('media-paused', () => this.emitUpdate(panelId, { playing: false }))
+    // Audibility can change without a media event (mute/unmute) — re-check.
+    wc.on('did-stop-loading', syncAudible)
 
     wc.on('page-favicon-updated', (_e, favicons) => {
       if (favicons && favicons.length > 0) {

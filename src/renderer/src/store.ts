@@ -34,8 +34,9 @@ export interface DecksState {
   view: View
   theme: Theme
 
-  // ── command palette ──
+  // ── overlays ──
   paletteOpen: boolean
+  addDeckOpen: boolean
 
   // ── derived helpers ──
   activeWorkspace: () => Workspace | undefined
@@ -48,6 +49,11 @@ export interface DecksState {
   activateWorkspace: (id: WorkspaceId) => void
   goHome: () => void
   updateWorkspaceLive: (id: WorkspaceId, live: Partial<Workspace['live']>) => void
+  renameWorkspace: (id: WorkspaceId, name: string) => void
+  setNotes: (id: WorkspaceId, notes: string) => void
+  setGroup: (id: WorkspaceId, group: string | undefined) => void
+  /** Replace a workspace's decks+layout (e.g. from a reset template). */
+  setDecks: (id: WorkspaceId, panels: Panel[], layout: LayoutNode) => void
 
   // ── actions: panels ──
   addPanel: (workspaceId: WorkspaceId, panel: Panel) => void
@@ -60,6 +66,8 @@ export interface DecksState {
   openPalette: () => void
   closePalette: () => void
   togglePalette: () => void
+  openAddDeck: () => void
+  closeAddDeck: () => void
 }
 
 export const useStore = create<DecksState>((set, get) => ({
@@ -68,6 +76,7 @@ export const useStore = create<DecksState>((set, get) => ({
   view: 'home',
   theme: 'dark',
   paletteOpen: false,
+  addDeckOpen: false,
 
   activeWorkspace: () => {
     const { workspaces, activeWorkspaceId } = get()
@@ -99,6 +108,24 @@ export const useStore = create<DecksState>((set, get) => ({
     set((s) => ({
       workspaces: s.workspaces.map((w) =>
         w.id === id ? { ...w, live: { ...w.live, ...live } } : w
+      )
+    })),
+  renameWorkspace: (id, name) =>
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => (w.id === id ? { ...w, name } : w))
+    })),
+  setNotes: (id, notes) =>
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => (w.id === id ? { ...w, notes } : w))
+    })),
+  setGroup: (id, group) =>
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => (w.id === id ? { ...w, group } : w))
+    })),
+  setDecks: (id, panels, layout) =>
+    set((s) => ({
+      workspaces: s.workspaces.map((w) =>
+        w.id === id ? { ...w, panels, layout, subtitle: deckCount(panels.length) } : w
       )
     })),
 
@@ -141,5 +168,7 @@ export const useStore = create<DecksState>((set, get) => ({
   setTheme: (theme) => set({ theme }),
   openPalette: () => set({ paletteOpen: true }),
   closePalette: () => set({ paletteOpen: false }),
-  togglePalette: () => set((s) => ({ paletteOpen: !s.paletteOpen }))
+  togglePalette: () => set((s) => ({ paletteOpen: !s.paletteOpen })),
+  openAddDeck: () => set({ addDeckOpen: true }),
+  closeAddDeck: () => set({ addDeckOpen: false })
 }))

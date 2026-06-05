@@ -31,6 +31,9 @@ function App(): JSX.Element {
   const patchPanel = useStore((s) => s.patchPanel)
   const togglePalette = useStore((s) => s.togglePalette)
   const closePalette = useStore((s) => s.closePalette)
+  const paletteOpen = useStore((s) => s.paletteOpen)
+  const openAddDeck = useStore((s) => s.openAddDeck)
+  const closeAddDeck = useStore((s) => s.closeAddDeck)
 
   const hydrated = useRef(false)
   const createdPanels = useRef<Set<string>>(new Set())
@@ -100,19 +103,33 @@ function App(): JSX.Element {
     return () => clearTimeout(t)
   }, [workspaces, theme, activeWorkspaceId])
 
-  // ── Global ⌘K / Esc. ──
+  // ── Global shortcuts: ⌘/Ctrl+K (search), ⌘/Ctrl+N (add deck), Esc (close). ──
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         togglePalette()
+      } else if (mod && (e.key.toLowerCase() === 'n' || e.key === '+' || e.key === '=')) {
+        e.preventDefault()
+        openAddDeck()
       } else if (e.key === 'Escape') {
         closePalette()
+        closeAddDeck()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [togglePalette, closePalette])
+  }, [togglePalette, closePalette, openAddDeck, closeAddDeck])
+
+  // Hide native web views while the palette is open so it isn't covered by them.
+  useEffect(() => {
+    if (!paletteOpen) return
+    window.decks?.panel.hideAll()
+    return () => {
+      window.dispatchEvent(new Event('resize'))
+    }
+  }, [paletteOpen])
 
   return (
     <div className="flex h-full w-full flex-col bg-bg text-txt-1">

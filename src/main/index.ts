@@ -5,7 +5,7 @@
  * every IPC handler declared in @shared/ipc, JSON persistence, and the
  * process-lifecycle registry + safe cleanup.
  */
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Menu } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC } from '@shared/ipc'
@@ -34,6 +34,7 @@ function createWindow(): void {
     show: true,
     frame: false,
     backgroundColor: '#0e0e13',
+    icon: join(__dirname, '../../build/icon.png'),
     titleBarStyle: 'hidden',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -111,6 +112,21 @@ function registerIpc(): void {
   // ── Persistence (renderer → main, invoke) ──
   ipcMain.handle(IPC.StateLoad, (): Promise<PersistedState | null> => loadState())
   ipcMain.handle(IPC.StateSave, (_e, state: PersistedState): Promise<void> => saveState(state))
+
+  // ── Native workspace context menu (renders ABOVE web views; page stays put) ──
+  ipcMain.on(IPC.WorkspaceContextMenu, (_e, p: { workspaceId: string; hasNotes: boolean }) => {
+    if (!mainWindow) return
+    const sendAction = (action: string): void =>
+      mainWindow?.webContents.send(IPC.WorkspaceMenuAction, { workspaceId: p.workspaceId, action })
+    const menu = Menu.buildFromTemplate([
+      { label: 'Rename', click: () => sendAction('rename') },
+      { label: 'Reset decks', click: () => sendAction('reset') },
+      { label: p.hasNotes ? 'Edit note' : 'Add note', click: () => sendAction('note') },
+      { type: 'separator' },
+      { label: 'Delete workspace', click: () => sendAction('delete') }
+    ])
+    menu.popup({ window: mainWindow })
+  })
 }
 
 app.whenReady().then(async () => {

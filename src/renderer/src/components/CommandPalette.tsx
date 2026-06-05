@@ -12,6 +12,7 @@ import type { CommandItem } from '@shared/types'
 import { useStore } from '../store'
 import { fuzzyScore } from './palette/fuzzy'
 import { usePaletteItems } from './palette/usePaletteItems'
+import { useHideViewsWhile } from '../lib/useOverlay'
 
 const KIND_LABEL: Record<CommandItem['kind'], string> = {
   workspace: 'Workspace',
@@ -23,6 +24,7 @@ function CommandPalette(): JSX.Element | null {
   const open = useStore((s) => s.paletteOpen)
   const close = useStore((s) => s.closePalette)
   const { items, run } = usePaletteItems()
+  useHideViewsWhile(open)
 
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)

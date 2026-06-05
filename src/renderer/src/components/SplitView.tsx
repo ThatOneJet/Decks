@@ -45,7 +45,7 @@ function DeckCard({
   }
 
   return (
-    <div className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl2 border border-line bg-bg-panel shadow-lg">
+    <div className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden bg-bg-panel">
       {/* Card header */}
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line bg-bg-elevated px-2.5">
         {icon ? (
@@ -95,7 +95,7 @@ function renderNode(
   }
   const isRow = node.direction === 'row'
   return (
-    <div className={`flex min-h-0 min-w-0 flex-1 gap-2 ${isRow ? 'flex-row' : 'flex-col'}`}>
+    <div className={`flex min-h-0 min-w-0 flex-1 gap-px bg-line ${isRow ? 'flex-row' : 'flex-col'}`}>
       {node.children.map((child, i) => (
         <div
           key={i}
@@ -172,8 +172,8 @@ function SplitView(): JSX.Element {
   if (!ws || !layout) return <div className="h-full w-full bg-bg" />
 
   return (
-    <div className="h-full w-full bg-bg p-2">
-      <div key={activeWorkspaceId ?? 'none'} ref={containerRef} className="splitview-enter flex h-full w-full">
+    <div className="h-full w-full bg-bg">
+      <div key={activeWorkspaceId ?? 'none'} ref={containerRef} className="splitview-enter flex h-full w-full gap-px bg-line">
         {renderNode(layout, ws, registerContent)}
       </div>
     </div>

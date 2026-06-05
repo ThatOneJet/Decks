@@ -59,6 +59,10 @@ export interface Workspace {
   panels: Panel[]
   layout: LayoutNode
   live: WorkspaceLiveState
+  /** Free-text notes the user leaves on a workspace (shown in its right-click menu). */
+  notes?: string
+  /** Optional group/section label for organizing the rail (e.g. "Work", "Fun"). */
+  group?: string
   /**
    * Electron session partition. Always `persist:<id>` so cookies / logins
    * survive restarts. Set once at creation; never change it.

@@ -14,7 +14,9 @@ import type {
   PanelNavigatePayload,
   PanelSetBoundsPayload,
   PanelShowOnlyPayload,
-  PanelUpdateEvent
+  PanelUpdateEvent,
+  WorkspaceContextMenuPayload,
+  WorkspaceMenuActionEvent
 } from '@shared/ipc'
 import type { PanelId, PersistedState } from '@shared/types'
 
@@ -39,10 +41,18 @@ const api: DecksApi = {
     maximize: () => ipcRenderer.send(IPC.WindowMaximize),
     close: () => ipcRenderer.send(IPC.WindowClose)
   },
+  workspace: {
+    contextMenu: (p: WorkspaceContextMenuPayload) => ipcRenderer.send(IPC.WorkspaceContextMenu, p)
+  },
   onPanelUpdate: (cb: (e: PanelUpdateEvent) => void) => {
     const listener = (_: unknown, e: PanelUpdateEvent): void => cb(e)
     ipcRenderer.on(IPC.PanelUpdate, listener)
     return () => ipcRenderer.removeListener(IPC.PanelUpdate, listener)
+  },
+  onWorkspaceMenuAction: (cb: (e: WorkspaceMenuActionEvent) => void) => {
+    const listener = (_: unknown, e: WorkspaceMenuActionEvent): void => cb(e)
+    ipcRenderer.on(IPC.WorkspaceMenuAction, listener)
+    return () => ipcRenderer.removeListener(IPC.WorkspaceMenuAction, listener)
   }
 }
 
