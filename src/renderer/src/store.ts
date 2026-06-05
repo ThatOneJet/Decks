@@ -54,6 +54,10 @@ export interface DecksState {
   renameWorkspace: (id: WorkspaceId, name: string) => void
   setNotes: (id: WorkspaceId, notes: string) => void
   setGroup: (id: WorkspaceId, group: string | undefined) => void
+  /** Rename a folder: move every workspace from `oldName` to `newName`. */
+  renameGroup: (oldName: string, newName: string) => void
+  /** Next default folder name: "Group N" where N = distinct group count + 1. */
+  nextGroupName: () => string
   /** Replace a workspace's decks+layout (e.g. from a reset template). */
   setDecks: (id: WorkspaceId, panels: Panel[], layout: LayoutNode) => void
 
@@ -126,6 +130,17 @@ export const useStore = create<DecksState>((set, get) => ({
     set((s) => ({
       workspaces: s.workspaces.map((w) => (w.id === id ? { ...w, group } : w))
     })),
+  renameGroup: (oldName, newName) =>
+    set((s) => ({
+      workspaces: s.workspaces.map((w) =>
+        w.group === oldName ? { ...w, group: newName } : w
+      )
+    })),
+  nextGroupName: () => {
+    const groups = new Set<string>()
+    for (const w of get().workspaces) if (w.group) groups.add(w.group)
+    return `Group ${groups.size + 1}`
+  },
   setDecks: (id, panels, layout) =>
     set((s) => ({
       workspaces: s.workspaces.map((w) =>

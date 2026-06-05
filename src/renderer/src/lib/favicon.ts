@@ -31,9 +31,31 @@ export function logoFor(url: string): string {
   return `https://logo.clearbit.com/${host}?size=128`
 }
 
-/** Ordered icon candidates for a deck, best (crispest) first. */
+/**
+ * Ordered icon candidates for a deck, best (crispest, most app-icon-like) first.
+ * Consumers walk this list, advancing on <img> error, then fall back to a
+ * colored initial. All sources are https (allowed by the renderer CSP) and are
+ * chosen/ordered so the sharpest square brand icon wins while 404s fall through
+ * quickly to a source that always resolves:
+ *
+ *  1. Clearbit (size=128) — true square brand logos; 404s cleanly for unknowns.
+ *  2. icon.horse — aggregates the best high-res icon a site exposes.
+ *  3. unavatar (fallback=false) — aggregates logos/favicons; no generic filler.
+ *  4. live page favicon — the real icon the page reported (often small).
+ *  5. DuckDuckGo ip3 — frequently crisper than Google.
+ *  6. Google s2 (sz=128) — last resort; always resolves something.
+ */
 export function iconCandidates(url: string, liveFavicon?: string): string[] {
-  return [logoFor(url), liveFavicon || '', faviconFor(url, 128)].filter(Boolean)
+  const host = hostOf(url)
+  if (!host) return liveFavicon ? [liveFavicon] : []
+  return [
+    `https://logo.clearbit.com/${host}?size=128`,
+    `https://icon.horse/icon/${host}`,
+    `https://unavatar.io/${host}?fallback=false`,
+    liveFavicon || '',
+    `https://icons.duckduckgo.com/ip3/${host}.ico`,
+    faviconFor(url, 128)
+  ].filter(Boolean)
 }
 
 /** First letter fallback when no icon resolves. */

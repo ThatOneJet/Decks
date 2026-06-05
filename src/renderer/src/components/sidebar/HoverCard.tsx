@@ -7,8 +7,9 @@
  * tooltip (set on the tile) carries the same info. The card is anchored just
  * right of the rail.
  */
+import { useState } from 'react'
 import type { Workspace } from '@shared/types'
-import { faviconFor, initialOf } from '../../lib/favicon'
+import { iconCandidates, initialOf } from '../../lib/favicon'
 
 export default function HoverCard({
   workspace,
@@ -18,7 +19,9 @@ export default function HoverCard({
   top: number
 }): JSX.Element {
   const primary = workspace.panels[0]
-  const icon = primary ? primary.favicon || faviconFor(primary.url) : ''
+  const candidates = primary ? iconCandidates(primary.url, primary.favicon) : []
+  const [idx, setIdx] = useState(0)
+  const icon = candidates[idx]
   const color = workspace.color || '#7c5cff'
   const deckN = workspace.panels.filter((p) => p.id).length
   const unread = workspace.panels.reduce((s, p) => s + (p.badge || 0), 0)
@@ -37,7 +40,15 @@ export default function HoverCard({
           style={{ background: color + '22' }}
         >
           {icon ? (
-            <img src={icon} alt="" className="h-5 w-5 object-contain" draggable={false} />
+            <img
+              key={icon}
+              src={icon}
+              alt=""
+              className="h-full w-full object-cover"
+              decoding="async"
+              onError={() => setIdx((i) => i + 1)}
+              draggable={false}
+            />
           ) : (
             <span className="text-sm font-semibold" style={{ color }}>
               {initialOf(workspace.name, primary?.url || '')}

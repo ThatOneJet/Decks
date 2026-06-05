@@ -6,30 +6,34 @@
  */
 import { useRef, useState } from 'react'
 import type { Workspace } from '@shared/types'
-import { iconCandidates, initialOf } from '../../lib/favicon'
 import HoverCard from './HoverCard'
+import TileIcon from './TileIcon'
+
+/** MIME-ish key carried by the drag payload (the dragged workspace id). */
+export const DECKS_WS_DND = 'text/decks-ws'
 
 export default function RailTile({
   workspace,
   active,
-  onClick
+  onClick,
+  onDropWorkspace
 }: {
   workspace: Workspace
   active: boolean
   onClick: () => void
+  /** A workspace tile was dropped onto THIS tile (id = dragged workspace). */
+  onDropWorkspace?: (draggedId: string) => void
 }): JSX.Element {
   const primary = workspace.panels[0]
-  const candidates = primary ? iconCandidates(primary.url, primary.favicon) : []
-  const [idx, setIdx] = useState(0)
   const [hoverTop, setHoverTop] = useState<number | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const [dropOver, setDropOver] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   const color = workspace.color || '#7c5cff'
   const unread = workspace.panels.reduce((sum, p) => sum + (p.badge || 0), 0)
   const playing = workspace.panels.some((p) => p.playing)
   const deckN = workspace.panels.filter((p) => p.id).length
-  const iconUrl = candidates[idx]
-  const showImg = idx < candidates.length && !!iconUrl
 
   const hoverDetails = [
     workspace.name,
@@ -50,6 +54,30 @@ export default function RailTile({
       className="group relative flex w-full items-center justify-center"
       onMouseEnter={() => setHoverTop(ref.current?.getBoundingClientRect().top ?? null)}
       onMouseLeave={() => setHoverTop(null)}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData(DECKS_WS_DND, workspace.id)
+        e.dataTransfer.effectAllowed = 'move'
+        setDragging(true)
+        setHoverTop(null)
+      }}
+      onDragEnd={() => setDragging(false)}
+      onDragOver={(e) => {
+        if (!onDropWorkspace) return
+        if (!e.dataTransfer.types.includes(DECKS_WS_DND)) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        setDropOver(true)
+      }}
+      onDragLeave={() => setDropOver(false)}
+      onDrop={(e) => {
+        setDropOver(false)
+        if (!onDropWorkspace) return
+        const id = e.dataTransfer.getData(DECKS_WS_DND)
+        if (!id || id === workspace.id) return
+        e.preventDefault()
+        onDropWorkspace(id)
+      }}
     >
       {/* Active / hover accent pill on the far left */}
       <span
@@ -67,26 +95,22 @@ export default function RailTile({
         title={hoverDetails}
         className={`relative grid h-11 w-11 place-items-center overflow-hidden bg-bg-elevated transition-all duration-150 ${
           active ? 'rounded-xl' : 'rounded-2xl hover:rounded-xl'
-        }`}
-        style={active ? { boxShadow: `0 0 0 2px ${color}, 0 4px 14px ${color}40` } : undefined}
+        } ${dragging ? 'scale-90 opacity-40' : ''} ${dropOver ? 'rounded-xl' : ''}`}
+        style={
+          dropOver
+            ? { outline: '2px solid #7c5cff', outlineOffset: '1px' }
+            : active
+              ? { boxShadow: `0 0 0 2px ${color}, 0 4px 14px ${color}40` }
+              : undefined
+        }
       >
-        {showImg ? (
-          // Fill the entire tile with the logo (Discord-style), crisp via 128px sources.
-          <img
-            src={iconUrl}
-            alt={workspace.name}
-            className="h-full w-full object-cover"
-            onError={() => setIdx((i) => i + 1)}
-            draggable={false}
-          />
-        ) : (
-          <span
-            className="grid h-full w-full place-items-center text-base font-semibold"
-            style={{ color, background: color + '24' }}
-          >
-            {workspace.glyph || initialOf(workspace.name, primary?.url || '')}
-          </span>
-        )}
+        <TileIcon
+          url={primary?.url}
+          favicon={primary?.favicon}
+          color={color}
+          glyph={workspace.glyph}
+          name={workspace.name}
+        />
       </button>
 
       {unread > 0 && (
