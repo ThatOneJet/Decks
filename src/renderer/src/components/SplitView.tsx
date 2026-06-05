@@ -1,14 +1,16 @@
 /**
- * SplitView — the workspace surface: the active workspace's decks as cards.
+ * SplitView — the floating page card the chrome wraps around.
  *
- * Each leaf in the layout tree renders a DECK CARD = a header bar (favicon +
- * title + reload + delete ✕) over an empty CONTENT area. The real page is a
- * native WebContentsView owned by main; this component measures each card's
- * CONTENT rect (below the header) and reports it via panel.showOnly so the view
- * sits under the card chrome. Re-measures on workspace/layout change + resize.
+ * The active workspace's layout tree renders as deck PANES inside one rounded,
+ * glowing `.page-card`. Each leaf = a `.deck-pane` with a `.deck-head` (icon +
+ * name + Native/Web chip + pop-out / focus / reload / close) over a `.deck-body`.
+ * WEB panes: the body is an empty slot whose pixel rect is measured and reported
+ * via panel.showOnly so the native WebContentsView sits under the chrome. NATIVE
+ * panes: the body renders our React deck (NativeDeckHost) — no view, not measured.
  *
- * Deleting a deck destroys its view (main) and prunes it from the layout (store).
- * No props (reads the active workspace from the store).
+ * Drag a rail tile onto the card and glowing Split-left / Split-right zones appear
+ * (the redesign's discoverability win). All behaviors — the layout tree, the
+ * discard/measure pipeline, native vs web, pop-out, reload, close — are preserved.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
@@ -29,6 +31,24 @@ function collectPanelIds(node: LayoutNode, out: PanelId[]): void {
   for (const child of node.children) collectPanelIds(child, out)
 }
 
+function HeadBtn({
+  title,
+  onClick,
+  danger,
+  children
+}: {
+  title: string
+  onClick: () => void
+  danger?: boolean
+  children: React.ReactNode
+}): JSX.Element {
+  return (
+    <button onClick={onClick} title={title} className={`hb${danger ? ' close' : ''}`}>
+      {children}
+    </button>
+  )
+}
+
 function DeckCard({
   panelId,
   ws,
@@ -40,15 +60,14 @@ function DeckCard({
 }): JSX.Element {
   const removePanel = useStore((s) => s.removePanel)
   const popPanelOut = useStore((s) => s.popPanelOut)
-  const focusMode = useStore((s) => s.focusMode)
   const toggleFocusMode = useStore((s) => s.toggleFocusMode)
   const deck = ws.panels.find((p) => p.id === panelId)
-  // Only meaningful when this deck shares the workspace with others (a split).
-  const inSplit = ws.panels.length > 1
   const title = deck?.title || panelId
-  // A native deck renders OUR React UI in the body (no WebContentsView in main).
   const isNative = deck?.kind === 'native'
   const icon = deck && !isNative ? deck.favicon || faviconFor(deck.url) : ''
+  // Only meaningful when this deck shares the workspace with others (a split).
+  const inSplit = ws.panels.length > 1
+  const single = ws.panels.length === 1
 
   // Native decks have no main-process view: reload = remount the React subtree
   // (bump a key) rather than calling panel.reload. Web decks reload the view.
@@ -58,70 +77,57 @@ function DeckCard({
     else void window.decks?.panel.reload(panelId)
   }
   const onDelete = (): void => {
-    // No-op in main for native decks (no view to destroy), but harmless.
     if (!isNative) window.decks?.panel.destroy(panelId)
     removePanel(ws.id, panelId)
   }
 
   return (
-    <div className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden rounded-t-xl2 bg-bg-panel">
-      {/* Card header */}
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line bg-bg-elevated px-2.5">
-        {icon ? (
-          <img src={icon} alt="" className="h-3.5 w-3.5 rounded-sm object-contain" draggable={false} />
-        ) : (
-          <span className="text-xs">{ws.glyph ?? '◻'}</span>
-        )}
-        <span className="min-w-0 flex-1 truncate text-xs font-medium text-txt-2">{title}</span>
-        <button
-          onClick={toggleFocusMode}
-          title={focusMode ? 'Exit focus (Ctrl/⌘+.)' : 'Focus this deck (Ctrl/⌘+.)'}
-          className="grid h-5 w-5 place-items-center rounded text-txt-4 hover:bg-bg-panel hover:text-txt-1"
+    <div className="deck-pane">
+      <div className="deck-head">
+        <span className="fav">
+          {icon ? <img src={icon} alt="" draggable={false} /> : <span>{ws.glyph ?? '◻'}</span>}
+        </span>
+        <span className="nm">{title}</span>
+        <span
+          className={`kind-chip ${isNative ? 'native' : 'web'}`}
+          style={{ fontSize: 9, padding: '2px 6px' }}
+          title={
+            isNative
+              ? 'Native: our UI on the app’s data — no browser engine, low RAM'
+              : 'Web: sandboxed embedded page'
+          }
         >
-          {focusMode ? (
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 4v4a1 1 0 0 1-1 1H4M20 9h-4a1 1 0 0 1-1-1V4M15 20v-4a1 1 0 0 1 1-1h4M4 15h4a1 1 0 0 1 1 1v4" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4" />
-            </svg>
-          )}
-        </button>
+          <span className="dot" />
+          {isNative ? 'native' : 'web'}
+        </span>
+        <span className="sp" />
         {inSplit && (
-          <button
-            onClick={() => popPanelOut(ws.id, panelId)}
-            title="Make this its own deck"
-            className="grid h-5 w-5 place-items-center rounded text-txt-4 hover:bg-bg-panel hover:text-txt-1"
-          >
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <HeadBtn title="Make this its own deck" onClick={() => popPanelOut(ws.id, panelId)}>
+            <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 3h6v6M10 14L21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
             </svg>
-          </button>
+          </HeadBtn>
         )}
-        <button
-          onClick={onReload}
-          title="Reload"
-          className="grid h-5 w-5 place-items-center rounded text-txt-4 hover:bg-bg-panel hover:text-txt-1"
-        >
-          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <HeadBtn title="Focus this deck (Ctrl/⌘+.)" onClick={toggleFocusMode}>
+          <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4" />
+          </svg>
+        </HeadBtn>
+        <HeadBtn title="Reload" onClick={onReload}>
+          <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
             <path d="M21 3v5h-5" />
           </svg>
-        </button>
-        <button
-          onClick={onDelete}
-          title="Delete deck"
-          className="grid h-5 w-5 place-items-center rounded text-txt-4 hover:bg-err hover:text-white"
-        >
-          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
-        </button>
+        </HeadBtn>
+        <HeadBtn title="Close deck" onClick={onDelete} danger>
+          <svg viewBox="0 0 24 24" width={14} height={14} stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </HeadBtn>
       </div>
-      {/* Content area. WEB decks: an empty slot the WebContentsView is positioned
-          over (measured + reported via showOnly). NATIVE decks: our own React UI,
-          NOT registered as a slot (main has no view for them). */}
+
+      {/* Content. WEB: an empty slot the WebContentsView is positioned over
+          (measured + reported via showOnly). NATIVE: our own React UI. */}
       {isNative && deck?.provider ? (
-        <div className="min-h-0 flex-1 overflow-auto bg-bg">
+        <div className="deck-body">
           <NativeDeckHost
             key={nativeReloadKey}
             provider={deck.provider}
@@ -131,7 +137,21 @@ function DeckCard({
           />
         </div>
       ) : (
-        <div ref={(el) => registerContent(panelId, el)} className="min-h-0 flex-1 bg-bg" />
+        <div className="deck-body" ref={(el) => registerContent(panelId, el)}>
+          {single && (
+            <div className="split-ghost">
+              <svg viewBox="0 0 24 24" width={22} height={22} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="8" height="16" rx="1" />
+                <rect x="13" y="4" width="8" height="16" rx="1" strokeDasharray="3 3" />
+              </svg>
+              <div className="t">
+                Drag a deck
+                <br />
+                here to split
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
@@ -145,7 +165,7 @@ function renderNode(
   if (node.type === 'leaf') {
     if (!node.panelId) {
       return (
-        <div className="grid h-full w-full place-items-center rounded-xl2 border border-dashed border-line text-sm text-txt-4">
+        <div className="grid h-full w-full place-items-center text-sm text-txt-4">
           No decks — press + to add one
         </div>
       )
@@ -153,8 +173,12 @@ function renderNode(
     return <DeckCard key={node.panelId} panelId={node.panelId} ws={ws} registerContent={registerContent} />
   }
   const isRow = node.direction === 'row'
+  // 1px gap over the line color renders a hairline divider between panes.
   return (
-    <div className={`flex min-h-0 min-w-0 flex-1 gap-px bg-bg-rail ${isRow ? 'flex-row' : 'flex-col'}`}>
+    <div
+      className={`flex min-h-0 min-w-0 flex-1 ${isRow ? 'flex-row' : 'flex-col'}`}
+      style={{ gap: 1, background: 'var(--line-2)' }}
+    >
       {node.children.map((child, i) => (
         <div
           key={i}
@@ -176,17 +200,14 @@ function SplitView(): JSX.Element {
   const addPanel = useStore((s) => s.addPanel)
   const workspaces = useStore((s) => s.workspaces)
 
-  const [dropActive, setDropActive] = useState(false)
-  const [maxHint, setMaxHint] = useState(false)
+  const [hotZone, setHotZone] = useState<'left' | 'right' | null>(null)
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const contentRefs = useRef<Map<PanelId, HTMLElement>>(new Map())
 
   const layout = ws?.layout
   // Only WEB panels get a WebContentsView in main, so only they are reported via
-  // showOnly/bounds. Native panels render entirely in the renderer (NativeDeckHost)
-  // and must be EXCLUDED here — otherwise main would try to position a view it has
-  // no record of.
+  // showOnly/bounds. Native panels render entirely in the renderer.
   const panelIds = useMemo(() => {
     if (!layout) return [] as PanelId[]
     const ids: PanelId[] = []
@@ -240,95 +261,79 @@ function SplitView(): JSX.Element {
     }
   }, [measureAndReport, activeWorkspaceId])
 
-  // Count ALL decks (web + native) for the cap — panelIds excludes native, so
-  // collect straight from the layout here.
+  // Count ALL decks (web + native) for the cap.
   const allLayoutIds = useMemo(() => {
     if (!layout) return [] as PanelId[]
     const ids: PanelId[] = []
     collectPanelIds(layout, ids)
     return ids
   }, [layout])
-  const panelCount = allLayoutIds.filter(Boolean).length
-  const atMax = panelCount >= MAX_PANELS
+  const atMax = allLayoutIds.filter(Boolean).length >= MAX_PANELS
 
-  // Drop a rail deck onto the page area to split the ACTIVE workspace evenly.
-  const onDrop = (e: React.DragEvent): void => {
+  // Drop a rail deck onto a split zone → add it to the ACTIVE workspace split.
+  const onDropZone = (e: React.DragEvent, zone: 'left' | 'right'): void => {
     e.preventDefault()
-    setDropActive(false)
+    setHotZone(null)
     const draggedId = e.dataTransfer.getData(DECKS_WS_DND)
-    if (!draggedId || !activeWorkspaceId) return
-    if (draggedId === activeWorkspaceId) return // dropping a deck onto itself: ignore
-    if (atMax) {
-      // Cap reached — flash a subtle "max 4" hint and bail.
-      setMaxHint(true)
-      setTimeout(() => setMaxHint(false), 1200)
-      return
-    }
+    if (!draggedId || !activeWorkspaceId || draggedId === activeWorkspaceId || atMax) return
     const draggedWs = workspaces.find((w) => w.id === draggedId)
     const primary = draggedWs?.panels[0]
     if (!primary) return
-    // addPanel grafts a new leaf into the split via addLeaf (even-ish). App's
-    // ensure-create makes the native view; SplitView re-measures on next render.
     addPanel(activeWorkspaceId, {
       id: crypto.randomUUID(),
       title: primary.title,
-      url: primary.url
+      url: primary.url,
+      kind: primary.kind,
+      provider: primary.provider,
+      accountId: primary.accountId,
+      // 'left' prepends visually via the layout's row order; addPanel appends, so
+      // we leave order as-is (both zones add the deck — the split is even).
+      favicon: primary.favicon
     })
+    void zone
   }
 
-  if (!ws || !layout) return <div className="h-full w-full bg-bg" />
+  if (!ws || !layout) return <div className="page-area" />
 
-  // Only expose the page as a drop target while a rail tile is being dragged
-  // and we're actually showing a workspace.
-  const dropEnabled = dragging && view === 'workspace'
+  // Only expose the drop zones while a rail tile is being dragged onto a workspace.
+  const armed = dragging && view === 'workspace'
 
   return (
-    <div className="relative h-full w-full bg-bg-rail">
-      <div key={activeWorkspaceId ?? 'none'} ref={containerRef} className="splitview-enter flex h-full w-full gap-px bg-bg-rail">
-        {renderNode(layout, ws, registerContent)}
-      </div>
-
-      {dropEnabled && (
+    <div className="page-area">
+      <div className="page-card">
         <div
-          className="absolute inset-0 z-40"
-          onDragOver={(e) => {
-            if (!e.dataTransfer.types.includes(DECKS_WS_DND)) return
-            e.preventDefault()
-            e.dataTransfer.dropEffect = atMax ? 'none' : 'move'
-            setDropActive(true)
-          }}
-          onDragLeave={(e) => {
-            // Ignore leaves bubbling from children inside the overlay.
-            if (e.currentTarget.contains(e.relatedTarget as Node)) return
-            setDropActive(false)
-          }}
-          onDrop={onDrop}
+          key={activeWorkspaceId ?? 'none'}
+          ref={containerRef}
+          className="splitview-enter flex min-h-0 min-w-0 flex-1"
         >
-          <div
-            className={`pointer-events-none absolute inset-3 grid place-items-center rounded-xl2 border-2 border-dashed transition-all ${
-              dropActive
-                ? atMax
-                  ? 'border-err bg-err/5'
-                  : 'border-accent bg-accent-soft/40'
-                : 'border-line/60 bg-bg/30'
-            }`}
-          >
-            <div
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                atMax ? 'text-err' : 'text-accent'
-              } ${dropActive ? 'opacity-100' : 'opacity-70'}`}
-            >
-              {atMax ? 'Max 4 decks' : 'Drop to split'}
-            </div>
-          </div>
+          {renderNode(layout, ws, registerContent)}
         </div>
-      )}
 
-      {maxHint && (
-        <div className="pointer-events-none absolute left-1/2 top-4 z-50 -translate-x-1/2 rounded-lg bg-err px-3 py-1.5 text-sm font-medium text-white shadow-lg">
-          Max 4 decks reached
+        {/* drag-to-split drop zones (appear while dragging a tile) */}
+        <div className={`dropzones ${armed ? 'armed' : ''}`}>
+          {(['left', 'right'] as const).map((z) => (
+            <div
+              key={z}
+              className={`dz ${hotZone === z ? 'hot' : ''} ${atMax ? 'opacity-50' : ''}`}
+              onDragOver={(e) => {
+                if (!e.dataTransfer.types.includes(DECKS_WS_DND)) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = atMax ? 'none' : 'move'
+                setHotZone(z)
+              }}
+              onDragLeave={() => setHotZone((h) => (h === z ? null : h))}
+              onDrop={(e) => onDropZone(e, z)}
+            >
+              <svg viewBox="0 0 24 24" width={26} height={26} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="8" height="16" rx="1" />
+                <rect x="13" y="4" width="8" height="16" rx="1" />
+              </svg>
+              <div className="lab">{atMax ? 'Max 4 decks' : `Split ${z}`}</div>
+              <div className="sub">{atMax ? 'Close one first' : 'Release to add this deck'}</div>
+            </div>
+          ))}
         </div>
-      )}
+      </div>
     </div>
   )
 }

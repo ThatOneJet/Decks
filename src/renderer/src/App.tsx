@@ -223,36 +223,51 @@ function App(): JSX.Element {
   // Landscape: rail on the LEFT → [rail | main] horizontally.
   const dockMode = portrait && !inFocus
 
-  return (
-    <div className="flex h-full w-full flex-col bg-bg text-txt-1">
-      <Titlebar />
-      <div className={`flex min-h-0 flex-1 ${dockMode ? 'flex-col' : 'flex-row'}`}>
-        {!inFocus && !dockMode && <Sidebar />}
-        <main className="relative min-w-0 min-h-0 flex-1">
-          {view === 'settings' ? (
-            <SettingsDeck />
-          ) : view === 'home' || workspaces.length === 0 ? (
-            <Home />
-          ) : (
-            <SplitView />
-          )}
+  // The active surface — each renders its own floating page card (.page-area).
+  const surface =
+    view === 'settings' ? (
+      <SettingsDeck />
+    ) : view === 'home' || workspaces.length === 0 ? (
+      <Home />
+    ) : (
+      <SplitView />
+    )
 
-          {/* Focus mode: small far-left, vertically-centered handle to expand back. */}
-          {inFocus && (
-            <button
-              onClick={toggleFocusMode}
-              title="Exit focus (Ctrl/⌘+.)"
-              className="no-drag absolute left-0 top-1/2 z-50 grid h-12 w-6 -translate-y-1/2 place-items-center rounded-r-xl border border-l-0 border-line bg-bg-elevated/90 text-txt-2 shadow-lg backdrop-blur transition-colors hover:bg-accent-soft hover:text-accent"
-            >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 18l6-6-6-6" />
-              </svg>
-            </button>
-          )}
-        </main>
-        {/* Portrait: the rail becomes a horizontal taskbar dock at the bottom. */}
-        {dockMode && <Sidebar orientation="horizontal" />}
-      </div>
+  // Focus mode: small far-left, vertically-centered handle to expand back.
+  const focusHandle = inFocus ? (
+    <button
+      onClick={toggleFocusMode}
+      title="Exit focus (Ctrl/⌘+.)"
+      className="no-drag absolute left-0 top-1/2 z-50 grid h-12 w-6 -translate-y-1/2 place-items-center rounded-r-xl border border-l-0 border-line bg-bg-elevated/90 text-txt-2 shadow-lg backdrop-blur transition-colors hover:bg-accent-soft hover:text-accent"
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 18l6-6-6-6" />
+      </svg>
+    </button>
+  ) : null
+
+  return (
+    <div className="app-root text-txt-1">
+      {dockMode ? (
+        // Portrait: vertical stack — chrome (topbar + page) above, dock below.
+        <div className="flex h-full w-full flex-col">
+          <div className="main-col relative flex-1">
+            <Titlebar />
+            {surface}
+          </div>
+          <Sidebar orientation="horizontal" />
+        </div>
+      ) : (
+        // Landscape: rail (left) + topbar/page-card wrap (right). Focus hides rail.
+        <div className={`shell ${inFocus ? 'no-rail' : ''}`}>
+          {!inFocus && <Sidebar />}
+          <div className="main-col relative">
+            <Titlebar />
+            {surface}
+            {focusHandle}
+          </div>
+        </div>
+      )}
       <CommandPalette />
     </div>
   )

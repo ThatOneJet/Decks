@@ -4,34 +4,38 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Futuristic redesign palette — deep cool-black void, cyan glow, magenta live.
         bg: {
-          DEFAULT: '#0e0e13',
-          rail: '#141419',
-          panel: '#16161d',
-          elevated: '#1c1c25'
+          DEFAULT: '#07090e', // outermost void
+          rail: '#0c0f16', // rail + topbar chrome frame
+          panel: '#0f1118', // floating page card backdrop
+          elevated: '#161b26'
         },
-        line: '#26262f',
+        line: 'rgba(255,255,255,0.07)',
         accent: {
-          DEFAULT: '#7c5cff',
-          soft: 'rgba(124,92,255,0.15)',
-          ring: 'rgba(124,92,255,0.35)'
+          DEFAULT: '#35e3ff',
+          soft: 'rgba(53,227,255,0.14)',
+          ring: 'rgba(53,227,255,0.45)'
         },
-        ok: '#3ddc97',
-        warn: '#f5b342',
+        live: '#ff5bd0',
+        ok: '#4ef0a6',
+        warn: '#ffc25c',
         err: '#ff5d6c',
         txt: {
-          1: '#e7e7ee',
-          2: '#a9a9b8',
-          3: '#6f6f80',
-          4: '#4a4a57'
+          1: '#eef2f8',
+          2: '#aab3c4',
+          3: '#6d7689',
+          4: '#454d5e'
         }
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
+        display: ['Space Grotesk', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'ui-monospace', 'monospace']
       },
       borderRadius: {
-        xl2: '14px'
+        xl2: '14px',
+        card: '18px'
       }
     }
   },

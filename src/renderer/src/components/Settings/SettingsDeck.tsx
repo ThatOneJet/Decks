@@ -102,8 +102,10 @@ function SettingsDeck(): JSX.Element {
   }
 
   return (
-    <div className="h-full w-full overflow-y-auto bg-bg">
-      <div className="mx-auto w-full max-w-2xl px-8 py-10">
+    <div className="page-area">
+      <div className="page-card">
+        <div className="h-full w-full overflow-y-auto">
+          <div className="mx-auto w-full max-w-2xl px-8 py-10">
         <header className="mb-8">
           <h1 className="text-2xl font-semibold tracking-tight text-txt-1">Settings</h1>
           <p className="mt-1 text-sm text-txt-3">Memory, appearance, and app preferences.</p>
@@ -209,6 +211,8 @@ function SettingsDeck(): JSX.Element {
               <span className="text-xs tabular-nums text-txt-3">v0.1.0</span>
             </div>
           </Card>
+          </div>
+          </div>
         </div>
       </div>
     </div>
