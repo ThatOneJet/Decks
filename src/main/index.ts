@@ -29,7 +29,9 @@ function createWindow(): void {
     height: 820,
     minWidth: 940,
     minHeight: 600,
-    show: false,
+    // Show immediately on the dark background — never depend solely on
+    // ready-to-show (a missed event would leave the window hidden forever).
+    show: true,
     frame: false,
     backgroundColor: '#0e0e13',
     titleBarStyle: 'hidden',
@@ -59,6 +61,11 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  // Belt-and-suspenders: guarantee the window is visible and focused even if
+  // ready-to-show is missed or the renderer is slow to paint.
+  mainWindow.show()
+  mainWindow.focus()
 }
 
 /** Register every IPC handler from the contract. Call once on ready. */
