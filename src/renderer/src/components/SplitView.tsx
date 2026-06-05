@@ -15,6 +15,7 @@ import { useStore } from '../store'
 import type { LayoutNode, PanelBounds, PanelId, Workspace } from '@shared/types'
 import { faviconFor } from '../lib/favicon'
 import { DECKS_WS_DND } from './sidebar/WorkspaceItem'
+import NativeDeckHost from '../native/NativeDeckHost'
 import './home/splitview.css'
 
 /** Max decks a single workspace's split can hold (drag-into-page cap). */
@@ -42,11 +43,20 @@ function DeckCard({
   const toggleFocusMode = useStore((s) => s.toggleFocusMode)
   const deck = ws.panels.find((p) => p.id === panelId)
   const title = deck?.title || panelId
-  const icon = deck ? deck.favicon || faviconFor(deck.url) : ''
+  // A native deck renders OUR React UI in the body (no WebContentsView in main).
+  const isNative = deck?.kind === 'native'
+  const icon = deck && !isNative ? deck.favicon || faviconFor(deck.url) : ''
 
-  const onReload = (): void => void window.decks?.panel.reload(panelId)
+  // Native decks have no main-process view: reload = remount the React subtree
+  // (bump a key) rather than calling panel.reload. Web decks reload the view.
+  const [nativeReloadKey, setNativeReloadKey] = useState(0)
+  const onReload = (): void => {
+    if (isNative) setNativeReloadKey((k) => k + 1)
+    else void window.decks?.panel.reload(panelId)
+  }
   const onDelete = (): void => {
-    window.decks?.panel.destroy(panelId)
+    // No-op in main for native decks (no view to destroy), but harmless.
+    if (!isNative) window.decks?.panel.destroy(panelId)
     removePanel(ws.id, panelId)
   }
 
@@ -93,8 +103,21 @@ function DeckCard({
           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
         </button>
       </div>
-      {/* Content area — the native web view is positioned over THIS rect. */}
-      <div ref={(el) => registerContent(panelId, el)} className="min-h-0 flex-1 bg-bg" />
+      {/* Content area. WEB decks: an empty slot the WebContentsView is positioned
+          over (measured + reported via showOnly). NATIVE decks: our own React UI,
+          NOT registered as a slot (main has no view for them). */}
+      {isNative && deck?.provider ? (
+        <div className="min-h-0 flex-1 overflow-auto bg-bg">
+          <NativeDeckHost
+            key={nativeReloadKey}
+            provider={deck.provider}
+            panelId={panelId}
+            workspaceId={ws.id}
+          />
+        </div>
+      ) : (
+        <div ref={(el) => registerContent(panelId, el)} className="min-h-0 flex-1 bg-bg" />
+      )}
     </div>
   )
 }
@@ -145,12 +168,17 @@ function SplitView(): JSX.Element {
   const contentRefs = useRef<Map<PanelId, HTMLElement>>(new Map())
 
   const layout = ws?.layout
+  // Only WEB panels get a WebContentsView in main, so only they are reported via
+  // showOnly/bounds. Native panels render entirely in the renderer (NativeDeckHost)
+  // and must be EXCLUDED here — otherwise main would try to position a view it has
+  // no record of.
   const panelIds = useMemo(() => {
     if (!layout) return [] as PanelId[]
     const ids: PanelId[] = []
     collectPanelIds(layout, ids)
-    return ids
-  }, [layout])
+    const nativeIds = new Set((ws?.panels ?? []).filter((p) => p.kind === 'native').map((p) => p.id))
+    return ids.filter((id) => !nativeIds.has(id))
+  }, [layout, ws?.panels])
 
   const registerContent = useCallback((id: PanelId, el: HTMLElement | null) => {
     if (el) contentRefs.current.set(id, el)
@@ -197,7 +225,15 @@ function SplitView(): JSX.Element {
     }
   }, [measureAndReport, activeWorkspaceId])
 
-  const panelCount = panelIds.filter(Boolean).length
+  // Count ALL decks (web + native) for the cap — panelIds excludes native, so
+  // collect straight from the layout here.
+  const allLayoutIds = useMemo(() => {
+    if (!layout) return [] as PanelId[]
+    const ids: PanelId[] = []
+    collectPanelIds(layout, ids)
+    return ids
+  }, [layout])
+  const panelCount = allLayoutIds.filter(Boolean).length
   const atMax = panelCount >= MAX_PANELS
 
   // Drop a rail deck onto the page area to split the ACTIVE workspace evenly.

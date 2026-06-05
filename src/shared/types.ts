@@ -9,11 +9,50 @@
 export type WorkspaceId = string
 export type PanelId = string
 
-/** A single embedded web view inside a workspace. */
+/**
+ * Service providers that back a NATIVE deck (our own React UI over a service's
+ * API, data fetched in main and sanitized over IPC). WEB decks (embedded
+ * WebContentsViews) have no provider. Add new providers here as they ship.
+ *
+ * NOTE: Reddit and YouTube intentionally stay EMBEDDED web decks (not native),
+ * so they are NOT providers. (A YouTube channel can later feed the follows wall
+ * via per-channel RSS — that is the 'rss' provider, not a 'youtube' provider.)
+ */
+export type ProviderId =
+  | 'canvas'
+  | 'github'
+  | 'bluesky'
+  | 'mastodon'
+  | 'spotify'
+  | 'rss'
+  | 'follows-wall'
+
+/**
+ * Connection status of a provider, reported by its ProviderClient (main) back
+ * to the renderer. `connected` reflects whether a usable token/session exists.
+ */
+export interface ProviderStatus {
+  provider: ProviderId
+  connected: boolean
+  /** Human-readable account label (e.g. "@octocat") when connected. */
+  account?: string
+  /** Set when connect/status failed; a short, user-safe message (never a token). */
+  error?: string
+}
+
+/** A single deck inside a workspace — either an embedded web view or a native one. */
 export interface Panel {
   id: PanelId
   title: string
   url: string
+  /**
+   * Deck kind. Absent/undefined means 'web' (back-compat with existing persisted
+   * state and all WEB decks). 'native' decks render OUR React UI over a provider
+   * API instead of an embedded WebContentsView.
+   */
+  kind?: 'web' | 'native'
+  /** The backing service provider. Only set when `kind === 'native'`. */
+  provider?: ProviderId
   /** Last known favicon URL (updated by main via panel:navigated events). */
   favicon?: string
   /** Navigation capabilities, kept fresh from the live WebContents. */

@@ -27,6 +27,8 @@ import { PanelManager } from './panels'
 import { loadState, saveState } from './persistence'
 import { killTrackedChildren } from './lifecycle'
 import { createOverlay, type OverlayController } from './overlay'
+import { registerProviderIpc } from './providers/registry'
+import { registerAllProviders } from './providers'
 
 /**
  * Cap the number of Chromium renderer processes. NOTE this counts ALL renderers,
@@ -131,6 +133,10 @@ function registerIpc(): void {
     panels.hideAll()
   })
 
+  // ── Native deck providers (renderer → main, invoke) ──
+  // Wires provider:connect/fetch/disconnect/status to the provider registry.
+  registerProviderIpc()
+
   // ── Persistence (renderer → main, invoke) ──
   ipcMain.handle(IPC.StateLoad, (): Promise<PersistedState | null> => loadState())
   ipcMain.handle(IPC.StateSave, (_e, state: PersistedState): Promise<void> => saveState(state))
@@ -191,6 +197,10 @@ app.whenReady().then(async () => {
   // electron-vite has already started the dev server ON that port — freeing it
   // would kill our own live dev server and tear the app down on launch. Stale-
   // port recovery belongs BEFORE electron-vite starts (see launcher.py).
+
+  // Register concrete provider clients before any provider IPC can arrive.
+  // Phase 0: this is a no-op seam; Phase 1 fills providers/index.ts.
+  registerAllProviders()
 
   registerIpc()
   createWindow()

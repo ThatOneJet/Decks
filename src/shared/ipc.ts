@@ -10,7 +10,14 @@
  * Renderer → main calls are request/response (ipcRenderer.invoke).
  * Main → renderer messages are events the renderer subscribes to.
  */
-import type { PanelBounds, PersistedState, PanelId, WorkspaceId } from './types'
+import type {
+  PanelBounds,
+  PersistedState,
+  PanelId,
+  WorkspaceId,
+  ProviderId,
+  ProviderStatus
+} from './types'
 
 export const IPC = {
   // ── Panel (WebContentsView) lifecycle — renderer → main (invoke) ──
@@ -25,6 +32,16 @@ export const IPC = {
   PanelShowOnly: 'panel:show-only',
   /** Detach every panel view (so pure-renderer UI like Home/Cmd+K is visible). */
   PanelHideAll: 'panel:hide-all',
+
+  // ── Native deck providers — renderer → main (invoke) ──
+  /** Connect a provider (paste a token, or run the OAuth helper). */
+  ProviderConnect: 'provider:connect',
+  /** Fetch a sanitized resource from a connected provider. */
+  ProviderFetch: 'provider:fetch',
+  /** Disconnect a provider (forget its stored token). */
+  ProviderDisconnect: 'provider:disconnect',
+  /** Query a provider's current connection status. */
+  ProviderStatus: 'provider:status',
 
   // ── Persistence — renderer → main (invoke) ──
   StateLoad: 'state:load',
@@ -83,6 +100,24 @@ export interface PanelCreatePayload {
   url: string
   /** Initial placement; may be updated later via PanelSetBounds. */
   bounds: PanelBounds
+}
+
+/** payload: ProviderConnect — connect a native deck's backing provider. */
+export interface ProviderConnectPayload {
+  provider: ProviderId
+  /** 'token' = the user pastes a personal access token; 'oauth' = run the helper. */
+  mode: 'token' | 'oauth'
+  /** The pasted token. Only used (and required) when mode === 'token'. */
+  token?: string
+}
+
+/** payload: ProviderFetch — request a sanitized resource from a provider. */
+export interface ProviderFetchPayload {
+  provider: ProviderId
+  /** Provider-defined resource name (e.g. 'courses', 'feed', 'repos'). */
+  resource: string
+  /** Optional provider-defined query params. */
+  params?: Record<string, unknown>
 }
 
 /** payload: PanelNavigate */
@@ -224,6 +259,20 @@ export interface DecksApi {
     setBounds(payload: PanelSetBoundsPayload): Promise<void>
     showOnly(payload: PanelShowOnlyPayload): Promise<void>
     hideAll(): Promise<void>
+  }
+  /**
+   * Native deck providers. The renderer never holds tokens or talks to a service
+   * directly — it asks main to connect/fetch and gets back sanitized JSON.
+   */
+  provider: {
+    /** Connect (token paste or OAuth). Resolves with the resulting status. */
+    connect(payload: ProviderConnectPayload): Promise<ProviderStatus>
+    /** Fetch a sanitized resource from a connected provider. */
+    fetch(payload: ProviderFetchPayload): Promise<unknown>
+    /** Disconnect a provider (forget its stored token). */
+    disconnect(provider: ProviderId): Promise<void>
+    /** Query a provider's current connection status. */
+    status(provider: ProviderId): Promise<ProviderStatus>
   }
   state: {
     load(): Promise<PersistedState | null>

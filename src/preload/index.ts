@@ -23,9 +23,11 @@ import type {
   OverlayMenuEvent,
   HoverShowPayload,
   SettingsApplyPayload,
-  OverlayRenderEvent
+  OverlayRenderEvent,
+  ProviderConnectPayload,
+  ProviderFetchPayload
 } from '@shared/ipc'
-import type { PanelId, PersistedState } from '@shared/types'
+import type { PanelId, PersistedState, ProviderId } from '@shared/types'
 
 const api: DecksApi = {
   panel: {
@@ -38,6 +40,12 @@ const api: DecksApi = {
     setBounds: (p: PanelSetBoundsPayload) => ipcRenderer.invoke(IPC.PanelSetBounds, p),
     showOnly: (p: PanelShowOnlyPayload) => ipcRenderer.invoke(IPC.PanelShowOnly, p),
     hideAll: () => ipcRenderer.invoke(IPC.PanelHideAll)
+  },
+  provider: {
+    connect: (p: ProviderConnectPayload) => ipcRenderer.invoke(IPC.ProviderConnect, p),
+    fetch: (p: ProviderFetchPayload) => ipcRenderer.invoke(IPC.ProviderFetch, p),
+    disconnect: (provider: ProviderId) => ipcRenderer.invoke(IPC.ProviderDisconnect, provider),
+    status: (provider: ProviderId) => ipcRenderer.invoke(IPC.ProviderStatus, provider)
   },
   state: {
     load: () => ipcRenderer.invoke(IPC.StateLoad),

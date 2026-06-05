@@ -99,6 +99,9 @@ function App(): JSX.Element {
     const ws = workspaces.find((w) => w.id === activeWorkspaceId)
     if (!ws) return
     for (const panel of ws.panels) {
+      // Native decks have NO WebContentsView in main — they render entirely in the
+      // renderer (NativeDeckHost). Never call panel.create for them.
+      if (panel.kind === 'native') continue
       if (panel.discarded) continue
       if (createdPanels.current.has(panel.id)) continue
       createdPanels.current.add(panel.id)
