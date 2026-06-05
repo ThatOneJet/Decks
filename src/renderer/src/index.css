@@ -976,6 +976,23 @@ html.overlay-mode #root {
   padding: 22px;
   animation: modal-pop 0.18s ease both;
 }
+.modal.wide {
+  width: min(660px, 93vw);
+}
+/* Stepped "Add a deck" wizard — slide each step in (React-Bits-style). */
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.step-in {
+  animation: step-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
 .modal h3 {
   margin: 0 0 4px;
   font-size: 17px;
