@@ -43,3 +43,55 @@ body {
   background: theme('colors.line');
   border-radius: 4px;
 }
+
+/* ── Overlay (floating hover-card) window ──────────────────────────────────
+   When the renderer is loaded with the `#overlay` hash (the always-on-top
+   hover-card window), the surface must be fully transparent so only the card
+   paints and the rest stays click-through to the app beneath. */
+html.overlay-mode,
+html.overlay-mode body,
+html.overlay-mode #root {
+  background: transparent !important;
+  overflow: hidden;
+}
+
+/* ── Hand-rolled animations ────────────────────────────────────────────────
+   The React Bits CLI/registry is unreachable from this environment, so these
+   tasteful keyframes are hand-added. Transform/opacity only (cheap, GPU-able);
+   no looping animations run behind live web panels. */
+
+/* Hover-card entrance: fade + slight scale and slide-right (~140ms ease-out). */
+@keyframes overlay-pop {
+  from {
+    opacity: 0;
+    transform: translateX(-6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+.overlay-pop {
+  animation: overlay-pop 140ms ease-out both;
+  transform-origin: left center;
+}
+
+/* Subtle ambient polish: a gentle fade-in for the overlay surface itself. */
+@keyframes overlay-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+html.overlay-mode #root {
+  animation: overlay-fade-in 120ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay-pop,
+  html.overlay-mode #root {
+    animation: none;
+  }
+}

@@ -16,10 +16,12 @@ import type {
   PanelShowOnlyPayload,
   MetricsResult
 } from '@shared/ipc'
+import type { HoverShowPayload, SettingsApplyPayload } from '@shared/ipc'
 import type { PanelId, PersistedState } from '@shared/types'
 import { PanelManager } from './panels'
 import { loadState, saveState } from './persistence'
 import { killTrackedChildren } from './lifecycle'
+import { createOverlay, type OverlayController } from './overlay'
 
 /**
  * Cap the number of Chromium renderer processes the app will spin up. With one
@@ -33,6 +35,7 @@ const RENDERER_PROCESS_LIMIT = 4
 app.commandLine.appendSwitch('renderer-process-limit', String(RENDERER_PROCESS_LIMIT))
 
 let mainWindow: BrowserWindow | null = null
+let overlay: OverlayController | null = null
 const panels = new PanelManager()
 
 function createWindow(): void {
@@ -56,6 +59,7 @@ function createWindow(): void {
   })
 
   panels.setWindow(mainWindow)
+  overlay = createOverlay(mainWindow)
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
 
@@ -137,6 +141,17 @@ function registerIpc(): void {
     }
   })
 
+  // ── Floating hover card overlay (always-on-top, over live web pages) ──
+  ipcMain.on(IPC.HoverShow, (_e, p: HoverShowPayload) => overlay?.showHover(p))
+  ipcMain.on(IPC.HoverHide, () => overlay?.hideHover())
+
+  // ── Settings that affect main (discard timeout) ──
+  ipcMain.on(IPC.SettingsApply, (_e, p: SettingsApplyPayload) => {
+    if (typeof p.discardMinutes === 'number' && p.discardMinutes > 0) {
+      panels.setDiscardAfterMs(p.discardMinutes * 60_000)
+    }
+  })
+
   // ── Native workspace context menu (renders ABOVE web views; page stays put) ──
   ipcMain.on(IPC.WorkspaceContextMenu, (_e, p: { workspaceId: string; hasNotes: boolean }) => {
     if (!mainWindow) return
@@ -177,6 +192,11 @@ function cleanup(): void {
   cleanedUp = true
   try {
     panels.destroyAll()
+  } catch {
+    /* ignore */
+  }
+  try {
+    overlay?.destroy()
   } catch {
     /* ignore */
   }

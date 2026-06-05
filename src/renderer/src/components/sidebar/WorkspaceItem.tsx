@@ -1,12 +1,13 @@
 /**
  * RailTile — one workspace tile in the icon rail. The site logo fills the whole
  * squircle (high-res, with a crisp fallback chain). Active → squircle + accent
- * ring/pill. Unread/playing badges only from real signals. Hover shows a styled
- * HoverCard plus a rich OS tooltip (the one overlay reliable over web views).
+ * ring/pill. Unread/playing badges only from real signals. Hover asks main to
+ * float an always-on-top hover card ABOVE the live web views (a DOM card would
+ * be covered by them); a rich OS tooltip stays as a fallback.
  */
 import { useRef, useState } from 'react'
 import type { Workspace } from '@shared/types'
-import HoverCard from './HoverCard'
+import { iconCandidates } from '../../lib/favicon'
 import TileIcon from './TileIcon'
 
 /** MIME-ish key carried by the drag payload (the dragged workspace id). */
@@ -25,7 +26,6 @@ export default function RailTile({
   onDropWorkspace?: (draggedId: string) => void
 }): JSX.Element {
   const primary = workspace.panels[0]
-  const [hoverTop, setHoverTop] = useState<number | null>(null)
   const [dragging, setDragging] = useState(false)
   const [dropOver, setDropOver] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -48,18 +48,39 @@ export default function RailTile({
   const openMenu = (): void =>
     window.decks?.workspace.contextMenu({ workspaceId: workspace.id, hasNotes: !!workspace.notes })
 
+  /** Ask main to float the always-on-top hover card next to this tile. */
+  const showHover = (): void => {
+    const rect = ref.current?.getBoundingClientRect()
+    if (!rect) return
+    window.decks?.hover.show({
+      summary: {
+        name: workspace.name,
+        iconUrl: primary ? iconCandidates(primary.url, primary.favicon)[0] ?? '' : '',
+        color,
+        deckCount: deckN,
+        unread,
+        playing,
+        notes: workspace.notes
+      },
+      x: rect.right + 8,
+      y: rect.top
+    })
+  }
+
+  const hideHover = (): void => window.decks?.hover.hide()
+
   return (
     <div
       ref={ref}
       className="group relative flex w-full items-center justify-center"
-      onMouseEnter={() => setHoverTop(ref.current?.getBoundingClientRect().top ?? null)}
-      onMouseLeave={() => setHoverTop(null)}
+      onMouseEnter={showHover}
+      onMouseLeave={hideHover}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData(DECKS_WS_DND, workspace.id)
         e.dataTransfer.effectAllowed = 'move'
         setDragging(true)
-        setHoverTop(null)
+        hideHover()
       }}
       onDragEnd={() => setDragging(false)}
       onDragOver={(e) => {
@@ -121,8 +142,6 @@ export default function RailTile({
           <svg viewBox="0 0 24 24" className="h-2 w-2 text-bg" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
         </span>
       )}
-
-      {hoverTop !== null && <HoverCard workspace={workspace} top={hoverTop} />}
     </div>
   )
 }

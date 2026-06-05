@@ -17,7 +17,10 @@ import type {
   PanelUpdateEvent,
   PanelDiscardStateEvent,
   WorkspaceContextMenuPayload,
-  WorkspaceMenuActionEvent
+  WorkspaceMenuActionEvent,
+  HoverShowPayload,
+  SettingsApplyPayload,
+  OverlayRenderEvent
 } from '@shared/ipc'
 import type { PanelId, PersistedState } from '@shared/types'
 
@@ -48,6 +51,13 @@ const api: DecksApi = {
   workspace: {
     contextMenu: (p: WorkspaceContextMenuPayload) => ipcRenderer.send(IPC.WorkspaceContextMenu, p)
   },
+  hover: {
+    show: (p: HoverShowPayload) => ipcRenderer.send(IPC.HoverShow, p),
+    hide: () => ipcRenderer.send(IPC.HoverHide)
+  },
+  settings: {
+    apply: (p: SettingsApplyPayload) => ipcRenderer.send(IPC.SettingsApply, p)
+  },
   onPanelUpdate: (cb: (e: PanelUpdateEvent) => void) => {
     const listener = (_: unknown, e: PanelUpdateEvent): void => cb(e)
     ipcRenderer.on(IPC.PanelUpdate, listener)
@@ -62,6 +72,11 @@ const api: DecksApi = {
     const listener = (_: unknown, e: PanelDiscardStateEvent): void => cb(e)
     ipcRenderer.on(IPC.PanelDiscardState, listener)
     return () => ipcRenderer.removeListener(IPC.PanelDiscardState, listener)
+  },
+  onOverlayRender: (cb: (e: OverlayRenderEvent) => void) => {
+    const listener = (_: unknown, e: OverlayRenderEvent): void => cb(e)
+    ipcRenderer.on(IPC.OverlayRender, listener)
+    return () => ipcRenderer.removeListener(IPC.OverlayRender, listener)
   }
 }
 

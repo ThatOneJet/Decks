@@ -68,11 +68,18 @@ export class PanelManager {
   private readonly discarded = new Map<PanelId, DiscardedEntry>()
   private window: BrowserWindow | null = null
   private sweepTimer: ReturnType<typeof setInterval> | null = null
+  /** Idle-discard threshold (ms); configurable from Settings. */
+  private discardAfterMs = DISCARD_AFTER_MS
 
   /** Bind the window the panels are overlaid onto. Call once after creation. */
   setWindow(win: BrowserWindow): void {
     this.window = win
     this.startSweep()
+  }
+
+  /** Change the idle-discard threshold (minutes → ms applied by the caller). */
+  setDiscardAfterMs(ms: number): void {
+    if (ms > 0) this.discardAfterMs = ms
   }
 
   /** Number of live WebContentsViews (one renderer process each). */
@@ -394,7 +401,7 @@ export class PanelManager {
       } catch {
         /* destroyed mid-sweep — fall through to cleanup */
       }
-      if (now - entry.hiddenSince < DISCARD_AFTER_MS) continue
+      if (now - entry.hiddenSince < this.discardAfterMs) continue
       this.discardPanel(id, entry)
     }
   }

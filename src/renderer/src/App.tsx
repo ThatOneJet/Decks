@@ -15,6 +15,7 @@ import Titlebar from './components/Titlebar'
 import Sidebar from './components/Sidebar'
 import Home from './components/Home'
 import SplitView from './components/SplitView'
+import SettingsDeck from './components/Settings/SettingsDeck'
 import CommandPalette from './components/CommandPalette'
 import { seedWorkspaces } from '@shared/seed'
 import type { PersistedState } from '@shared/types'
@@ -25,6 +26,8 @@ function App(): JSX.Element {
   const view = useStore((s) => s.view)
   const workspaces = useStore((s) => s.workspaces)
   const theme = useStore((s) => s.theme)
+  const settings = useStore((s) => s.settings)
+  const setSettings = useStore((s) => s.setSettings)
   const activeWorkspaceId = useStore((s) => s.activeWorkspaceId)
   const setWorkspaces = useStore((s) => s.setWorkspaces)
   const activateWorkspace = useStore((s) => s.activateWorkspace)
@@ -50,6 +53,12 @@ function App(): JSX.Element {
         persisted && persisted.workspaces.length ? persisted.workspaces : seedWorkspaces()
       setWorkspaces(ws)
       if (persisted?.theme) useStore.getState().setTheme(persisted.theme)
+      // Hydrate app settings, apply the accent live, and push the discard
+      // timeout to main (which owns the idle-discard manager).
+      if (persisted?.settings) setSettings(persisted.settings)
+      const applied = useStore.getState().settings
+      document.documentElement.style.setProperty('--accent', applied.accent)
+      window.decks?.settings.apply({ discardMinutes: applied.discardMinutes })
       hydrated.current = true
       // Restore the previously active workspace (recreates its views via effect 2).
       if (persisted?.activeWorkspaceId && ws.some((w) => w.id === persisted.activeWorkspaceId)) {
@@ -59,7 +68,7 @@ function App(): JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [setWorkspaces, activateWorkspace])
+  }, [setWorkspaces, activateWorkspace, setSettings])
 
   // ── 2. Ensure every panel of the active workspace exists as a native view. ──
   // SplitView reports slot rects via showOnly; the view must exist first.
@@ -120,12 +129,19 @@ function App(): JSX.Element {
         version: STATE_VERSION,
         theme,
         workspaces,
-        activeWorkspaceId
+        activeWorkspaceId,
+        settings
       }
       window.decks?.state.save(snapshot).catch(() => {})
     }, 500)
     return () => clearTimeout(t)
-  }, [workspaces, theme, activeWorkspaceId])
+  }, [workspaces, theme, activeWorkspaceId, settings])
+
+  // ── Keep the main-process idle-discard timeout in sync with settings. ──
+  useEffect(() => {
+    if (!hydrated.current) return
+    window.decks?.settings.apply({ discardMinutes: settings.discardMinutes })
+  }, [settings.discardMinutes])
 
   // ── Global shortcuts: ⌘/Ctrl+K (search), ⌘/Ctrl+N (add deck), Esc (close). ──
   useEffect(() => {
@@ -174,7 +190,13 @@ function App(): JSX.Element {
       <div className="flex min-h-0 flex-1">
         {!inFocus && <Sidebar />}
         <main className="relative min-w-0 flex-1">
-          {view === 'home' || workspaces.length === 0 ? <Home /> : <SplitView />}
+          {view === 'settings' ? (
+            <SettingsDeck />
+          ) : view === 'home' || workspaces.length === 0 ? (
+            <Home />
+          ) : (
+            <SplitView />
+          )}
 
           {/* Focus mode: small far-left, vertically-centered handle to expand back. */}
           {inFocus && (

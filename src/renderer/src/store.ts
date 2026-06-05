@@ -25,7 +25,17 @@ const EMPTY_LAYOUT: LayoutNode = { type: 'leaf', panelId: '' }
 const isEmptyLayout = (l: LayoutNode): boolean => l.type === 'leaf' && l.panelId === ''
 
 /** Which surface the right-hand region is showing. */
-export type View = 'home' | 'workspace'
+export type View = 'home' | 'workspace' | 'settings'
+
+/** App-level settings (persisted). Minimal and typed. */
+export interface Settings {
+  /** Discard idle panels after this many minutes (1–60). */
+  discardMinutes: number
+  /** Accent color hex, applied live via the --accent CSS variable. */
+  accent: string
+}
+
+export const DEFAULT_SETTINGS: Settings = { discardMinutes: 8, accent: '#7c5cff' }
 
 export interface DecksState {
   // ── data ──
@@ -33,6 +43,7 @@ export interface DecksState {
   activeWorkspaceId: WorkspaceId | null
   view: View
   theme: Theme
+  settings: Settings
 
   // ── overlays ──
   paletteOpen: boolean
@@ -50,6 +61,8 @@ export interface DecksState {
   removeWorkspace: (id: WorkspaceId) => void
   activateWorkspace: (id: WorkspaceId) => void
   goHome: () => void
+  /** Open the dedicated settings surface. */
+  openSettings: () => void
   updateWorkspaceLive: (id: WorkspaceId, live: Partial<Workspace['live']>) => void
   renameWorkspace: (id: WorkspaceId, name: string) => void
   setNotes: (id: WorkspaceId, notes: string) => void
@@ -69,6 +82,8 @@ export interface DecksState {
 
   // ── actions: ui ──
   setTheme: (t: Theme) => void
+  /** Merge a partial settings patch. */
+  setSettings: (patch: Partial<Settings>) => void
   openPalette: () => void
   closePalette: () => void
   togglePalette: () => void
@@ -82,6 +97,7 @@ export const useStore = create<DecksState>((set, get) => ({
   activeWorkspaceId: null,
   view: 'home',
   theme: 'dark',
+  settings: { ...DEFAULT_SETTINGS },
   paletteOpen: false,
   addDeckOpen: false,
   focusMode: false,
@@ -112,6 +128,7 @@ export const useStore = create<DecksState>((set, get) => ({
     }),
   activateWorkspace: (id) => set({ activeWorkspaceId: id, view: 'workspace' }),
   goHome: () => set({ view: 'home' }),
+  openSettings: () => set({ view: 'settings' }),
   updateWorkspaceLive: (id, live) =>
     set((s) => ({
       workspaces: s.workspaces.map((w) =>
@@ -185,6 +202,7 @@ export const useStore = create<DecksState>((set, get) => ({
     })),
 
   setTheme: (theme) => set({ theme }),
+  setSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
   openPalette: () => set({ paletteOpen: true }),
   closePalette: () => set({ paletteOpen: false }),
   togglePalette: () => set((s) => ({ paletteOpen: !s.paletteOpen })),

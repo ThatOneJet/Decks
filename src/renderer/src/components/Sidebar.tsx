@@ -87,6 +87,7 @@ function Sidebar(): JSX.Element {
   const view = useStore((s) => s.view)
   const activate = useStore((s) => s.activateWorkspace)
   const goHome = useStore((s) => s.goHome)
+  const openSettings = useStore((s) => s.openSettings)
   const removeWorkspace = useStore((s) => s.removeWorkspace)
   const setDecks = useStore((s) => s.setDecks)
   const addDeckOpen = useStore((s) => s.addDeckOpen)
@@ -234,6 +235,19 @@ function Sidebar(): JSX.Element {
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M3 11l9-8 9 8" />
           <path d="M5 10v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V10" />
+        </svg>
+      </button>
+
+      <button
+        onClick={openSettings}
+        title="Settings"
+        className={`grid h-11 w-11 place-items-center rounded-2xl transition-all duration-150 hover:rounded-xl ${
+          view === 'settings' ? 'bg-accent-soft text-accent' : 'bg-bg-elevated text-txt-3 hover:text-txt-1'
+        }`}
+      >
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
       </button>
 

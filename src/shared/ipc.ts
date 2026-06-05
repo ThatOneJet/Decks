@@ -42,7 +42,19 @@ export const IPC = {
   // ── Native workspace context menu — renderer → main (send) ──
   WorkspaceContextMenu: 'workspace:context-menu',
 
+  // ── Floating hover card overlay — renderer → main (send) ──
+  /** Show the always-on-top hover card for a rail tile at a position. */
+  HoverShow: 'hover:show',
+  /** Hide the hover card. */
+  HoverHide: 'hover:hide',
+
+  // ── Settings applied to the main process — renderer → main (send) ──
+  /** Apply settings that affect main (e.g. discard timeout). */
+  SettingsApply: 'settings:apply',
+
   // ── Events — main → renderer (on) ──
+  /** main → the OVERLAY window only: render/hide the hover card. */
+  OverlayRender: 'overlay:render',
   /** A panel's live WebContents changed (title/url/favicon/loading/nav state). */
   PanelUpdate: 'panel:update',
   /** A native workspace menu item was chosen. */
@@ -122,6 +134,36 @@ export interface PanelDiscardStateEvent {
   url?: string
 }
 
+/** A workspace summary for the floating hover card. */
+export interface HoverSummary {
+  name: string
+  iconUrl: string
+  color: string
+  deckCount: number
+  unread: number
+  playing: boolean
+  notes?: string
+}
+
+/** payload: HoverShow (renderer → main). x/y are window-relative (px). */
+export interface HoverShowPayload {
+  summary: HoverSummary
+  x: number
+  y: number
+}
+
+/** event: OverlayRender (main → the overlay window). */
+export interface OverlayRenderEvent {
+  show: boolean
+  summary?: HoverSummary
+}
+
+/** payload: SettingsApply (renderer → main). */
+export interface SettingsApplyPayload {
+  /** Discard idle panels after this many minutes (0/undefined = leave unchanged). */
+  discardMinutes?: number
+}
+
 /** result: MetricsGet (main → renderer) */
 export interface MetricsResult {
   /** Summed workingSetSize across all app processes, in MB. */
@@ -165,10 +207,22 @@ export interface DecksApi {
     /** Pop a NATIVE context menu at the cursor (renders above web views). */
     contextMenu(payload: WorkspaceContextMenuPayload): void
   }
+  hover: {
+    /** Show the always-on-top floating hover card (over live web pages). */
+    show(payload: HoverShowPayload): void
+    /** Hide the floating hover card. */
+    hide(): void
+  }
+  settings: {
+    /** Apply settings that affect the main process (discard timeout, …). */
+    apply(payload: SettingsApplyPayload): void
+  }
   /** Subscribe to live panel updates. Returns an unsubscribe fn. */
   onPanelUpdate(cb: (e: PanelUpdateEvent) => void): () => void
   /** Subscribe to native workspace-menu choices. Returns an unsubscribe fn. */
   onWorkspaceMenuAction(cb: (e: WorkspaceMenuActionEvent) => void): () => void
   /** Subscribe to discard/recreate state changes. Returns an unsubscribe fn. */
   onPanelDiscardState(cb: (e: PanelDiscardStateEvent) => void): () => void
+  /** (Overlay window only) subscribe to hover-card render events. */
+  onOverlayRender(cb: (e: OverlayRenderEvent) => void): () => void
 }

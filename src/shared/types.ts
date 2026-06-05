@@ -103,4 +103,9 @@ export interface PersistedState {
   theme: Theme
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
+  /** App-level settings (idle-discard timeout, accent color). Optional for back-compat. */
+  settings?: {
+    discardMinutes: number
+    accent: string
+  }
 }
