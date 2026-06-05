@@ -23,8 +23,10 @@ export default function RailTile({
   const primary = workspace.panels[0]
   const iconUrl = primary ? primary.favicon || faviconFor(primary.url) : ''
   const color = workspace.color || '#7c5cff'
-  const unread =
-    workspace.live.status === 'unread' && workspace.live.unread ? workspace.live.unread : 0
+  // REAL signals only: unread = sum of per-deck title badges; playing = any deck
+  // has active media. No badge/indicator appears unless the site reports one.
+  const unread = workspace.panels.reduce((sum, p) => sum + (p.badge || 0), 0)
+  const playing = workspace.panels.some((p) => p.playing)
   const showImg = !!iconUrl && !imgFailed
 
   return (
@@ -64,10 +66,20 @@ export default function RailTile({
         )}
       </button>
 
-      {/* Unread badge */}
+      {/* Unread badge — only when the site actually reports unread items */}
       {unread > 0 && (
         <span className="absolute -bottom-0.5 right-2 grid h-4 min-w-4 place-items-center rounded-full border-2 border-bg-rail bg-err px-1 text-[9px] font-bold text-white">
           {unread > 99 ? '99+' : unread}
+        </span>
+      )}
+
+      {/* Playing indicator — only while a deck is actively playing media */}
+      {playing && unread === 0 && (
+        <span
+          className="absolute -bottom-0.5 right-2 grid h-3.5 w-3.5 place-items-center rounded-full border-2 border-bg-rail bg-ok"
+          title="Playing"
+        >
+          <svg viewBox="0 0 24 24" className="h-2 w-2 text-bg" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
         </span>
       )}
 

@@ -21,6 +21,10 @@ export interface Panel {
   canGoForward?: boolean
   /** True while the panel is loading. */
   loading?: boolean
+  /** REAL unread count parsed from the page title (e.g. "(3) Reddit" → 3). 0/undefined = none. */
+  badge?: number
+  /** REAL media state — true while a media element is actively playing in the deck. */
+  playing?: boolean
 }
 
 /**

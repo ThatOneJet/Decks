@@ -18,7 +18,7 @@ function Sidebar(): JSX.Element {
   const openPalette = useStore((s) => s.openPalette)
 
   return (
-    <aside className="flex w-[72px] shrink-0 flex-col items-center gap-2 border-r border-line bg-bg-rail py-3">
+    <aside className="flex w-[72px] shrink-0 flex-col items-center gap-2 bg-bg-rail py-3">
       {/* Workspaces */}
       <nav className="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto">
         {workspaces.map((w) => (

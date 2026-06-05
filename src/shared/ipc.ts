@@ -82,6 +82,8 @@ export interface PanelUpdateEvent {
     loading?: boolean
     canGoBack?: boolean
     canGoForward?: boolean
+    badge?: number
+    playing?: boolean
   }
 }
 

@@ -28,6 +28,16 @@ interface PanelEntry {
   attached: boolean
 }
 
+/**
+ * Extract a real unread count from a page title. Sites encode it as a leading
+ * "(N)" or "(N+)" — e.g. "(3) Reddit", "(12+) Gmail". Returns 0 when absent, so
+ * a badge only ever shows when the site itself reports one.
+ */
+function parseBadge(title: string): number {
+  const m = /^\s*\((\d+)\+?\)/.exec(title || '')
+  return m ? Number(m[1]) : 0
+}
+
 export class PanelManager {
   private readonly panels = new Map<PanelId, PanelEntry>()
   private window: BrowserWindow | null = null
@@ -103,8 +113,12 @@ export class PanelManager {
     })
 
     wc.on('page-title-updated', (_e, title) => {
-      this.emitUpdate(panelId, { title })
+      this.emitUpdate(panelId, { title, badge: parseBadge(title) })
     })
+
+    // REAL media state — many sites (YouTube, etc.) toggle these as media plays.
+    wc.on('media-started-playing', () => this.emitUpdate(panelId, { playing: true }))
+    wc.on('media-paused', () => this.emitUpdate(panelId, { playing: false }))
 
     wc.on('page-favicon-updated', (_e, favicons) => {
       if (favicons && favicons.length > 0) {

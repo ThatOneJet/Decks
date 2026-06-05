@@ -26,7 +26,7 @@ function NavButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className="no-drag grid h-7 w-7 place-items-center rounded-md text-txt-3 transition-colors enabled:hover:bg-bg-elevated enabled:hover:text-txt-1 disabled:opacity-30"
+      className="no-drag grid h-6 w-6 place-items-center rounded-md text-txt-3 transition-colors enabled:hover:bg-bg-elevated enabled:hover:text-txt-1 disabled:opacity-30"
     >
       {children}
     </button>
@@ -50,7 +50,7 @@ function Titlebar(): JSX.Element {
   }
 
   return (
-    <header className="drag flex h-10 shrink-0 items-center justify-between border-b border-line bg-bg-rail px-2">
+    <header className="drag flex h-8 shrink-0 items-center justify-between bg-bg-rail px-2">
       {/* Left: nav arrows */}
       <div className="flex items-center gap-1">
         <NavButton onClick={back} disabled={!onWorkspace || !primary?.canGoBack} label="Back">
@@ -80,21 +80,21 @@ function Titlebar(): JSX.Element {
         <button
           onClick={() => window.decks?.window.minimize()}
           aria-label="Minimize"
-          className="grid h-7 w-9 place-items-center rounded-md text-txt-3 hover:bg-bg-elevated hover:text-txt-1"
+          className="grid h-6 w-8 place-items-center rounded-md text-txt-3 hover:bg-bg-elevated hover:text-txt-1"
         >
           <svg viewBox="0 0 24 24" className="h-4 w-4" stroke="currentColor" strokeWidth="2"><path d="M5 12h14" /></svg>
         </button>
         <button
           onClick={() => window.decks?.window.maximize()}
           aria-label="Maximize"
-          className="grid h-7 w-9 place-items-center rounded-md text-txt-3 hover:bg-bg-elevated hover:text-txt-1"
+          className="grid h-6 w-8 place-items-center rounded-md text-txt-3 hover:bg-bg-elevated hover:text-txt-1"
         >
           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
         </button>
         <button
           onClick={() => window.decks?.window.close()}
           aria-label="Close"
-          className="grid h-7 w-9 place-items-center rounded-md text-txt-3 hover:bg-err hover:text-white"
+          className="grid h-6 w-8 place-items-center rounded-md text-txt-3 hover:bg-err hover:text-white"
         >
           <svg viewBox="0 0 24 24" className="h-4 w-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
         </button>
