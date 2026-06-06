@@ -21,6 +21,24 @@ import type {
 import { addLeaf, removeLeaf } from './lib/layout'
 
 const deckCount = (n: number): string => `${n} deck${n === 1 ? '' : 's'}`
+
+/** First-run guided tour: a "seen" flag persisted in localStorage. */
+const TOUR_KEY = 'decks.tourSeen'
+/** True if the guided tour hasn't been completed/skipped yet. */
+export function tourUnseen(): boolean {
+  try {
+    return localStorage.getItem(TOUR_KEY) !== '1'
+  } catch {
+    return false
+  }
+}
+function markTourSeen(): void {
+  try {
+    localStorage.setItem(TOUR_KEY, '1')
+  } catch {
+    /* ignore */
+  }
+}
 const EMPTY_LAYOUT: LayoutNode = { type: 'leaf', panelId: '' }
 const isEmptyLayout = (l: LayoutNode): boolean => l.type === 'leaf' && l.panelId === ''
 
@@ -70,6 +88,12 @@ export interface DecksState {
   openHelp: () => void
   openMemory: () => void
   closeConsolePanel: () => void
+  /** First-run guided tour open-state (persisted "seen" flag in localStorage). */
+  tourOpen: boolean
+  /** Start the guided tour (replayable from Help / Settings). */
+  openTour: () => void
+  /** Close the tour and persist that it has been seen. */
+  closeTour: () => void
   updateWorkspaceLive: (id: WorkspaceId, live: Partial<Workspace['live']>) => void
   renameWorkspace: (id: WorkspaceId, name: string) => void
   setNotes: (id: WorkspaceId, notes: string) => void
@@ -151,6 +175,13 @@ export const useStore = create<DecksState>((set, get) => ({
   openHelp: () => set({ consolePanel: 'help' }),
   openMemory: () => set({ consolePanel: 'memory' }),
   closeConsolePanel: () => set({ consolePanel: 'none' }),
+  tourOpen: false,
+  // Open the tour (and clear any slide-over so the spotlight isn't obscured).
+  openTour: () => set({ tourOpen: true, consolePanel: 'none' }),
+  closeTour: () => {
+    markTourSeen()
+    set({ tourOpen: false })
+  },
   updateWorkspaceLive: (id, live) =>
     set((s) => ({
       workspaces: s.workspaces.map((w) =>

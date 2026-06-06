@@ -119,6 +119,16 @@ const PROVIDERS: ProviderDef[] = [
     kind: 'aggregate',
     mode: 'token',
     fields: []
+  },
+  {
+    id: 'discovery',
+    label: 'Discover',
+    glyph: '🧭',
+    color: '#22d3ee',
+    blurb: "What's new and notable across all your connected services, in one board.",
+    kind: 'aggregate',
+    mode: 'token',
+    fields: []
   }
 ]
 

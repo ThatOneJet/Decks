@@ -83,6 +83,9 @@ function Home(): JSX.Element {
             <span>
               <span className="kbd">{MOD === '⌘' ? '⌘.' : 'Ctrl+.'}</span> focus mode
             </span>
+            <span>
+              <span className="kbd">?</span> help & tour
+            </span>
           </div>
         </div>
       </div>

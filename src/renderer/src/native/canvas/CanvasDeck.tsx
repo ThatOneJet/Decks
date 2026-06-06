@@ -107,7 +107,35 @@ interface CanvasAssignmentDetail {
   submittedAt?: string
   submissionTypes?: string[]
   allowedAttempts?: number
+  quizId?: string
+  quizType?: string
+  timeLimit?: number
   comments?: CanvasComment[]
+}
+
+/** One question of an in-progress classic-quiz submission. */
+interface CanvasQuizQuestion {
+  id?: string
+  name?: string
+  text?: string
+  type?: string
+  answers?: Array<{ id?: string; text?: string }>
+}
+
+/** A started/resumed classic-quiz submission handle. */
+interface CanvasQuizStart {
+  submissionId: string
+  attempt: number
+  validationToken: string
+  workflowState?: string
+}
+
+/** The graded result of a completed classic-quiz submission. */
+interface CanvasQuizResult {
+  ok: true
+  score?: number
+  keptScore?: number
+  workflowState?: string
 }
 
 /** A discussion / announcement topic (from the `discussions` resource). */
@@ -1113,6 +1141,79 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
     [provider, accountId, loadAssignmentDetail]
   )
 
+  /** Start (or resume) a classic-quiz submission for the given quiz. */
+  const quizStart = useCallback(
+    async (qCourseId: string, quizId: string): Promise<CanvasQuizStart> => {
+      const res = (await window.decks?.provider.fetch({
+        provider,
+        accountId,
+        resource: 'quizStart',
+        params: { courseId: qCourseId, quizId }
+      })) as CanvasQuizStart | undefined
+      if (!res?.submissionId) throw new Error('Could not start this quiz')
+      return res
+    },
+    [provider, accountId]
+  )
+
+  /** Fetch the questions for an in-progress quiz submission. */
+  const quizQuestions = useCallback(
+    async (submissionId: string): Promise<CanvasQuizQuestion[]> => {
+      const res = await window.decks?.provider.fetch({
+        provider,
+        accountId,
+        resource: 'quizQuestions',
+        params: { submissionId }
+      })
+      return Array.isArray(res) ? (res as CanvasQuizQuestion[]) : []
+    },
+    [provider, accountId]
+  )
+
+  /** Save one quiz answer (per-type shape handled in main). */
+  const quizAnswer = useCallback(
+    async (args: {
+      submissionId: string
+      attempt: number
+      validationToken: string
+      questionId: string
+      questionType?: string
+      answer: unknown
+    }): Promise<void> => {
+      await window.decks?.provider.fetch({
+        provider,
+        accountId,
+        resource: 'quizAnswer',
+        params: { ...args }
+      })
+    },
+    [provider, accountId]
+  )
+
+  /** Submit (complete) a classic-quiz attempt; returns the graded result. */
+  const quizSubmit = useCallback(
+    async (args: {
+      courseId: string
+      quizId: string
+      submissionId: string
+      attempt: number
+      validationToken: string
+      assignmentId: string
+    }): Promise<CanvasQuizResult> => {
+      const { assignmentId, ...rest } = args
+      const res = (await window.decks?.provider.fetch({
+        provider,
+        accountId,
+        resource: 'quizSubmit',
+        params: { ...rest }
+      })) as CanvasQuizResult | undefined
+      // Refresh the assignment so its submission state/score update.
+      await loadAssignmentDetail(args.courseId, assignmentId, true)
+      return res ?? { ok: true }
+    },
+    [provider, accountId, loadAssignmentDetail]
+  )
+
   /** Post a discussion reply (top-level or nested), then re-fetch the thread. */
   const postReply = useCallback(
     async (
@@ -1403,6 +1504,10 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
           onSubmit={submitAssignment}
           onSubmitFile={submitFile}
           onAddComment={addComment}
+          onQuizStart={quizStart}
+          onQuizQuestions={quizQuestions}
+          onQuizAnswer={quizAnswer}
+          onQuizSubmit={quizSubmit}
         />
       ) : view.type === 'discussions' ? (
         <DiscussionsView
@@ -1986,6 +2091,28 @@ function OpenInCanvasLink({ url }: { url?: string }): JSX.Element | null {
   )
 }
 
+/** Quiz-taking callbacks threaded down to the in-app classic-quiz take flow. */
+interface QuizActions {
+  onQuizStart: (courseId: string, quizId: string) => Promise<CanvasQuizStart>
+  onQuizQuestions: (submissionId: string) => Promise<CanvasQuizQuestion[]>
+  onQuizAnswer: (args: {
+    submissionId: string
+    attempt: number
+    validationToken: string
+    questionId: string
+    questionType?: string
+    answer: unknown
+  }) => Promise<void>
+  onQuizSubmit: (args: {
+    courseId: string
+    quizId: string
+    submissionId: string
+    attempt: number
+    validationToken: string
+    assignmentId: string
+  }) => Promise<CanvasQuizResult>
+}
+
 function AssignmentDetailView({
   detail,
   courseId,
@@ -1994,7 +2121,11 @@ function AssignmentDetailView({
   onOpenCourse,
   onSubmit,
   onSubmitFile,
-  onAddComment
+  onAddComment,
+  onQuizStart,
+  onQuizQuestions,
+  onQuizAnswer,
+  onQuizSubmit
 }: {
   detail?: DetailCache<CanvasAssignmentDetail>
   courseId: string
@@ -2012,7 +2143,7 @@ function AssignmentDetailView({
     assignmentId: string
   ) => Promise<{ cancelled?: boolean; fileName?: string }>
   onAddComment: (courseId: string, assignmentId: string, text: string) => Promise<void>
-}): JSX.Element {
+} & QuizActions): JSX.Element {
   // Show the spinner only on the very first load (no data yet); re-fetches after
   // an action keep the previous data visible while loading.
   if (detail && detail.state === 'loading' && !detail.data) {
@@ -2114,8 +2245,16 @@ function AssignmentDetailView({
           submissionTypes={a.submissionTypes}
           allowedAttempts={a.allowedAttempts}
           htmlUrl={a.htmlUrl}
+          quizId={a.quizId}
+          quizType={a.quizType}
+          timeLimit={a.timeLimit}
+          pointsPossible={a.pointsPossible}
           onSubmit={onSubmit}
           onSubmitFile={onSubmitFile}
+          onQuizStart={onQuizStart}
+          onQuizQuestions={onQuizQuestions}
+          onQuizAnswer={onQuizAnswer}
+          onQuizSubmit={onQuizSubmit}
         />
       </div>
 
@@ -2148,20 +2287,48 @@ function hasType(types: string[] | undefined, name: string): boolean {
   return Array.isArray(types) && types.includes(name)
 }
 
+/**
+ * Classic-quiz engine types we can take in-app via the quiz-submissions API.
+ * Anything else (esp. New Quizzes, which report no/`'quizzes.next'` type and
+ * have no public take API) falls back to "Open in Canvas".
+ */
+const CLASSIC_QUIZ_TYPES = new Set([
+  'assignment',
+  'practice_quiz',
+  'graded_survey',
+  'survey'
+])
+
+function isClassicQuiz(quizType?: string): boolean {
+  return typeof quizType === 'string' && CLASSIC_QUIZ_TYPES.has(quizType)
+}
+
 function SubmitSection({
   courseId,
   assignmentId,
   submissionTypes,
   allowedAttempts,
   htmlUrl,
+  quizId,
+  quizType,
+  timeLimit,
+  pointsPossible,
   onSubmit,
-  onSubmitFile
+  onSubmitFile,
+  onQuizStart,
+  onQuizQuestions,
+  onQuizAnswer,
+  onQuizSubmit
 }: {
   courseId: string
   assignmentId: string
   submissionTypes?: string[]
   allowedAttempts?: number
   htmlUrl?: string
+  quizId?: string
+  quizType?: string
+  timeLimit?: number
+  pointsPossible?: number
   onSubmit: (
     courseId: string,
     assignmentId: string,
@@ -2172,7 +2339,7 @@ function SubmitSection({
     courseId: string,
     assignmentId: string
   ) => Promise<{ cancelled?: boolean; fileName?: string }>
-}): JSX.Element {
+} & QuizActions): JSX.Element {
   const allowsText = hasType(submissionTypes, 'online_text_entry')
   const allowsUrl = hasType(submissionTypes, 'online_url')
   const allowsUpload = hasType(submissionTypes, 'online_upload')
@@ -2224,9 +2391,27 @@ function SubmitSection({
     [courseId, assignmentId, text, url, onSubmit, onSubmitFile]
   )
 
-  // A quiz: in-app quiz-taking isn't supported by the Canvas API — surface it as
-  // a quiz with a prominent "take it in Canvas" action (NOT "submitted outside").
+  // A quiz. CLASSIC quizzes (assignment/practice_quiz/graded_survey/survey) get a
+  // real in-app take flow via the quiz-submissions API. New Quizzes and anything
+  // else have no public take API → keep the "Take it in Canvas" fallback.
   if (isQuiz) {
+    if (quizId && isClassicQuiz(quizType)) {
+      return (
+        <QuizTakeSection
+          courseId={courseId}
+          assignmentId={assignmentId}
+          quizId={quizId}
+          allowedAttempts={allowedAttempts}
+          timeLimit={timeLimit}
+          pointsPossible={pointsPossible}
+          htmlUrl={htmlUrl}
+          onQuizStart={onQuizStart}
+          onQuizQuestions={onQuizQuestions}
+          onQuizAnswer={onQuizAnswer}
+          onQuizSubmit={onQuizSubmit}
+        />
+      )
+    }
     return (
       <div className="rounded-lg border px-3 py-3" style={{ borderColor: 'var(--accent-ring)', background: 'var(--accent-soft)' }}>
         <div className="flex items-center gap-2 text-xs font-semibold text-accent">
@@ -2241,7 +2426,7 @@ function SubmitSection({
           {typeof allowedAttempts === 'number' && allowedAttempts > 0
             ? ` · ${allowedAttempts} attempt${allowedAttempts === 1 ? '' : 's'}`
             : ''}
-          . Take it in Canvas — in-app quiz-taking isn’t supported yet.
+          . Take it in Canvas — this quiz type can’t be taken in-app.
         </p>
         <button
           type="button"
@@ -2401,6 +2586,402 @@ function SubmitSection({
       {done && <p className="text-xs font-medium text-ok">{done}</p>}
       {error && <p className="text-xs text-err">{error}</p>}
     </div>
+  )
+}
+
+/* ── Classic quiz: in-app take flow ──
+ *
+ * For CLASSIC Canvas quizzes only (assignment/practice_quiz/graded_survey/survey).
+ * Phases: intro → taking → done.
+ *  - intro  : title meta + Start button → POST a submission, GET its questions.
+ *  - taking : one card per question with the right input per type; answers save
+ *             as the user goes (text/number debounced, choices on change), then a
+ *             confirm-gated Submit → POST .../complete.
+ *  - done   : the graded score/result.
+ * Any API failure shows the error AND keeps the "Open in Canvas" escape hatch.
+ */
+
+type QuizPhase = 'intro' | 'taking' | 'done'
+
+function QuizTakeSection({
+  courseId,
+  assignmentId,
+  quizId,
+  allowedAttempts,
+  timeLimit,
+  pointsPossible,
+  htmlUrl,
+  onQuizStart,
+  onQuizQuestions,
+  onQuizAnswer,
+  onQuizSubmit
+}: {
+  courseId: string
+  assignmentId: string
+  quizId: string
+  allowedAttempts?: number
+  timeLimit?: number
+  pointsPossible?: number
+  htmlUrl?: string
+} & QuizActions): JSX.Element {
+  const [phase, setPhase] = useState<QuizPhase>('intro')
+  const [starting, setStarting] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [confirmSubmit, setConfirmSubmit] = useState(false)
+  const [error, setError] = useState('')
+  const [saveError, setSaveError] = useState('')
+  const [start, setStart] = useState<CanvasQuizStart | null>(null)
+  const [questions, setQuestions] = useState<CanvasQuizQuestion[]>([])
+  const [result, setResult] = useState<CanvasQuizResult | null>(null)
+
+  // Persist one save() so question cards can call it without re-renders churning.
+  const saveAnswer = useCallback(
+    async (q: CanvasQuizQuestion, answer: unknown): Promise<void> => {
+      if (!start || !q.id) return
+      setSaveError('')
+      try {
+        await onQuizAnswer({
+          submissionId: start.submissionId,
+          attempt: start.attempt,
+          validationToken: start.validationToken,
+          questionId: q.id,
+          questionType: q.type,
+          answer
+        })
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : 'Could not save that answer.')
+      }
+    },
+    [start, onQuizAnswer]
+  )
+
+  const begin = useCallback(async (): Promise<void> => {
+    setError('')
+    setStarting(true)
+    try {
+      const s = await onQuizStart(courseId, quizId)
+      setStart(s)
+      const qs = await onQuizQuestions(s.submissionId)
+      setQuestions(qs)
+      setPhase('taking')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start this quiz.')
+    } finally {
+      setStarting(false)
+    }
+  }, [courseId, quizId, onQuizStart, onQuizQuestions])
+
+  const finish = useCallback(async (): Promise<void> => {
+    if (!start) return
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await onQuizSubmit({
+        courseId,
+        quizId,
+        submissionId: start.submissionId,
+        attempt: start.attempt,
+        validationToken: start.validationToken,
+        assignmentId
+      })
+      setResult(res)
+      setPhase('done')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not submit this quiz.')
+    } finally {
+      setSubmitting(false)
+      setConfirmSubmit(false)
+    }
+  }, [start, courseId, quizId, assignmentId, onQuizSubmit])
+
+  // ── Done: graded result ──
+  if (phase === 'done') {
+    const score = result?.score ?? result?.keptScore
+    return (
+      <div className="rounded-lg border border-line bg-bg-elevated px-3 py-3">
+        <div className="flex items-center gap-2 text-xs font-semibold text-ok">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+          Quiz submitted
+        </div>
+        <p className="mt-2 text-sm font-semibold text-txt-1">
+          {typeof score === 'number'
+            ? `Score: ${score}${typeof pointsPossible === 'number' ? ` / ${pointsPossible}` : ''} pts`
+            : 'Your attempt was submitted.'}
+        </p>
+        {result?.workflowState && (
+          <p className="mt-1 text-[11px] capitalize text-txt-4">
+            {result.workflowState.replace(/_/g, ' ')}
+          </p>
+        )}
+        {typeof score !== 'number' && (
+          <p className="mt-1 text-[11px] text-txt-4">
+            Some questions may need manual grading — check Canvas for the final score.
+          </p>
+        )}
+        <div className="mt-3">
+          <OpenInCanvasLink url={htmlUrl} />
+        </div>
+      </div>
+    )
+  }
+
+  // ── Intro ──
+  if (phase === 'intro') {
+    return (
+      <div className="rounded-lg border px-3 py-3" style={{ borderColor: 'var(--accent-ring)', background: 'var(--accent-soft)' }}>
+        <div className="flex items-center gap-2 text-xs font-semibold text-accent">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 11l3 3L22 4" />
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+          </svg>
+          Quiz
+        </div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-txt-3">
+          {typeof pointsPossible === 'number' && <span>{pointsPossible} pts</span>}
+          {typeof allowedAttempts === 'number' && allowedAttempts > 0 && (
+            <span>· {allowedAttempts} attempt{allowedAttempts === 1 ? '' : 's'}</span>
+          )}
+          {typeof timeLimit === 'number' && timeLimit > 0 && (
+            <span>· {timeLimit} min limit</span>
+          )}
+        </div>
+        <p className="mt-1.5 text-xs leading-relaxed text-txt-2">
+          Take this quiz right here. Your answers save as you go, then submit to
+          record your attempt in Canvas.
+        </p>
+        <div className="mt-2.5 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void begin()}
+            disabled={starting}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-[#04222b] transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {starting && <Spinner />}
+            {starting ? 'Starting…' : 'Start quiz'}
+          </button>
+          <OpenInCanvasLink url={htmlUrl} />
+        </div>
+        {error && <p className="mt-2 text-xs text-err">{error}</p>}
+      </div>
+    )
+  }
+
+  // ── Taking ──
+  return (
+    <div className="flex flex-col gap-3">
+      {questions.length === 0 ? (
+        <div className="rounded-lg border border-line bg-bg-elevated px-3 py-2.5">
+          <p className="text-xs text-txt-3">This quiz has no questions to display here.</p>
+          <div className="mt-2">
+            <OpenInCanvasLink url={htmlUrl} />
+          </div>
+        </div>
+      ) : (
+        questions.map((q, i) => (
+          <QuizQuestionCard
+            key={q.id ?? `q-${i}`}
+            index={i}
+            question={q}
+            disabled={submitting}
+            onSave={saveAnswer}
+          />
+        ))
+      )}
+
+      {saveError && <p className="text-xs text-warn">{saveError}</p>}
+      {error && <p className="text-xs text-err">{error}</p>}
+
+      {questions.length > 0 && (
+        <div className="flex items-center justify-end gap-2">
+          {confirmSubmit && (
+            <button
+              type="button"
+              onClick={() => setConfirmSubmit(false)}
+              disabled={submitting}
+              className="rounded-md px-2.5 py-1.5 text-xs font-medium text-txt-3 transition-colors hover:text-txt-1"
+            >
+              Cancel
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => (confirmSubmit ? void finish() : setConfirmSubmit(true))}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
+              confirmSubmit
+                ? 'bg-accent text-bg hover:brightness-110'
+                : 'border border-accent-ring text-accent hover:bg-accent/10'
+            }`}
+          >
+            {submitting && <Spinner />}
+            {confirmSubmit ? 'Confirm submit' : 'Submit quiz'}
+          </button>
+        </div>
+      )}
+
+      <div>
+        <OpenInCanvasLink url={htmlUrl} />
+      </div>
+    </div>
+  )
+}
+
+/** A single quiz question card with the right input control for its type. */
+function QuizQuestionCard({
+  index,
+  question,
+  disabled,
+  onSave
+}: {
+  index: number
+  question: CanvasQuizQuestion
+  disabled: boolean
+  onSave: (q: CanvasQuizQuestion, answer: unknown) => Promise<void>
+}): JSX.Element {
+  const type = question.type
+  const answers = question.answers ?? []
+  // Local answer state (kept in sync with what we last sent to Canvas).
+  const [single, setSingle] = useState<string>('')
+  const [multi, setMulti] = useState<string[]>([])
+  const [text, setText] = useState<string>('')
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Debounced text/number save (on pause + on blur).
+  const queueTextSave = useCallback(
+    (value: string): void => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(() => {
+        void onSave(question, value)
+      }, 700)
+    },
+    [question, onSave]
+  )
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [])
+
+  const card = (inner: React.ReactNode): JSX.Element => (
+    <div className="rounded-lg border border-line bg-bg-elevated p-3">
+      <div className="mb-1.5 flex items-baseline gap-2">
+        <span className="text-[11px] font-semibold text-txt-4">Q{index + 1}</span>
+        {question.name && <span className="text-[11px] text-txt-4">{question.name}</span>}
+      </div>
+      {question.text && (
+        <RichHtml html={question.text} className="mb-2.5 text-xs leading-relaxed text-txt-1" />
+      )}
+      {inner}
+    </div>
+  )
+
+  if (type === 'multiple_choice_question' || type === 'true_false_question') {
+    return card(
+      <div className="flex flex-col gap-1.5">
+        {answers.map((a, i) => (
+          <label
+            key={a.id ?? `a-${i}`}
+            className="flex cursor-pointer items-start gap-2 rounded-md px-1.5 py-1 text-xs text-txt-2 hover:bg-bg"
+          >
+            <input
+              type="radio"
+              name={`q-${question.id ?? index}`}
+              checked={single === (a.id ?? '')}
+              disabled={disabled || !a.id}
+              onChange={() => {
+                const id = a.id ?? ''
+                setSingle(id)
+                void onSave(question, id)
+              }}
+              className="mt-0.5 accent-[var(--accent)]"
+            />
+            <RichHtml html={a.text} className="leading-relaxed" />
+          </label>
+        ))}
+      </div>
+    )
+  }
+
+  if (type === 'multiple_answers_question') {
+    return card(
+      <div className="flex flex-col gap-1.5">
+        {answers.map((a, i) => {
+          const id = a.id ?? ''
+          const checked = multi.includes(id)
+          return (
+            <label
+              key={a.id ?? `a-${i}`}
+              className="flex cursor-pointer items-start gap-2 rounded-md px-1.5 py-1 text-xs text-txt-2 hover:bg-bg"
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={disabled || !a.id}
+                onChange={() => {
+                  const next = checked ? multi.filter((m) => m !== id) : [...multi, id]
+                  setMulti(next)
+                  void onSave(question, next)
+                }}
+                className="mt-0.5 accent-[var(--accent)]"
+              />
+              <RichHtml html={a.text} className="leading-relaxed" />
+            </label>
+          )
+        })}
+      </div>
+    )
+  }
+
+  if (type === 'essay_question') {
+    return card(
+      <textarea
+        value={text}
+        rows={5}
+        disabled={disabled}
+        placeholder="Write your answer…"
+        onChange={(e) => {
+          setText(e.target.value)
+          queueTextSave(e.target.value)
+        }}
+        onBlur={() => void onSave(question, text)}
+        className="w-full resize-y rounded-md border border-line bg-bg px-2.5 py-2 text-xs text-txt-1 placeholder:text-txt-4 focus:border-accent-ring focus:outline-none disabled:opacity-60"
+      />
+    )
+  }
+
+  if (type === 'numerical_question') {
+    return card(
+      <input
+        type="number"
+        value={text}
+        disabled={disabled}
+        placeholder="Enter a number…"
+        onChange={(e) => {
+          setText(e.target.value)
+          queueTextSave(e.target.value)
+        }}
+        onBlur={() => void onSave(question, text)}
+        className="w-full rounded-md border border-line bg-bg px-2.5 py-2 text-xs text-txt-1 placeholder:text-txt-4 focus:border-accent-ring focus:outline-none disabled:opacity-60"
+      />
+    )
+  }
+
+  // short_answer_question + any other text-ish classic type.
+  return card(
+    <input
+      type="text"
+      value={text}
+      disabled={disabled}
+      placeholder="Your answer…"
+      onChange={(e) => {
+        setText(e.target.value)
+        queueTextSave(e.target.value)
+      }}
+      onBlur={() => void onSave(question, text)}
+      className="w-full rounded-md border border-line bg-bg px-2.5 py-2 text-xs text-txt-1 placeholder:text-txt-4 focus:border-accent-ring focus:outline-none disabled:opacity-60"
+    />
   )
 }
 

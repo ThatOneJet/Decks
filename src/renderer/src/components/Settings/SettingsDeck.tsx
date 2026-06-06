@@ -83,6 +83,8 @@ function Card({
 function SettingsDeck(): JSX.Element {
   const settings = useStore((s) => s.settings)
   const setSettings = useStore((s) => s.setSettings)
+  const openTour = useStore((s) => s.openTour)
+  const openHelp = useStore((s) => s.openHelp)
 
   // Detach every panel view so this pure-renderer surface is fully visible.
   useEffect(() => {
@@ -107,8 +109,10 @@ function SettingsDeck(): JSX.Element {
         <div className="h-full w-full overflow-y-auto">
           <div className="mx-auto w-full max-w-2xl px-8 py-10">
         <header className="mb-8">
-          <h1 className="text-2xl font-semibold tracking-tight text-txt-1">Settings</h1>
-          <p className="mt-1 text-sm text-txt-3">Memory, appearance, and app preferences.</p>
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-txt-1">Settings</h1>
+          <p className="mt-1.5 text-sm leading-relaxed text-txt-3">
+            Accounts, memory, appearance, and the things to know about Decks.
+          </p>
         </header>
 
         <div className="flex flex-col gap-5">
@@ -198,6 +202,40 @@ function SettingsDeck(): JSX.Element {
                   )
                 })}
               </div>
+            </div>
+          </Card>
+
+          {/* ── Help & guide ── */}
+          <Card title="Help & guide">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-txt-1">Guided tour</p>
+                <p className="mt-1 text-xs leading-relaxed text-txt-3">
+                  Replay the first-run walkthrough of the dock, command bar, splitting, and
+                  memory.
+                </p>
+              </div>
+              <button
+                onClick={openTour}
+                className="shrink-0 rounded-xl2 border border-line bg-bg-elevated px-4 py-2 text-sm font-medium text-txt-1 transition-colors hover:border-accent hover:text-accent"
+              >
+                Replay tour
+              </button>
+            </div>
+
+            <div className="mt-5 flex items-center justify-between gap-4 border-t border-line pt-5">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-txt-1">Help & shortcuts</p>
+                <p className="mt-1 text-xs leading-relaxed text-txt-3">
+                  Every feature and keyboard shortcut, explained in one place.
+                </p>
+              </div>
+              <button
+                onClick={openHelp}
+                className="shrink-0 rounded-xl2 border border-line bg-bg-elevated px-4 py-2 text-sm font-medium text-txt-1 transition-colors hover:border-accent hover:text-accent"
+              >
+                Open guide
+              </button>
             </div>
           </Card>
 

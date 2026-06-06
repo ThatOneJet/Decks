@@ -1559,6 +1559,140 @@ html.overlay-mode #root {
 }
 
 /* ============================================================
+   GUIDED TOUR — first-run spotlight over the real shell.
+   A dimmed scrim, a highlight ring on the target region, and a
+   glass tooltip card with Next/Back/Skip + step dots.
+   ============================================================ */
+.tour-root {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+}
+.tour-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 5, 9, 0.62);
+  backdrop-filter: blur(2px);
+  animation: fade 0.18s ease both;
+}
+/* The highlight ring: a transparent box that "lifts" the target out of the
+   scrim using a huge outer shadow, plus an accent outline. */
+.tour-ring {
+  position: fixed;
+  border-radius: 12px;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 9999px rgba(4, 5, 9, 0.62),
+    0 0 0 1.5px var(--accent),
+    0 0 22px -2px var(--accent-glow, rgba(69, 214, 232, 0.5));
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 4px;
+  animation:
+    fade 0.18s ease both,
+    tourPulse 2.2s var(--ease, ease-in-out) infinite;
+  transition:
+    top 0.22s var(--ease),
+    left 0.22s var(--ease),
+    width 0.22s var(--ease),
+    height 0.22s var(--ease);
+}
+@keyframes tourPulse {
+  0%,
+  100% {
+    outline-color: var(--accent-soft);
+  }
+  50% {
+    outline-color: transparent;
+  }
+}
+.tour-card {
+  position: fixed;
+  z-index: 141;
+  width: 320px;
+  max-width: 92vw;
+  border-radius: 15px;
+  padding: 16px 17px 14px;
+  animation: pop 0.2s var(--ease, cubic-bezier(0.32, 0.72, 0.28, 1)) both;
+}
+.tour-step-meta {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 7px;
+}
+.tour-title {
+  margin: 0 0 6px;
+  font-size: 15.5px;
+  font-family: var(--font-display);
+  color: var(--t1);
+}
+.tour-body {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--t2);
+}
+.tour-body .kbd {
+  margin: 0 1px;
+}
+.tour-dots {
+  display: flex;
+  gap: 6px;
+  margin: 14px 0 12px;
+}
+.tour-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 99px;
+  background: var(--line-2);
+  transition:
+    width 0.18s var(--ease),
+    background 0.18s ease;
+}
+.tour-dot:hover {
+  background: var(--t3);
+}
+.tour-dot.on {
+  width: 18px;
+  background: var(--accent);
+}
+.tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tour-nav {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* "Replay the guided tour" button docked to the Help slide-over footer. */
+.help-tour-btn {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  z-index: 102;
+  width: min(400px, 92vw);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px;
+  border-top: 1px solid var(--line-2);
+  border-radius: 0;
+  background: var(--panel-2);
+  color: var(--t1);
+  font-weight: 600;
+  animation: slideR 0.22s var(--ease, cubic-bezier(0.32, 0.72, 0.28, 1)) both;
+}
+.help-tour-btn:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ============================================================
    CONSOLE SHELL — grid layout, header chrome, dock, workspace.
    Ported from the Console redesign. These classes are what the
    live Titlebar / Sidebar / SplitView / surface components mount.

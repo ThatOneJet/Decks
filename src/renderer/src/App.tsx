@@ -17,7 +17,9 @@ import Home from './components/Home'
 import SplitView from './components/SplitView'
 import SettingsDeck from './components/Settings/SettingsDeck'
 import CommandPalette from './components/CommandPalette'
+import Tour from './components/Tour'
 import { Welcome, HelpPanel, MemoryPanel, welcomeUnseen } from './components/ConsolePanels'
+import { tourUnseen } from './store'
 import { seedWorkspaces } from '@shared/seed'
 import type { PersistedState } from '@shared/types'
 
@@ -46,6 +48,7 @@ function App(): JSX.Element {
   const openHelp = useStore((s) => s.openHelp)
   const openMemory = useStore((s) => s.openMemory)
   const closeConsolePanel = useStore((s) => s.closeConsolePanel)
+  const openTour = useStore((s) => s.openTour)
   const [welcomeOpen, setWelcomeOpen] = useState(() => welcomeUnseen())
 
   // ── Console dock: collapse to a slim rail (⌘/Ctrl+B). ──
@@ -98,6 +101,14 @@ function App(): JSX.Element {
       cancelled = true
     }
   }, [setWorkspaces, activateWorkspace, setSettings])
+
+  // ── First-run: auto-start the guided tour once (persisted "seen" flag). ──
+  // Slightly delayed so the shell has painted and targets can be measured.
+  useEffect(() => {
+    if (!tourUnseen()) return
+    const id = setTimeout(() => useStore.getState().openTour(), 700)
+    return () => clearTimeout(id)
+  }, [])
 
   // ── 2. Ensure every panel of the active workspace exists as a native view. ──
   // SplitView reports slot rects via showOnly; the view must exist first.
@@ -346,10 +357,28 @@ function App(): JSX.Element {
           }}
         />
       )}
+      {/* Replay the guided tour from the Help slide-over (docked to its footer). */}
+      {consolePanel === 'help' && (
+        <button
+          className="help-tour-btn btn-ghost"
+          onClick={() => {
+            closeConsolePanel()
+            openTour()
+          }}
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12h14M13 6l6 6-6 6" />
+          </svg>
+          Replay the guided tour
+        </button>
+      )}
       {consolePanel === 'memory' && <MemoryPanel onClose={closeConsolePanel} />}
       {welcomeOpen && !paletteOpen && (
         <Welcome onClose={() => setWelcomeOpen(false)} onHelp={() => { setWelcomeOpen(false); openHelp() }} />
       )}
+
+      {/* First-run guided spotlight tour (replayable from Help / Settings). */}
+      <Tour />
     </div>
   )
 }

@@ -203,6 +203,52 @@ export class CanvasClient implements ProviderClient {
     }
   }
 
+  /**
+   * Authenticated JSON write (POST/PUT). Mirrors apiSend (Bearer auth, Accept
+   * json, 15s timeout) but sends `body` as application/json — needed for the
+   * quiz endpoints that expect nested arrays like `quiz_questions:[{ id, answer }]`
+   * which can't be expressed cleanly as form-encoded brackets. Same clean error
+   * surface (status + Canvas message, never the token).
+   */
+  private async apiSendJson(
+    creds: CanvasCreds,
+    method: 'POST' | 'PUT',
+    path: string,
+    body: unknown
+  ): Promise<unknown> {
+    const url = `${creds.instanceUrl}${path}`
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 15_000)
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${creds.token}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body ?? {}),
+        signal: ctrl.signal
+      })
+      const text = await res.text()
+      let parsed: unknown = undefined
+      if (text) {
+        try {
+          parsed = JSON.parse(text)
+        } catch {
+          parsed = undefined
+        }
+      }
+      if (!res.ok) {
+        const detail = this.extractErrorMessage(parsed)
+        throw new Error(detail ? `Canvas API error (${res.status}): ${detail}` : `Canvas API error (${res.status})`)
+      }
+      return parsed
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
   /** Pull a human message out of a Canvas error body (errors[].message, message, error). */
   private extractErrorMessage(body: unknown): string | undefined {
     if (!body || typeof body !== 'object') return undefined
@@ -361,6 +407,14 @@ export class CanvasClient implements ProviderClient {
         return this.postReply(creds, _params)
       case 'markModuleItem':
         return this.markModuleItem(creds, _params)
+      case 'quizStart':
+        return this.quizStart(creds, _params)
+      case 'quizQuestions':
+        return this.quizQuestions(creds, _params)
+      case 'quizAnswer':
+        return this.quizAnswer(creds, _params)
+      case 'quizSubmit':
+        return this.quizSubmit(creds, _params)
       case 'dashboard':
       default: {
         const [courses, todo, upcoming] = await Promise.all([
@@ -621,6 +675,9 @@ export class CanvasClient implements ProviderClient {
     submittedAt?: string
     submissionTypes?: string[]
     allowedAttempts?: number
+    quizId?: string
+    quizType?: string
+    timeLimit?: number
     comments?: Array<{ authorName?: string; comment?: string; createdAt?: string }>
   }> {
     const courseId = asId(params?.courseId)
@@ -641,6 +698,7 @@ export class CanvasClient implements ProviderClient {
       description?: unknown
       submission_types?: unknown
       allowed_attempts?: unknown
+      quiz_id?: unknown
       submission?: {
         workflow_state?: unknown
         score?: unknown
@@ -673,6 +731,23 @@ export class CanvasClient implements ProviderClient {
           }
         })
       : undefined
+    // If this assignment is backed by a quiz, fetch the quiz to learn its type
+    // (classic vs New Quizzes) + time limit so the renderer can decide whether to
+    // offer the in-app take flow. Best-effort — never blocks the assignment view.
+    const quizId = asId(item.quiz_id)
+    let quizType: string | undefined
+    let timeLimit: number | undefined
+    if (quizId) {
+      const quizRaw = (await this.apiGetSafe(
+        creds,
+        `/api/v1/courses/${courseId}/quizzes/${quizId}`
+      )) as { quiz_type?: unknown; time_limit?: unknown } | null
+      if (quizRaw) {
+        quizType = typeof quizRaw.quiz_type === 'string' ? quizRaw.quiz_type : undefined
+        timeLimit = asNum(quizRaw.time_limit)
+      }
+    }
+
     return {
       id: asId(item.id) ?? assignmentId,
       name: typeof item.name === 'string' ? item.name : undefined,
@@ -690,6 +765,9 @@ export class CanvasClient implements ProviderClient {
       submittedAt: typeof sub.submitted_at === 'string' ? sub.submitted_at : undefined,
       submissionTypes,
       allowedAttempts: asNum(item.allowed_attempts),
+      quizId,
+      quizType,
+      timeLimit,
       comments
     }
   }
@@ -1388,6 +1466,259 @@ export class CanvasClient implements ProviderClient {
       if (!/\(404\)/.test(msg)) throw err
     }
     return { ok: true }
+  }
+
+  // ──────────────────────── Classic quiz taking ──────────────────────────
+  //
+  // Canvas's CLASSIC quiz-submissions API (quiz_type assignment/practice_quiz/
+  // graded_survey/survey). New Quizzes have no public take API → the renderer
+  // keeps its "Open in Canvas" fallback for those. Each in-progress attempt is
+  // identified by a {attempt, validation_token} pair the renderer threads back
+  // through quizAnswer/quizSubmit. The token never leaves main.
+
+  /**
+   * Start (or resume) a classic-quiz submission. POSTs a new submission; if one
+   * is already in progress Canvas 4xx's, so we GET the existing list and reuse
+   * the in-progress (`untaken`) attempt. Returns the ids + validation token the
+   * renderer must echo back on subsequent answer/submit calls.
+   */
+  private async quizStart(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<{
+    submissionId: string
+    attempt: number
+    validationToken: string
+    workflowState?: string
+  }> {
+    const courseId = asId(params?.courseId)
+    const quizId = asId(params?.quizId)
+    if (!courseId || !quizId) throw new Error('Missing course or quiz id')
+
+    const pickSubmission = (
+      raw: unknown,
+      preferUntaken: boolean
+    ): {
+      submissionId?: string
+      attempt?: number
+      validationToken?: string
+      workflowState?: string
+    } | null => {
+      const body = (raw ?? {}) as { quiz_submissions?: unknown }
+      const list = Array.isArray(body.quiz_submissions) ? body.quiz_submissions : []
+      if (list.length === 0) return null
+      const mapped = list.map((s) => {
+        const sub = s as {
+          id?: unknown
+          attempt?: unknown
+          validation_token?: unknown
+          workflow_state?: unknown
+        }
+        return {
+          submissionId: asId(sub.id),
+          attempt: asNum(sub.attempt),
+          validationToken:
+            typeof sub.validation_token === 'string' ? sub.validation_token : undefined,
+          workflowState: typeof sub.workflow_state === 'string' ? sub.workflow_state : undefined
+        }
+      })
+      if (preferUntaken) {
+        const untaken = mapped.find((m) => m.workflowState === 'untaken')
+        if (untaken) return untaken
+      }
+      return mapped[mapped.length - 1] ?? null
+    }
+
+    let chosen: ReturnType<typeof pickSubmission> = null
+    try {
+      const started = await this.apiSend(
+        creds,
+        'POST',
+        `/api/v1/courses/${courseId}/quizzes/${quizId}/submissions`
+      )
+      chosen = pickSubmission(started, false)
+    } catch {
+      // Likely "already in progress" → resume the existing untaken attempt.
+      const existing = await this.apiGet(
+        creds,
+        `/api/v1/courses/${courseId}/quizzes/${quizId}/submissions`
+      )
+      chosen = pickSubmission(existing, true)
+    }
+
+    if (!chosen?.submissionId || !chosen.validationToken || typeof chosen.attempt !== 'number') {
+      throw new Error('Could not start this quiz')
+    }
+    return {
+      submissionId: chosen.submissionId,
+      attempt: chosen.attempt,
+      validationToken: chosen.validationToken,
+      workflowState: chosen.workflowState
+    }
+  }
+
+  /** Questions for an in-progress quiz submission (sanitized). */
+  private async quizQuestions(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<
+    Array<{
+      id?: string
+      name?: string
+      text?: string
+      type?: string
+      answers: Array<{ id?: string; text?: string }>
+    }>
+  > {
+    const submissionId = asId(params?.submissionId)
+    if (!submissionId) throw new Error('Missing submission id')
+    const data = (await this.apiGet(
+      creds,
+      `/api/v1/quiz_submissions/${submissionId}/questions`
+    )) as { quiz_submission_questions?: unknown } | null
+    const list = Array.isArray(data?.quiz_submission_questions)
+      ? data!.quiz_submission_questions
+      : []
+    return list.map((q) => {
+      const question = q as {
+        id?: unknown
+        question_name?: unknown
+        question_text?: unknown
+        question_type?: unknown
+        answers?: unknown
+      }
+      const answers = Array.isArray(question.answers)
+        ? question.answers.map((a) => {
+            const ans = a as { id?: unknown; text?: unknown; html?: unknown }
+            const html = typeof ans.html === 'string' && ans.html.trim() ? ans.html : undefined
+            return {
+              id: asId(ans.id),
+              // Prefer the richer HTML answer when present (passed through raw;
+              // renderer renders it safely), else the plain text.
+              text: html ?? (typeof ans.text === 'string' ? ans.text : undefined)
+            }
+          })
+        : []
+      return {
+        id: asId(question.id),
+        name: typeof question.question_name === 'string' ? question.question_name : undefined,
+        // Raw HTML question body; renderer renders it safely (no innerHTML).
+        text: typeof question.question_text === 'string' ? question.question_text : undefined,
+        type: typeof question.question_type === 'string' ? question.question_type : undefined,
+        answers
+      }
+    })
+  }
+
+  /**
+   * Save an answer for one question, mapping the renderer's value to Canvas's
+   * per-type expected shape. Uses the JSON write because some answers are arrays
+   * (multiple-answers) or objects (multiple-blanks).
+   */
+  private async quizAnswer(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<{ ok: true }> {
+    const submissionId = asId(params?.submissionId)
+    const attempt = asNum(params?.attempt)
+    const validationToken =
+      typeof params?.validationToken === 'string' ? params.validationToken : undefined
+    const questionId = asNum(params?.questionId)
+    const questionType =
+      typeof params?.questionType === 'string' ? params.questionType : undefined
+    if (!submissionId || typeof attempt !== 'number' || !validationToken) {
+      throw new Error('Missing submission, attempt, or token')
+    }
+    if (typeof questionId !== 'number') throw new Error('Missing question id')
+
+    const raw = params?.answer
+    let answer: unknown
+    switch (questionType) {
+      case 'multiple_choice_question':
+      case 'true_false_question': {
+        // A single answer id.
+        const n = asNum(raw)
+        answer = typeof n === 'number' ? n : null
+        break
+      }
+      case 'multiple_answers_question': {
+        // An array of selected answer ids.
+        const arr = Array.isArray(raw) ? raw : []
+        answer = arr.map((v) => asNum(v)).filter((v): v is number => typeof v === 'number')
+        break
+      }
+      case 'numerical_question': {
+        const n = asNum(raw)
+        answer = typeof n === 'number' ? n : null
+        break
+      }
+      case 'short_answer_question':
+      case 'essay_question': {
+        answer = typeof raw === 'string' ? raw : ''
+        break
+      }
+      case 'fill_in_multiple_blanks_question': {
+        // A map of blank-name → text. Pass through plain objects only.
+        answer = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+        break
+      }
+      default: {
+        // Best-effort pass-through for any other classic type.
+        answer = raw ?? ''
+      }
+    }
+
+    await this.apiSendJson(
+      creds,
+      'POST',
+      `/api/v1/quiz_submissions/${submissionId}/questions`,
+      {
+        attempt,
+        validation_token: validationToken,
+        quiz_questions: [{ id: questionId, answer }]
+      }
+    )
+    return { ok: true }
+  }
+
+  /** Complete (submit) a classic-quiz attempt; returns the graded result. */
+  private async quizSubmit(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<{ ok: true; score?: number; keptScore?: number; workflowState?: string }> {
+    const courseId = asId(params?.courseId)
+    const quizId = asId(params?.quizId)
+    const submissionId = asId(params?.submissionId)
+    const attempt = asNum(params?.attempt)
+    const validationToken =
+      typeof params?.validationToken === 'string' ? params.validationToken : undefined
+    if (!courseId || !quizId || !submissionId) {
+      throw new Error('Missing course, quiz, or submission id')
+    }
+    if (typeof attempt !== 'number' || !validationToken) {
+      throw new Error('Missing attempt or token')
+    }
+    const res = (await this.apiSendJson(
+      creds,
+      'POST',
+      `/api/v1/courses/${courseId}/quizzes/${quizId}/submissions/${submissionId}/complete`,
+      { attempt, validation_token: validationToken }
+    )) as { quiz_submissions?: unknown } | null
+    const list =
+      res && Array.isArray((res as { quiz_submissions?: unknown }).quiz_submissions)
+        ? (res as { quiz_submissions: unknown[] }).quiz_submissions
+        : []
+    const graded = (list[0] ?? res ?? {}) as {
+      score?: unknown
+      kept_score?: unknown
+      workflow_state?: unknown
+    }
+    return {
+      ok: true,
+      score: asNum(graded.score),
+      keptScore: asNum(graded.kept_score),
+      workflowState: typeof graded.workflow_state === 'string' ? graded.workflow_state : undefined
+    }
   }
 
   async disconnect(accountId: string): Promise<void> {
