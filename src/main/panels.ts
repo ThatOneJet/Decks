@@ -338,6 +338,19 @@ const MP_INJECT_SCRIPT = `(() => {
   var eqMo = new MutationObserver(function () { setupEq(mediaEl()); });
   try { eqMo.observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
 
+  // Refresh hook: re-arm the visualizer + re-report WITHOUT reloading the page
+  // (so the song doesn't restart). Clears a stuck equalizer.
+  window.__decksMPRefresh = function () {
+    try {
+      if (eqCtx && eqCtx.state === 'suspended') { try { eqCtx.resume(); } catch (e) {} }
+      bind(mediaEl());
+      setupEq(mediaEl());
+      if (eqAnalyser && !eqRAF) eqLoop();
+      last = '';
+      report();
+    } catch (e) {}
+  };
+
   report();
 })();`
 
@@ -1153,10 +1166,21 @@ export class PanelManager {
       .catch(() => {})
   }
 
-  /** Reload the corner deck — re-injects the reporter + visualizer setup, which
-   *  clears a stuck/“bugged” equalizer. STABLE. */
+  /** Refresh the corner PANEL's now-playing + visualizer in place — re-arms the
+   *  reporter/analyzer WITHOUT reloading the page (so the song doesn't restart),
+   *  clearing a stuck/“bugged” equalizer. Falls back to a full reload only if the
+   *  in-page hook isn't present. */
   miniReload(): void {
-    this.miniWc()?.reload()
+    const wc = this.miniWc()
+    if (!wc) return
+    void wc
+      .executeJavaScript(
+        '(()=>{if(window.__decksMPRefresh){window.__decksMPRefresh();return true}return false})()'
+      )
+      .then((ok) => {
+        if (!ok) wc.reload()
+      })
+      .catch(() => {})
   }
 
   /** Seek the corner media. STABLE (web-standard HTMLMediaElement). */
@@ -1230,28 +1254,53 @@ export class PanelManager {
   }
 
   /**
-   * Skip to the next item. ⚠️ FRAGILE: this uses YouTube's OWN keyboard shortcut
-   * (Shift+N), which is YouTube-specific and NOT a web standard. If "next" breaks
-   * after a YouTube change, suspect this first — everything else here is stable.
+   * Click a transport button in the page (YouTube/Spotify), returning whether one
+   * was found. More reliable than keyboard shortcuts (which need the player to be
+   * focused). ⚠️ FRAGILE: depends on the sites' button selectors.
    */
-  miniNext(): void {
+  private clickTransport(dir: 'next' | 'prev'): Promise<boolean> {
     const wc = this.miniWc()
-    if (!wc) return
-    wc.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['shift'] })
-    wc.sendInputEvent({ type: 'char', keyCode: 'N', modifiers: ['shift'] })
-    wc.sendInputEvent({ type: 'keyUp', keyCode: 'N', modifiers: ['shift'] })
+    if (!wc) return Promise.resolve(false)
+    const sel =
+      dir === 'next'
+        ? [
+            '.ytp-next-button',
+            '[data-testid="control-button-skip-forward"]',
+            'button[aria-label*="Next" i]'
+          ]
+        : [
+            '.ytp-prev-button',
+            '[data-testid="control-button-skip-back"]',
+            'button[aria-label*="Previous" i]'
+          ]
+    const js = `(()=>{var s=${JSON.stringify(sel)};for(var i=0;i<s.length;i++){var b=document.querySelector(s[i]);if(b){b.click();return true;}}return false;})()`
+    return wc.executeJavaScript(js).catch(() => false) as Promise<boolean>
   }
 
-  /**
-   * Skip to the previous item. ⚠️ FRAGILE: YouTube's OWN shortcut (Shift+P),
-   * YouTube-specific and NOT a web standard. First suspect if "previous" breaks.
-   */
+  /** Skip to the next track — clicks the player's Next button, falling back to
+   *  YouTube's Shift+N shortcut. */
+  miniNext(): void {
+    void this.clickTransport('next').then((ok) => {
+      if (ok) return
+      const wc = this.miniWc()
+      if (!wc) return
+      wc.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['shift'] })
+      wc.sendInputEvent({ type: 'char', keyCode: 'N', modifiers: ['shift'] })
+      wc.sendInputEvent({ type: 'keyUp', keyCode: 'N', modifiers: ['shift'] })
+    })
+  }
+
+  /** Skip to the previous track — clicks the player's Previous button, falling
+   *  back to YouTube's Shift+P shortcut. */
   miniPrevious(): void {
-    const wc = this.miniWc()
-    if (!wc) return
-    wc.sendInputEvent({ type: 'keyDown', keyCode: 'P', modifiers: ['shift'] })
-    wc.sendInputEvent({ type: 'char', keyCode: 'P', modifiers: ['shift'] })
-    wc.sendInputEvent({ type: 'keyUp', keyCode: 'P', modifiers: ['shift'] })
+    void this.clickTransport('prev').then((ok) => {
+      if (ok) return
+      const wc = this.miniWc()
+      if (!wc) return
+      wc.sendInputEvent({ type: 'keyDown', keyCode: 'P', modifiers: ['shift'] })
+      wc.sendInputEvent({ type: 'char', keyCode: 'P', modifiers: ['shift'] })
+      wc.sendInputEvent({ type: 'keyUp', keyCode: 'P', modifiers: ['shift'] })
+    })
   }
 
   /** The panelId of the active mini-player (for the close→focus glue), or null. */
