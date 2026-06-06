@@ -5,17 +5,21 @@
  * holds tokens — it asks main via `window.decks.provider.fetch({ provider,
  * accountId, resource, params })` and renders the sanitized JSON it gets back.
  * All persistence happens through the provider (load / addEvent / updateEvent /
- * deleteEvent / setCalendars). Two read-only overlays are layered on top: national
- * holidays ('holidays') and Canvas classwork ('classwork').
+ * deleteEvent / setCalendars). One read-only overlay is layered on top: national
+ * holidays ('holidays'). Canvas classwork ('classwork') is NOT a separate overlay —
+ * it is folded into the user's "School" calendar: whenever the School calendar is
+ * visible we render its events AND Canvas assignment due dates together, in the
+ * School calendar's color. Hiding "School" hides both. Canvas items stay read-only.
  *
  * Views: Day / Week / Month / Year (segmented header) with ‹ Today › navigation.
  *  - WEEK (primary): weekday+date column headers (today highlighted), an all-day
- *    row (all-day events + holidays + classwork), then an hourly time grid with a
- *    live "now" line; timed events render as colored blocks (their calendar color).
+ *    row (all-day events + holidays + School classwork), then an hourly time grid
+ *    with a live "now" line; timed events render as colored blocks (calendar color).
  *  - DAY: a single-day hourly column. MONTH: a 6×7 grid with event chips. YEAR:
  *    twelve mini-months.
  * Left sidebar: a mini-month for navigation, the toggleable calendar list (persists
- * via setCalendars), plus Holidays + Canvas-classwork overlay toggles.
+ * via setCalendars; "School" also gates Canvas classwork), plus a Holidays overlay
+ * toggle.
  * Event CRUD: click an empty slot to create, click an event to edit/delete, via a
  * small inline modal form (title, calendar, start/end, all-day, notes).
  */
@@ -65,7 +69,11 @@ type ViewMode = 'day' | 'week' | 'month' | 'year'
 type LoadState = 'loading' | 'ready' | 'error'
 
 const HOLIDAY_COLOR = '#fb923c'
-const CLASSWORK_COLOR = '#a3e635'
+
+/** The calendar whose visibility also gates (and colors) Canvas classwork. */
+const SCHOOL_CALENDAR_ID = 'school'
+/** Fallback color for classwork if the School calendar has no color. */
+const SCHOOL_FALLBACK_COLOR = '#4ef0a6'
 
 /* ── Date helpers (all local-time) ── */
 
@@ -808,9 +816,8 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
   const [mode, setMode] = useState<ViewMode>('week')
   const [cursor, setCursor] = useState<Date>(() => new Date())
 
-  // Overlays
+  // Holidays overlay (Canvas classwork is folded into the School calendar below).
   const [showHolidays, setShowHolidays] = useState(true)
-  const [showClasswork, setShowClasswork] = useState(false)
   const [holidays, setHolidays] = useState<Holiday[]>([])
   const [classwork, setClasswork] = useState<Classwork[]>([])
 
@@ -865,6 +872,17 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
     [calendars]
   )
 
+  /* ── School calendar drives Canvas classwork (visibility + color) ── */
+  const schoolVisible = useMemo(
+    () => calendars.some((c) => c.id === SCHOOL_CALENDAR_ID && c.visible),
+    [calendars]
+  )
+  const schoolColor = useMemo(
+    () =>
+      calendars.find((c) => c.id === SCHOOL_CALENDAR_ID)?.color ?? SCHOOL_FALLBACK_COLOR,
+    [calendars]
+  )
+
   const visibleEvents = useMemo(
     () => events.filter((e) => visibleCalIds.has(e.calendarId)),
     [events, visibleCalIds]
@@ -905,9 +923,11 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
     }
   }, [state, showHolidays, cursor, country, provider, accountId])
 
-  /* ── Classwork: refetch when toggle on + range changes ── */
+  /* ── Classwork: refetch while the School calendar is visible + range changes.
+   * Canvas due dates are part of "School" now, so this is gated on schoolVisible
+   * (not a separate overlay toggle). ── */
   useEffect(() => {
-    if (state !== 'ready' || !showClasswork) return
+    if (state !== 'ready' || !schoolVisible) return
     // Compute a generous range around the cursor for the current view.
     let rangeStart: Date
     let rangeEnd: Date
@@ -938,15 +958,15 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
     return () => {
       cancelled = true
     }
-  }, [state, showClasswork, mode, cursor, provider, accountId])
+  }, [state, schoolVisible, mode, cursor, provider, accountId])
 
-  // Reset classwork when toggled off (and reset its range guard).
+  // Clear classwork when the School calendar is hidden (and reset its range guard).
   useEffect(() => {
-    if (!showClasswork) {
+    if (!schoolVisible) {
       setClasswork([])
       classworkRange.current = ''
     }
-  }, [showClasswork])
+  }, [schoolVisible])
   useEffect(() => {
     if (!showHolidays) {
       setHolidays([])
@@ -968,7 +988,7 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
 
   const classworkByDay = useMemo(() => {
     const m = new Map<string, Classwork[]>()
-    if (!showClasswork) return m
+    if (!schoolVisible) return m
     for (const c of classwork) {
       const d = parseISO(c.due)
       if (Number.isNaN(d.getTime())) continue
@@ -978,7 +998,7 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
       m.set(k, arr)
     }
     return m
-  }, [classwork, showClasswork])
+  }, [classwork, schoolVisible])
 
   /** All-day-row items for one day (all-day events + holidays + classwork). */
   const allDayItemsFor = useCallback(
@@ -999,17 +1019,19 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
       for (const h of holidaysByDay.get(k) ?? []) {
         items.push({ key: `h_${k}_${h.name}`, title: h.name, color: HOLIDAY_COLOR, kind: 'holiday' })
       }
+      // Canvas classwork: visually part of the School calendar (its color), but
+      // tagged kind:'classwork' and given no `event` so it stays read-only.
       for (const c of classworkByDay.get(k) ?? []) {
         items.push({
           key: `c_${c.id}`,
           title: c.courseName ? `${c.title} · ${c.courseName}` : c.title,
-          color: CLASSWORK_COLOR,
+          color: schoolColor,
           kind: 'classwork'
         })
       }
       return items
     },
-    [visibleEvents, colorOf, holidaysByDay, classworkByDay]
+    [visibleEvents, colorOf, holidaysByDay, classworkByDay, schoolColor]
   )
 
   /** Month/year chips include timed events too (collapsed to a single chip). */
@@ -1289,28 +1311,6 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
                 )}
               </span>
               <span>Holidays</span>
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 text-xs text-txt-2">
-              <input
-                type="checkbox"
-                checked={showClasswork}
-                onChange={(e) => setShowClasswork(e.target.checked)}
-                className="sr-only"
-              />
-              <span
-                className="grid h-3.5 w-3.5 place-items-center rounded-[4px] border"
-                style={{
-                  backgroundColor: showClasswork ? CLASSWORK_COLOR : 'transparent',
-                  borderColor: CLASSWORK_COLOR
-                }}
-              >
-                {showClasswork && (
-                  <svg viewBox="0 0 24 24" className="h-2.5 w-2.5 text-black" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
-                )}
-              </span>
-              <span>Canvas classwork</span>
             </label>
           </div>
         </div>

@@ -7,13 +7,18 @@
  * token store, keyed by `accountKey('calendar', accountId)` (see ../accounts). It
  * isn't a secret, but reusing the store gives us atomic persistence for free.
  *
- * Two read-only OVERLAYS are computed at fetch time (never persisted):
- *   - National holidays — fetched in MAIN from the free, key-less Nager.Date API.
+ * Two read-only data sources are computed at fetch time (never persisted):
+ *   - National holidays — fetched in MAIN from the free, key-less Nager.Date API;
+ *                          surfaced as its own "Holidays" overlay in the deck.
  *   - Canvas classwork  — assignment due dates pulled at RUNTIME from the 'canvas'
  *                          provider via the registry (getProvider). The Calendar
  *                          client owns NO Canvas credential and imports NO Canvas
  *                          file — it only depends on canvas through the registry,
- *                          so it stays compilable and tolerant of no-canvas.
+ *                          so it stays compilable and tolerant of no-canvas. The
+ *                          deck no longer exposes this as a standalone toggle: it
+ *                          folds these due dates into the user's "School" calendar
+ *                          (fetched/shown only while School is visible). The
+ *                          'classwork' resource below is unchanged.
  *
  * The renderer only ever receives sanitized JSON.
  */

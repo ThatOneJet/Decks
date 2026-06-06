@@ -122,8 +122,12 @@ function NotesDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [pickerFor, setPickerFor] = useState<string | null>(null)
 
-  // Slash menu: which block opened it + the query typed after "/".
-  const [slash, setSlash] = useState<{ blockId: string; query: string } | null>(null)
+  // Slash menu: which block opened it + the query typed after "/" + highlighted row.
+  const [slash, setSlash] = useState<{
+    blockId: string
+    query: string
+    index: number
+  } | null>(null)
   // Handle "+" menu open for a given block.
   const [handleMenu, setHandleMenu] = useState<string | null>(null)
 
@@ -396,14 +400,28 @@ function NotesDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
     )
   }, [slash])
 
+  // Highlight index clamped to the current match list (matches shrink as you type).
+  const slashIndex = slash ? Math.min(slash.index, Math.max(0, slashMatches.length - 1)) : 0
+
   const applySlash = useCallback(
     (blockId: string, type: BlockType): void => {
-      // Clear the "/query" text we captured, then convert the block.
-      updateBlock(blockId, { text: '' })
-      setBlockType(blockId, type)
+      // Convert the block AND clear the captured "/query" text in a SINGLE
+      // atomic update. (Doing this as two separate setState calls reads a stale
+      // `latest.current` for the second one, so the "/query" text would survive.)
+      updateActive((page) => ({
+        ...page,
+        blocks: page.blocks.map((b) => {
+          if (b.id !== blockId) return b
+          const next: Block = { id: b.id, type }
+          if (type !== 'divider') next.text = ''
+          if (type === 'todo') next.checked = false
+          return next
+        })
+      }))
+      if (type !== 'divider') focusNext.current = blockId
       setSlash(null)
     },
-    [updateBlock, setBlockType]
+    [updateActive]
   )
 
   // ── Per-block keyboard handling ──────────────────────────────────────────
@@ -414,16 +432,38 @@ function NotesDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
       const atStart = el.selectionStart === 0 && el.selectionEnd === 0
       const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length
 
-      // Slash menu navigation takes precedence while it's open.
+      // Slash menu navigation takes precedence while it's open: Arrow keys move
+      // the highlight, Enter/Tab pick it, Escape closes. None of these should
+      // fall through to the block's own newline / focus-move handling.
       if (slash && slash.blockId === block.id) {
         if (e.key === 'Escape') {
           e.preventDefault()
           setSlash(null)
           return
         }
-        if (e.key === 'Enter' && slashMatches.length > 0) {
+        if (e.key === 'ArrowDown') {
           e.preventDefault()
-          applySlash(block.id, slashMatches[0].type)
+          if (slashMatches.length > 0) {
+            setSlash((s) =>
+              s ? { ...s, index: (slashIndex + 1) % slashMatches.length } : s
+            )
+          }
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          if (slashMatches.length > 0) {
+            setSlash((s) =>
+              s
+                ? { ...s, index: (slashIndex - 1 + slashMatches.length) % slashMatches.length }
+                : s
+            )
+          }
+          return
+        }
+        if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) {
+          e.preventDefault()
+          if (slashMatches.length > 0) applySlash(block.id, slashMatches[slashIndex].type)
           return
         }
       }
@@ -454,15 +494,22 @@ function NotesDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
         return
       }
     },
-    [slash, slashMatches, applySlash, insertBlockAfter, removeBlock, moveFocus]
+    [slash, slashMatches, slashIndex, applySlash, insertBlockAfter, removeBlock, moveFocus]
   )
 
   const onBlockChange = useCallback(
     (block: Block, value: string): void => {
       updateBlock(block.id, { text: value })
-      // Open the slash menu when a line is exactly "/…" with no spaces.
+      // Open the slash menu when the line is exactly "/…" with no spaces. Reset
+      // the highlight to the top whenever the query changes so the first match
+      // is selected by default.
       if (value.startsWith('/') && !value.includes(' ')) {
-        setSlash({ blockId: block.id, query: value.slice(1) })
+        const query = value.slice(1)
+        setSlash((s) =>
+          s && s.blockId === block.id && s.query === query
+            ? s
+            : { blockId: block.id, query, index: 0 }
+        )
       } else if (slash && slash.blockId === block.id) {
         setSlash(null)
       }
@@ -627,6 +674,7 @@ function NotesDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
                     }}
                     slashOpen={slash?.blockId === block.id}
                     slashMatches={slash?.blockId === block.id ? slashMatches : []}
+                    slashIndex={slash?.blockId === block.id ? slashIndex : 0}
                     onPickSlash={(type) => applySlash(block.id, type)}
                   />
                 ))}
@@ -761,6 +809,7 @@ interface BlockRowProps {
   onDelete: () => void
   slashOpen: boolean
   slashMatches: BlockTypeDef[]
+  slashIndex: number
   onPickSlash: (type: BlockType) => void
 }
 
@@ -827,6 +876,7 @@ function BlockRow(props: BlockRowProps): JSX.Element {
     onDelete,
     slashOpen,
     slashMatches,
+    slashIndex,
     onPickSlash
   } = props
 
@@ -922,12 +972,16 @@ function BlockRow(props: BlockRowProps): JSX.Element {
             slashMatches.map((d, i) => (
               <button
                 key={d.type}
+                ref={(el) => {
+                  if (el && i === slashIndex) el.scrollIntoView({ block: 'nearest' })
+                }}
                 onMouseDown={(e) => {
+                  // mousedown (not click) so the textarea doesn't blur first.
                   e.preventDefault()
                   onPickSlash(d.type)
                 }}
                 className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-1.5 text-left transition-colors hover:bg-bg-panel ${
-                  i === 0 ? 'bg-bg-panel' : ''
+                  i === slashIndex ? 'bg-bg-panel' : ''
                 }`}
               >
                 <span className="text-sm text-txt-1">{d.label}</span>

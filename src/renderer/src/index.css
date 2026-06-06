@@ -1760,6 +1760,27 @@ html.overlay-mode #root {
 .console.rail {
   grid-template-columns: var(--dock-w-rail) 1fr;
 }
+/* Focus mode — hide the dock, workspace spans full width. The dock + workspace
+   stay MOUNTED (only CSS changes), so a focused native deck keeps its state. */
+.console.is-focus {
+  grid-template-columns: 1fr;
+}
+.console.is-focus .dock {
+  display: none;
+}
+/* Portrait — header on top, workspace in the middle, dock as a bottom taskbar. */
+.console.is-portrait {
+  grid-template-columns: 1fr;
+  grid-template-rows: var(--head-h) minmax(0, 1fr) auto;
+}
+.console.is-portrait .workspace {
+  grid-row: 2;
+  grid-column: 1;
+}
+.console.is-portrait > aside {
+  grid-row: 3;
+  grid-column: 1;
+}
 .console::before {
   content: '';
   position: absolute;

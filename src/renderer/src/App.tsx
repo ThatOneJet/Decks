@@ -362,35 +362,34 @@ function App(): JSX.Element {
   ) : null
 
   return (
+    // STABLE tree: Titlebar + Sidebar + workspace are ALWAYS rendered in the same
+    // positions; focus mode / portrait only toggle CSS classes (no remount), so a
+    // native deck keeps its state when you focus/fullscreen it. Layout is driven
+    // by `.console` + `.is-focus` / `.is-portrait` / `.rail` in the CSS grid.
     <div
-      className={'console' + (collapsed ? ' rail' : '')}
-      // Focus mode / portrait hide the dock, so collapse its grid column to 0.
-      style={inFocus || dockMode ? { gridTemplateColumns: '0 1fr' } : undefined}
+      className={
+        'console' +
+        (collapsed ? ' rail' : '') +
+        (inFocus ? ' is-focus' : '') +
+        (dockMode ? ' is-portrait' : '')
+      }
     >
       {/* HEADER — full-width Console chrome (brand + command bar + controls). */}
       <Titlebar />
 
-      {dockMode ? (
-        // Portrait: dock becomes a horizontal taskbar below the workspace.
-        <>
-          <div className="workspace relative" style={{ gridColumn: '1 / -1' }}>
-            {surface}
-          </div>
-          <Sidebar orientation="horizontal" />
-        </>
-      ) : inFocus ? (
-        // Focus mode: dock hidden, workspace spans the full width.
-        <div className="workspace relative" style={{ gridColumn: '1 / -1' }}>
-          {surface}
-          {focusHandle}
-        </div>
-      ) : (
-        // Landscape Console: [dock | workspace] below the header.
-        <>
-          <Sidebar collapsed={collapsed} onToggleCollapse={() => setDockCollapsed((v) => !v)} />
-          <div className="workspace relative">{surface}</div>
-        </>
-      )}
+      {/* DOCK — vertical rail (landscape) or bottom taskbar (portrait). */}
+      <Sidebar
+        collapsed={collapsed}
+        onToggleCollapse={() => setDockCollapsed((v) => !v)}
+        orientation={dockMode ? 'horizontal' : 'vertical'}
+      />
+
+      {/* WORKSPACE — the active surface (its own floating page card). */}
+      <div className="workspace relative">
+        {surface}
+        {focusHandle}
+      </div>
+
       <CommandPalette />
 
       {/* Console redesign — slide-over panels + first-run tutorial */}
