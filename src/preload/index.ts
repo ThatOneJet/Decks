@@ -28,7 +28,8 @@ import type {
   MiniPlayerControlEvent,
   FocusPanelEvent,
   ProviderConnectPayload,
-  ProviderFetchPayload
+  ProviderFetchPayload,
+  FeedbackPayload
 } from '@shared/ipc'
 import type { PanelId, PersistedState, ProviderId } from '@shared/types'
 
@@ -63,6 +64,9 @@ const api: DecksApi = {
   state: {
     load: () => ipcRenderer.invoke(IPC.StateLoad),
     save: (state: PersistedState) => ipcRenderer.invoke(IPC.StateSave, state)
+  },
+  feedback: {
+    submit: (p: FeedbackPayload) => ipcRenderer.invoke(IPC.FeedbackSubmit, p)
   },
   metrics: {
     get: () => ipcRenderer.invoke(IPC.MetricsGet),

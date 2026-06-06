@@ -66,6 +66,8 @@ export interface DecksState {
   // ── overlays ──
   paletteOpen: boolean
   addDeckOpen: boolean
+  /** In-app feedback (suggestion/bug) modal. */
+  feedbackOpen: boolean
   /** Focus mode — collapse the sidebar and focus the active deck. */
   focusMode: boolean
   /** User-toggled sidebar collapse (the topbar button). Narrow screens also force it. */
@@ -139,6 +141,8 @@ export interface DecksState {
   togglePalette: () => void
   openAddDeck: () => void
   closeAddDeck: () => void
+  openFeedback: () => void
+  closeFeedback: () => void
   toggleFocusMode: () => void
   toggleSidebar: () => void
   /** Set the rail-drag flag. */
@@ -155,6 +159,7 @@ export const useStore = create<DecksState>((set, get) => ({
   settings: { ...DEFAULT_SETTINGS },
   paletteOpen: false,
   addDeckOpen: false,
+  feedbackOpen: false,
   focusMode: false,
   sidebarCollapsed: false,
   dragging: false,
@@ -347,6 +352,8 @@ export const useStore = create<DecksState>((set, get) => ({
   togglePalette: () => set((s) => ({ paletteOpen: !s.paletteOpen })),
   openAddDeck: () => set({ addDeckOpen: true }),
   closeAddDeck: () => set({ addDeckOpen: false }),
+  openFeedback: () => set({ feedbackOpen: true }),
+  closeFeedback: () => set({ feedbackOpen: false }),
   toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   setDragging: (dragging) => set({ dragging }),

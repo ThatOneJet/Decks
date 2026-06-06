@@ -60,6 +60,9 @@ export const IPC = {
   StateLoad: 'state:load',
   StateSave: 'state:save',
 
+  // ── In-app feedback (suggestions + bug reports → GitHub issue) ──
+  FeedbackSubmit: 'feedback:submit',
+
   // ── Process metrics — renderer → main (invoke) ──
   /** Total RAM + live/discarded panel counts for the sidebar readout. */
   MetricsGet: 'metrics:get',
@@ -222,6 +225,24 @@ export interface MenuPickPayload {
   kind: MenuKind
   targetId: string
   action: string
+}
+
+/** payload: FeedbackSubmit (renderer → main). An in-app suggestion or bug report. */
+export interface FeedbackPayload {
+  type: 'suggestion' | 'bug'
+  title: string
+  description: string
+  /** Optional screenshot as a data URL (data:image/...;base64,...). */
+  imageDataUrl?: string
+}
+
+/** result of FeedbackSubmit. `queued` = stored locally because the network/token failed. */
+export interface FeedbackResult {
+  ok: boolean
+  number?: number
+  url?: string
+  queued?: boolean
+  error?: string
 }
 
 /** Now-playing metadata for the corner mini-player control bar. */
@@ -415,6 +436,10 @@ export interface DecksApi {
   state: {
     load(): Promise<PersistedState | null>
     save(state: PersistedState): Promise<void>
+  }
+  feedback: {
+    /** File an in-app suggestion/bug as a GitHub issue (or queue it offline). */
+    submit(payload: FeedbackPayload): Promise<FeedbackResult>
   }
   metrics: {
     /** Total RAM + live/discarded panel counts for the sidebar readout. */

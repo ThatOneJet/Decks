@@ -17,6 +17,7 @@ import DashboardHome from './components/DashboardHome'
 import SplitView from './components/SplitView'
 import SettingsDeck from './components/Settings/SettingsDeck'
 import CommandPalette from './components/CommandPalette'
+import FeedbackModal from './components/FeedbackModal'
 import Tour from './components/Tour'
 import { Welcome, HelpPanel, MemoryPanel, welcomeUnseen } from './components/ConsolePanels'
 import { tourUnseen } from './store'
@@ -39,6 +40,8 @@ function App(): JSX.Element {
   const closePalette = useStore((s) => s.closePalette)
   const paletteOpen = useStore((s) => s.paletteOpen)
   const openAddDeck = useStore((s) => s.openAddDeck)
+  const feedbackOpen = useStore((s) => s.feedbackOpen)
+  const closeFeedback = useStore((s) => s.closeFeedback)
   const closeAddDeck = useStore((s) => s.closeAddDeck)
   const focusMode = useStore((s) => s.focusMode)
   const toggleFocusMode = useStore((s) => s.toggleFocusMode)
@@ -384,6 +387,8 @@ function App(): JSX.Element {
       </div>
 
       <CommandPalette />
+
+      {feedbackOpen && <FeedbackModal onClose={closeFeedback} />}
 
       {/* Console redesign — slide-over panels + first-run tutorial */}
       {consolePanel === 'help' && (

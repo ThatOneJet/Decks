@@ -16,7 +16,8 @@ import type {
   PanelNavigatePayload,
   PanelSetBoundsPayload,
   PanelShowOnlyPayload,
-  MetricsResult
+  MetricsResult,
+  FeedbackPayload
 } from '@shared/ipc'
 import type {
   HoverShowPayload,
@@ -29,6 +30,7 @@ import type {
 import type { PanelId, PersistedState } from '@shared/types'
 import { PanelManager, CHROME_UA } from './panels'
 import { loadState, saveState } from './persistence'
+import { submitFeedback } from './feedback'
 import { killTrackedChildren } from './lifecycle'
 import { createOverlay, type OverlayController } from './overlay'
 import { registerProviderIpc } from './providers/registry'
@@ -208,6 +210,9 @@ function registerIpc(): void {
   // ── Persistence (renderer → main, invoke) ──
   ipcMain.handle(IPC.StateLoad, (): Promise<PersistedState | null> => loadState())
   ipcMain.handle(IPC.StateSave, (_e, state: PersistedState): Promise<void> => saveState(state))
+
+  // ── In-app feedback (suggestion/bug → GitHub issue, or queued offline) ──
+  ipcMain.handle(IPC.FeedbackSubmit, (_e, p: FeedbackPayload) => submitFeedback(p))
 
   // ── Process metrics (renderer → main, invoke) ──
   ipcMain.handle(IPC.MetricsGet, (): MetricsResult => {

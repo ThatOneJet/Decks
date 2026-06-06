@@ -61,6 +61,7 @@ function Header(): JSX.Element {
   const toggleFocusMode = useStore((s) => s.toggleFocusMode)
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed)
   const toggleSidebar = useStore((s) => s.toggleSidebar)
+  const openFeedback = useStore((s) => s.openFeedback)
 
   // Live memory readout for the pill — real working-set RAM + live/idle counts.
   const [mem, setMem] = useState<{ ramMB: number; live: number; discarded: number } | null>(null)
@@ -136,6 +137,20 @@ function Header(): JSX.Element {
           </svg>
         </button>
       </div>
+
+      {/* Feedback — send a suggestion or bug report straight to the dev. */}
+      <button
+        onClick={openFeedback}
+        aria-label="Send feedback"
+        className="winbtn no-drag"
+        title="Send feedback — suggestion or bug report"
+      >
+        <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 18h6" />
+          <path d="M10 22h4" />
+          <path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2h6c0-.8.4-1.5 1-2A7 7 0 0 0 12 2Z" />
+        </svg>
+      </button>
 
       {/* Command bar — the centerpiece; opens the palette. */}
       <div className="cmdbar no-drag" onClick={openPalette} title="Search · run command">
