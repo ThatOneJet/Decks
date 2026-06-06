@@ -10,8 +10,8 @@
  * The per-workspace `partition` (always `persist:<workspaceId>`) gives each
  * workspace its own persistent Electron session, so logins survive restarts.
  */
-import { WebContentsView, shell, app, screen } from 'electron'
-import type { BrowserWindow, Display } from 'electron'
+import { WebContentsView, BrowserWindow, shell, app, screen } from 'electron'
+import type { Display } from 'electron'
 import { appendFileSync } from 'fs'
 import { join } from 'path'
 import { IPC } from '@shared/ipc'
@@ -943,6 +943,82 @@ export class PanelManager {
     if (!entry) return
     entry.lastActiveAt = Date.now()
     entry.view.webContents.reload()
+  }
+
+  /**
+   * Sign in to a web deck via a REAL top-level browser window (not the embedded
+   * WebContentsView). Google blocks OAuth performed inside an embedded frame
+   * ("this browser may not be secure"), so we open the deck's site in a standalone
+   * BrowserWindow that SHARES the deck's session partition. The user completes
+   * Google login there (a normal top-level context Google accepts); the cookies
+   * land in the shared partition. When the window returns to the deck's own origin
+   * (off accounts.google.com) we close it and reload the deck — now authenticated,
+   * and the persisted partition keeps it logged in across restarts.
+   */
+  openSignIn(panelId: PanelId): void {
+    const entry = this.ensureLive(panelId)
+    if (!entry) return
+    const partition = entry.partition
+    const url = entry.url
+    let host = ''
+    try {
+      host = new URL(url).host
+    } catch {
+      /* leave host empty — only auto-close on Google→app transitions then */
+    }
+
+    const win = new BrowserWindow({
+      width: 520,
+      height: 700,
+      title: 'Sign in',
+      autoHideMenuBar: true,
+      backgroundColor: '#0e0e13',
+      webPreferences: { partition, contextIsolation: true, sandbox: true }
+    })
+    // Present as real Chrome (string + client-hint metadata) so Google's
+    // embedded-browser detection is satisfied for this top-level window too.
+    win.webContents.setUserAgent(CHROME_UA)
+    this.applyUaOverride(win.webContents)
+
+    let sawAuth = false
+    const onNav = (navUrl: string): void => {
+      try {
+        const h = new URL(navUrl).host
+        const isGoogleAuth = /(^|\.)google\.com$/.test(h) || /accounts\.google\./.test(navUrl)
+        if (isGoogleAuth) {
+          sawAuth = true
+        } else if (sawAuth && host && h === host) {
+          // Returned to the deck's site after Google → login finished.
+          if (!win.isDestroyed()) win.close()
+        }
+      } catch {
+        /* ignore non-URL navigations */
+      }
+    }
+    win.webContents.on('did-navigate', (_e, u) => onNav(u))
+    win.webContents.on('did-navigate-in-page', (_e, u) => onNav(u))
+    // Popups inside the login window (Google sometimes opens one) stay top-level
+    // and share the partition + Chrome UA.
+    win.webContents.setWindowOpenHandler(() => ({
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        webPreferences: { partition, contextIsolation: true, sandbox: true },
+        autoHideMenuBar: true,
+        width: 520,
+        height: 640
+      }
+    }))
+    win.webContents.on('did-create-window', (child) => {
+      child.webContents.setUserAgent(CHROME_UA)
+      this.applyUaOverride(child.webContents)
+    })
+    // Whenever the window closes (auto on success, or the user closes it), reload
+    // the deck so it picks up the now-shared authenticated session.
+    win.on('closed', () => {
+      const e = this.panels.get(panelId)
+      if (e && !e.view.webContents.isDestroyed()) e.view.webContents.reload()
+    })
+    void win.loadURL(url)
   }
 
   goBack(panelId: PanelId): void {

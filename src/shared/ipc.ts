@@ -26,6 +26,8 @@ export const IPC = {
   PanelDestroy: 'panel:destroy',
   PanelNavigate: 'panel:navigate',
   PanelReload: 'panel:reload',
+  /** Open a real top-level login window sharing the deck's partition. */
+  PanelSignIn: 'panel:sign-in',
   PanelGoBack: 'panel:go-back',
   PanelGoForward: 'panel:go-forward',
   PanelSetBounds: 'panel:set-bounds',
@@ -378,6 +380,8 @@ export interface DecksApi {
     destroy(panelId: PanelId): Promise<void>
     navigate(payload: PanelNavigatePayload): Promise<void>
     reload(panelId: PanelId): Promise<void>
+    /** Open a real top-level login window for this deck (Google OAuth fix). */
+    signIn(panelId: PanelId): Promise<void>
     goBack(panelId: PanelId): Promise<void>
     goForward(panelId: PanelId): Promise<void>
     setBounds(payload: PanelSetBoundsPayload): Promise<void>

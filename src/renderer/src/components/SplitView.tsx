@@ -136,6 +136,18 @@ function DeckCard({
           {isNative ? 'native' : 'web'}
         </span>
         <span className="sp" />
+        {!isNative && (
+          <HeadBtn
+            title="Sign in (opens a real browser window — fixes Google &quot;browser not secure&quot;)"
+            onClick={() => deck && window.decks?.panel.signIn(deck.id)}
+          >
+            <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+              <path d="M10 17l5-5-5-5" />
+              <path d="M15 12H3" />
+            </svg>
+          </HeadBtn>
+        )}
         {inSplit && (
           <HeadBtn title="Make this its own deck" onClick={() => actions.pop(deck)}>
             <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

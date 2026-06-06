@@ -93,6 +93,12 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    // The overlay (and any login/popup) are always-on-top helper windows that
+    // would otherwise keep the app — and its audible decks — alive after the main
+    // window is gone (window-all-closed never fires while they're open). Closing
+    // the main window means "quit": tear everything down and exit so music stops.
+    cleanup()
+    if (process.platform !== 'darwin') app.quit()
   })
 
   // The host renderer page itself never spawns windows; route any externally.
@@ -136,6 +142,9 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.PanelReload, (_e, panelId: PanelId) => {
     panels.reload(panelId)
+  })
+  ipcMain.handle(IPC.PanelSignIn, (_e, panelId: PanelId) => {
+    panels.openSignIn(panelId)
   })
   ipcMain.handle(IPC.PanelGoBack, (_e, panelId: PanelId) => {
     panels.goBack(panelId)

@@ -38,6 +38,7 @@ const api: DecksApi = {
     destroy: (panelId: PanelId) => ipcRenderer.invoke(IPC.PanelDestroy, panelId),
     navigate: (p: PanelNavigatePayload) => ipcRenderer.invoke(IPC.PanelNavigate, p),
     reload: (panelId: PanelId) => ipcRenderer.invoke(IPC.PanelReload, panelId),
+    signIn: (panelId: PanelId) => ipcRenderer.invoke(IPC.PanelSignIn, panelId),
     goBack: (panelId: PanelId) => ipcRenderer.invoke(IPC.PanelGoBack, panelId),
     goForward: (panelId: PanelId) => ipcRenderer.invoke(IPC.PanelGoForward, panelId),
     setBounds: (p: PanelSetBoundsPayload) => ipcRenderer.invoke(IPC.PanelSetBounds, p),
