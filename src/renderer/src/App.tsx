@@ -220,6 +220,46 @@ function App(): JSX.Element {
     return () => off?.()
   }, [activateWorkspace])
 
+  // ── 3d. Background unread counts: show a native deck's notification badge in
+  // the dock BEFORE it's opened. (Web decks can't report a count without loading
+  // their page, so this covers the native providers that have an inbox.) ──
+  useEffect(() => {
+    const UNREAD: Record<string, string> = {
+      github: 'notifications',
+      canvas: 'todo',
+      mastodon: 'notifications',
+      bluesky: 'notifications'
+    }
+    let alive = true
+    const poll = async (): Promise<void> => {
+      for (const w of useStore.getState().workspaces) {
+        for (const p of w.panels) {
+          if (p.kind !== 'native' || !p.provider) continue
+          const resource = UNREAD[p.provider]
+          if (!resource) continue
+          try {
+            const r = await window.decks?.provider.fetch({
+              provider: p.provider,
+              accountId: p.accountId ?? 'default',
+              resource
+            })
+            const count = Array.isArray(r) ? r.length : 0
+            if (alive) patchPanel(p.id, { badge: count })
+          } catch {
+            /* not connected / failed — leave the badge as-is */
+          }
+        }
+      }
+    }
+    const first = setTimeout(poll, 4000)
+    const id = setInterval(poll, 180_000) // every 3 min
+    return () => {
+      alive = false
+      clearTimeout(first)
+      clearInterval(id)
+    }
+  }, [patchPanel])
+
   // ── 4. Debounced persistence on any meaningful change. ──
   useEffect(() => {
     if (!hydrated.current) return
