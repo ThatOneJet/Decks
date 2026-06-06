@@ -12,6 +12,8 @@
  */
 import { WebContentsView, shell, app, screen } from 'electron'
 import type { BrowserWindow, Display } from 'electron'
+import { appendFileSync } from 'fs'
+import { join } from 'path'
 import { IPC } from '@shared/ipc'
 import type {
   PanelCreatePayload,
@@ -368,6 +370,29 @@ const MP_INJECT_SCRIPT = `(() => {
     setupEq(mediaEl());
     if (++eqTries > 60) clearInterval(eqRetry);
   }, 700);
+
+  // TEMP DIAGNOSTIC: report the analyser's state so we can see why bars aren't
+  // moving. Removed once the visualizer is confirmed working.
+  setInterval(function () {
+    try {
+      var v = mediaEl();
+      var mx = 0;
+      if (eqAnalyser && eqData) {
+        eqAnalyser.getByteFrequencyData(eqData);
+        for (var i = 0; i < eqData.length; i++) if (eqData[i] > mx) mx = eqData[i];
+      }
+      console.log('DECKS_DBG::' + JSON.stringify({
+        ctx: !!eqCtx,
+        state: eqCtx ? eqCtx.state : 'none',
+        connected: !!eqSrcEl,
+        raf: !!eqRAF,
+        media: v ? v.tagName : 'none',
+        paused: v ? !!v.paused : true,
+        cs: !!(v && (v.captureStream || v.mozCaptureStream)),
+        max: mx
+      }));
+    } catch (e) { console.log('DECKS_DBG::err ' + (e && e.message)); }
+  }, 2000);
 
   // Refresh hook: re-arm the visualizer + re-report WITHOUT reloading the page
   // (so the song doesn't restart). Clears a stuck equalizer.
@@ -732,8 +757,8 @@ export class PanelManager {
     const wc = view.webContents
 
     const navState = (): { canGoBack: boolean; canGoForward: boolean } => ({
-      canGoBack: wc.canGoBack(),
-      canGoForward: wc.canGoForward()
+      canGoBack: wc.navigationHistory.canGoBack(),
+      canGoForward: wc.navigationHistory.canGoForward()
     })
 
     wc.on('page-title-updated', (_e, title) => {
@@ -773,6 +798,18 @@ export class PanelManager {
     // console.log; parse it into MiniPlayerMeta and forward to the active player.
     wc.on('console-message', (_e, _level, message) => {
       if (typeof message !== 'string') return
+      // TEMP DIAGNOSTIC: persist analyser state lines to a log file.
+      if (message.startsWith('DECKS_DBG::')) {
+        try {
+          appendFileSync(
+            join(app.getPath('temp'), 'decks-mp-debug.log'),
+            `${new Date().toISOString()} mini=${this.miniPanelId} p=${panelId} ${message.slice(11)}\n`
+          )
+        } catch {
+          /* ignore */
+        }
+        return
+      }
       // Live audio levels for the visualizer (high-frequency, separate channel).
       if (message.startsWith(EQ_SENTINEL)) {
         if (this.miniPanelId !== panelId) return
@@ -897,12 +934,12 @@ export class PanelManager {
 
   goBack(panelId: PanelId): void {
     const wc = this.panels.get(panelId)?.view.webContents
-    if (wc && wc.canGoBack()) wc.goBack()
+    if (wc && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack()
   }
 
   goForward(panelId: PanelId): void {
     const wc = this.panels.get(panelId)?.view.webContents
-    if (wc && wc.canGoForward()) wc.goForward()
+    if (wc && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward()
   }
 
   setBounds(payload: PanelSetBoundsPayload): void {
