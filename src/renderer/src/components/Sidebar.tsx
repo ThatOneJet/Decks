@@ -32,6 +32,11 @@ type RailEntry =
   | { kind: 'tile'; ws: Workspace }
   | { kind: 'folder'; name: string; members: Workspace[] }
 
+/** Stable sort: pinned workspaces first, preserving manual order within each subset. */
+function pinnedFirst(list: Workspace[]): Workspace[] {
+  return [...list].sort((a, b) => (a.pinned ? 0 : 1) - (b.pinned ? 0 : 1))
+}
+
 function buildRail(workspaces: Workspace[]): RailEntry[] {
   const entries: RailEntry[] = []
   const seenGroups = new Set<string>()
@@ -89,7 +94,8 @@ function DockRow({
   rail,
   indent,
   onClick,
-  onDropWorkspace,
+  onReorder,
+  canReorderFrom,
   onBeside
 }: {
   ws: Workspace
@@ -97,12 +103,16 @@ function DockRow({
   rail: boolean
   indent?: boolean
   onClick: () => void
-  onDropWorkspace?: (draggedId: string) => void
+  /** A deck row was dropped onto THIS row (same-section) → insert before it. */
+  onReorder?: (draggedId: string) => void
+  /** Whether the dragged deck shares THIS row's section (valid reorder target). */
+  canReorderFrom?: (draggedId: string) => boolean
   onBeside?: () => void
 }): JSX.Element {
   const ref = useRef<HTMLButtonElement>(null)
   const [dragging, setDragging] = useState(false)
-  const [dropOver, setDropOver] = useState(false)
+  /** 'valid' = same-section insertion target (show line); 'invalid' = cross-section. */
+  const [dropOver, setDropOver] = useState<'none' | 'valid' | 'invalid'>('none')
   const setGlobalDragging = useStore((s) => s.setDragging)
 
   const primary = ws.panels[0]
@@ -135,6 +145,7 @@ function DockRow({
       targetId: ws.id,
       hasNotes: !!ws.notes,
       keepAlive: !!ws.keepAlive,
+      pinned: !!ws.pinned,
       x,
       y
     })
@@ -143,7 +154,7 @@ function DockRow({
     <button
       ref={ref}
       className={`drow ${active ? 'active' : ''} ${dragging ? 'dragging' : ''} ${
-        dropOver ? 'drop-into' : ''
+        dropOver === 'valid' ? 'drop-before' : ''
       }`}
       style={indent && !rail ? { paddingLeft: 6 } : undefined}
       onClick={onClick}
@@ -163,28 +174,39 @@ function DockRow({
         // Hide native web views so the renderer page area becomes a real DOM drop
         // target (views sit OVER the DOM and would otherwise eat drag events).
         setGlobalDragging(true)
+        // Remember WHICH deck is dragging so other rows can validate same-section
+        // reorder during dragover (dataTransfer.getData is empty mid-drag).
+        useStore.getState().setDraggingId(ws.id)
         window.decks?.panel.hideAll()
       }}
       onDragEnd={() => {
         setDragging(false)
         setGlobalDragging(false)
+        useStore.getState().setDraggingId(null)
         window.dispatchEvent(new Event('resize'))
       }}
       onDragOver={(e) => {
-        if (!onDropWorkspace) return
+        if (!onReorder) return
         if (!e.dataTransfer.types.includes(DECKS_WS_DND)) return
+        const dragId = useStore.getState().draggingId
+        if (!dragId || dragId === ws.id) {
+          setDropOver('invalid')
+          return
+        }
+        const ok = canReorderFrom ? canReorderFrom(dragId) : false
         e.preventDefault()
-        e.dataTransfer.dropEffect = 'move'
-        setDropOver(true)
+        e.dataTransfer.dropEffect = ok ? 'move' : 'none'
+        setDropOver(ok ? 'valid' : 'invalid')
       }}
-      onDragLeave={() => setDropOver(false)}
+      onDragLeave={() => setDropOver('none')}
       onDrop={(e) => {
-        setDropOver(false)
-        if (!onDropWorkspace) return
+        setDropOver('none')
+        if (!onReorder) return
         const id = e.dataTransfer.getData(DECKS_WS_DND)
         if (!id || id === ws.id) return
+        if (canReorderFrom && !canReorderFrom(id)) return
         e.preventDefault()
-        onDropWorkspace(id)
+        onReorder(id)
       }}
       title={rail ? `${ws.name} · ${status.text}` : undefined}
     >
@@ -200,9 +222,23 @@ function DockRow({
             <svg viewBox="0 0 24 24" width={8} height={8} fill="#fff"><path d="M8 5v14l11-7z" /></svg>
           </span>
         )}
+        {rail && ws.pinned && (
+          <span className="corner pin" title="Pinned to top">
+            <svg viewBox="0 0 24 24" width={7} height={7} fill="#fff"><path d="M14 2l8 8-4 1-3 3-1 5-3-3-5 5-1-1 5-5-3-3 5-1 3-3z" /></svg>
+          </span>
+        )}
       </span>
       <span className="meta">
-        <span className="nm">{ws.name}</span>
+        <span className="nm">
+          {ws.name}
+          {ws.pinned && (
+            <span className="pin-dot" title="Pinned to top" aria-label="Pinned">
+              <svg viewBox="0 0 24 24" width={9} height={9} fill="currentColor">
+                <path d="M14 2l8 8-4 1-3 3-1 5-3-3-5 5-1-1 5-5-3-3 5-1 3-3z" />
+              </svg>
+            </span>
+          )}
+        </span>
         <span className={`status ${status.cls}`}>
           {playing && <span className="sd" style={{ background: 'var(--live)' }} />}
           {!playing && unread > 0 && <span className="sd" style={{ background: 'var(--accent)' }} />}
@@ -337,6 +373,7 @@ function Sidebar({
   const closeAddDeck = useStore((s) => s.closeAddDeck)
   const setGroup = useStore((s) => s.setGroup)
   const nextGroupName = useStore((s) => s.nextGroupName)
+  const reorderWorkspace = useStore((s) => s.reorderWorkspace)
 
   const [edit, setEdit] = useState<{ ws: Workspace; mode: 'rename' | 'note' } | null>(null)
   const [renameFolder, setRenameFolder] = useState<string | null>(null)
@@ -353,6 +390,17 @@ function Sidebar({
     const groupName = target.group ?? nextGroupName()
     if (!target.group) setGroup(target.id, groupName)
     setGroup(draggedId, groupName)
+  }
+
+  // Whether `draggedId` is in the SAME dock section as `targetWs` (and thus a
+  // valid reorder target): same group, OR both ungrouped AND same kind.
+  const sameSection = (draggedId: string, targetWs: Workspace): boolean => {
+    const dragged = workspaces.find((w) => w.id === draggedId)
+    if (!dragged || dragged.id === targetWs.id) return false
+    const kindOf = (w: Workspace): boolean => w.panels[0]?.kind === 'native'
+    return dragged.group || targetWs.group
+      ? dragged.group === targetWs.group
+      : kindOf(dragged) === kindOf(targetWs)
   }
 
   // "Open beside" — activate the workspace; SplitView/drag-to-split owns the
@@ -376,6 +424,8 @@ function Sidebar({
         })
       } else if (action === 'keepalive') {
         useStore.getState().setKeepAlive(ws.id, !ws.keepAlive)
+      } else if (action === 'pin') {
+        useStore.getState().setPinned(ws.id, !ws.pinned)
       } else if (action === 'delete') {
         ws.panels.forEach((p) => window.decks?.panel.destroy(p.id))
         removeWorkspace(ws.id)
@@ -471,8 +521,9 @@ function Sidebar({
   const folders = rail_.filter(
     (e): e is { kind: 'folder'; name: string; members: Workspace[] } => e.kind === 'folder'
   )
-  const nativeWs = ungrouped.filter((e) => signals(e.ws).isNative).map((e) => e.ws)
-  const webWs = ungrouped.filter((e) => !signals(e.ws).isNative).map((e) => e.ws)
+  // Pinned decks sort to the top of each section (manual order kept within subset).
+  const nativeWs = pinnedFirst(ungrouped.filter((e) => signals(e.ws).isNative).map((e) => e.ws))
+  const webWs = pinnedFirst(ungrouped.filter((e) => !signals(e.ws).isNative).map((e) => e.ws))
 
   const renderRow = (ws: Workspace, indent?: boolean): JSX.Element => (
     <DockRow
@@ -482,7 +533,10 @@ function Sidebar({
       rail={rail}
       indent={indent}
       onClick={() => activate(ws.id)}
-      onDropWorkspace={(draggedId) => dropOntoTile(draggedId, ws.id)}
+      // Dropping a deck row onto another row in the SAME section reorders it
+      // (insert before the target). Cross-section drops are rejected.
+      onReorder={(draggedId) => reorderWorkspace(draggedId, ws.id)}
+      canReorderFrom={(draggedId) => sameSection(draggedId, ws)}
       onBeside={() => openBeside(ws.id)}
     />
   )
@@ -585,7 +639,9 @@ function Sidebar({
                 </span>
               </button>
               {open && (
-                <div className="gmembers">{entry.members.map((ws) => renderRow(ws, true))}</div>
+                <div className="gmembers">
+                  {pinnedFirst(entry.members).map((ws) => renderRow(ws, true))}
+                </div>
               )}
             </div>
           )

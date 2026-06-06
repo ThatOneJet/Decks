@@ -178,7 +178,7 @@ export interface PanelShowOnlyPayload {
 /** event: WorkspaceMenuAction (main → renderer) */
 export interface WorkspaceMenuActionEvent {
   workspaceId: WorkspaceId
-  action: 'rename' | 'reset' | 'note' | 'keepalive' | 'delete'
+  action: 'rename' | 'reset' | 'note' | 'keepalive' | 'pin' | 'delete'
 }
 
 /** What kind of target a custom context menu is acting on. */
@@ -194,6 +194,8 @@ export interface MenuShowPayload {
   hasNotes?: boolean
   /** Current keep-alive state, so the menu renders the toggle on/off. */
   keepAlive?: boolean
+  /** Current pinned (sort-to-top) state, so the menu labels Pin/Unpin. */
+  pinned?: boolean
 }
 
 /** event: OverlayMenu (main → the overlay window). */
@@ -203,6 +205,8 @@ export interface OverlayMenuEvent {
   hasNotes: boolean
   /** Current keep-alive state for the toggle item. */
   keepAlive?: boolean
+  /** Current pinned (sort-to-top) state, so the menu labels Pin/Unpin. */
+  pinned?: boolean
   /** When true, the menu should be cleared (overlay reverts to hover mode). */
   hide?: boolean
 }

@@ -218,7 +218,8 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
         kind: payload.kind,
         targetId: payload.targetId,
         hasNotes: !!payload.hasNotes,
-        keepAlive: !!payload.keepAlive
+        keepAlive: !!payload.keepAlive,
+        pinned: !!payload.pinned
       })
       win.show()
       win.focus()

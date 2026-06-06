@@ -102,12 +102,14 @@ export default function OverlayMenu({
   kind,
   targetId,
   hasNotes,
-  keepAlive
+  keepAlive,
+  pinned
 }: {
   kind: MenuKind
   targetId: string
   hasNotes: boolean
   keepAlive?: boolean
+  pinned?: boolean
 }): JSX.Element {
   const pick = (action: string): void =>
     window.decks?.menu.pick({ kind, targetId, action })
@@ -116,6 +118,7 @@ export default function OverlayMenu({
   const items: Item[] =
     kind === 'workspace'
       ? [
+          { action: 'pin', label: pinned ? 'Unpin' : 'Pin to top', icon: Pin },
           { action: 'rename', label: 'Rename', icon: Pencil },
           { action: 'reset', label: 'Reset decks', icon: Refresh },
           { action: 'note', label: hasNotes ? 'Edit note' : 'Add note', icon: Note },

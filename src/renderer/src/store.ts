@@ -70,6 +70,8 @@ export interface DecksState {
   focusMode: boolean
   /** True while a rail tile is being dragged (exposes the page as a drop target). */
   dragging: boolean
+  /** The workspace id currently being dragged (for same-section reorder hints). */
+  draggingId: WorkspaceId | null
 
   // ── derived helpers ──
   activeWorkspace: () => Workspace | undefined
@@ -100,6 +102,14 @@ export interface DecksState {
   setGroup: (id: WorkspaceId, group: string | undefined) => void
   /** Pin/unpin a workspace as keep-alive (its decks never auto-discard). */
   setKeepAlive: (id: WorkspaceId, on: boolean) => void
+  /** Pin/unpin a workspace to the top of its dock section (sort only). */
+  setPinned: (id: WorkspaceId, on: boolean) => void
+  /**
+   * Move `draggedId` to immediately BEFORE `targetId` in the workspaces array,
+   * but ONLY when both are in the same dock section: same `group`, OR both
+   * ungrouped AND the same kind (native vs web). Otherwise no-op.
+   */
+  reorderWorkspace: (draggedId: WorkspaceId, targetId: WorkspaceId) => void
   /** Rename a folder: move every workspace from `oldName` to `newName`. */
   renameGroup: (oldName: string, newName: string) => void
   /** Next default folder name: "Group N" where N = distinct group count + 1. */
@@ -130,6 +140,8 @@ export interface DecksState {
   toggleFocusMode: () => void
   /** Set the rail-drag flag. */
   setDragging: (dragging: boolean) => void
+  /** Set the id of the workspace currently being dragged (or null). */
+  setDraggingId: (id: WorkspaceId | null) => void
 }
 
 export const useStore = create<DecksState>((set, get) => ({
@@ -142,6 +154,7 @@ export const useStore = create<DecksState>((set, get) => ({
   addDeckOpen: false,
   focusMode: false,
   dragging: false,
+  draggingId: null,
   panelReloadNonce: {},
 
   activeWorkspace: () => {
@@ -204,6 +217,29 @@ export const useStore = create<DecksState>((set, get) => ({
     set((s) => ({
       workspaces: s.workspaces.map((w) => (w.id === id ? { ...w, keepAlive: on } : w))
     })),
+  setPinned: (id, on) =>
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => (w.id === id ? { ...w, pinned: on } : w))
+    })),
+  reorderWorkspace: (draggedId, targetId) =>
+    set((s) => {
+      if (draggedId === targetId) return {}
+      const dragged = s.workspaces.find((w) => w.id === draggedId)
+      const target = s.workspaces.find((w) => w.id === targetId)
+      if (!dragged || !target) return {}
+      // Same-section guard: same group, OR both ungrouped AND same kind.
+      const isNative = (w: Workspace): boolean => w.panels[0]?.kind === 'native'
+      const sameSection =
+        dragged.group || target.group
+          ? dragged.group === target.group
+          : isNative(dragged) === isNative(target)
+      if (!sameSection) return {}
+      const rest = s.workspaces.filter((w) => w.id !== draggedId)
+      const at = rest.findIndex((w) => w.id === targetId)
+      if (at < 0) return {}
+      const workspaces = [...rest.slice(0, at), dragged, ...rest.slice(at)]
+      return { workspaces }
+    }),
   renameGroup: (oldName, newName) =>
     set((s) => ({
       workspaces: s.workspaces.map((w) =>
@@ -308,5 +344,6 @@ export const useStore = create<DecksState>((set, get) => ({
   openAddDeck: () => set({ addDeckOpen: true }),
   closeAddDeck: () => set({ addDeckOpen: false }),
   toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
-  setDragging: (dragging) => set({ dragging })
+  setDragging: (dragging) => set({ dragging }),
+  setDraggingId: (id) => set({ draggingId: id })
 }))

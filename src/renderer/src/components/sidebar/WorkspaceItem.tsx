@@ -56,6 +56,7 @@ export default function RailTile({
       targetId: workspace.id,
       hasNotes: !!workspace.notes,
       keepAlive: !!workspace.keepAlive,
+      pinned: !!workspace.pinned,
       x,
       y
     })
@@ -146,6 +147,11 @@ export default function RailTile({
       {playing && unread === 0 && (
         <span className="tile-playing" title="Playing">
           <svg viewBox="0 0 24 24" width={8} height={8} fill="#fff"><path d="M8 5v14l11-7z" /></svg>
+        </span>
+      )}
+      {workspace.pinned && (
+        <span className="tile-pin" title="Pinned to top">
+          <svg viewBox="0 0 24 24" width={7} height={7} fill="#fff"><path d="M14 2l8 8-4 1-3 3-1 5-3-3-5 5-1-1 5-5-3-3 5-1 3-3z" /></svg>
         </span>
       )}
     </div>

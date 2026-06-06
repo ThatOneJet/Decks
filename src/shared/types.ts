@@ -134,6 +134,12 @@ export interface Workspace {
    */
   keepAlive?: boolean
   /**
+   * Pinned: when true, this workspace sorts to the TOP of its dock section
+   * (Native / Web / its folder). Independent of keepAlive (which is a
+   * never-discard memory pin); pinned only affects ordering. Persists.
+   */
+  pinned?: boolean
+  /**
    * Electron session partition. Always `persist:<id>` so cookies / logins
    * survive restarts. Set once at creation; never change it.
    */
