@@ -119,7 +119,9 @@ function isYouTube(url: string): boolean {
 // and a search box. Positioned in SCREEN coordinates (not window-relative) so it
 // floats anywhere on the display and survives the app window being minimized.
 const CARD_WIDTH = 320
-const CARD_HEIGHT = 196
+// Sized to fit the card's content exactly (thumbnail row + controls + seek bar +
+// search box) so there's no empty gap below the search box.
+const CARD_HEIGHT = 164
 const BAR_MARGIN = 16
 
 /**
@@ -136,6 +138,11 @@ const MP_SENTINEL = 'DECKS_MP::'
  * this; we deliberately do NOT scrape DOM/page title) plus the first <video>
  * element's play state, and logs a sentinel line main can parse. Guarded by
  * `window.__decksMP` so re-injection is a no-op.
+ *
+ * It ALSO runs a best-effort YouTube ad-skipper: clicks the "Skip" button when
+ * one appears, fast-forwards unskippable ads to their end, and dismisses ad
+ * overlays. ⚠️ FRAGILE: this depends on YouTube's DOM/class names (`.ad-showing`,
+ * `.ytp-ad-skip-button*`), so it can break if YouTube changes them.
  */
 const MP_INJECT_SCRIPT = `(() => {
   if (window.__decksMP) return;
@@ -181,6 +188,25 @@ const MP_INJECT_SCRIPT = `(() => {
   bind(document.querySelector('video'));
   var mo = new MutationObserver(function () { bind(document.querySelector('video')); });
   try { mo.observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
+  // Best-effort ad-skipper (YouTube-specific DOM; see JSDoc).
+  function skipAds() {
+    try {
+      var btn = document.querySelector(
+        '.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-skip-button-container button'
+      );
+      if (btn) { btn.click(); }
+      var player = document.querySelector('.html5-video-player');
+      var v = document.querySelector('video');
+      // Unskippable ad playing → jump to its end so real content resumes.
+      if (player && player.classList.contains('ad-showing') && v && isFinite(v.duration) && v.duration > 0) {
+        v.currentTime = v.duration;
+        if (v.paused) { try { v.play(); } catch (e) {} }
+      }
+      var ov = document.querySelector('.ytp-ad-overlay-close-button, .ytp-ad-overlay-close-container');
+      if (ov) { ov.click(); }
+    } catch (e) {}
+  }
+  try { setInterval(skipAds, 500); } catch (e) {}
   report();
 })();`
 
