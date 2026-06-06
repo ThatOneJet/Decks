@@ -134,24 +134,8 @@ export default function MiniPlayerBar({ meta }: { meta: MiniPlayerMeta }): JSX.E
         </div>
       </div>
 
-      {/* 2 — Controls. */}
-      <div className="flex items-center justify-center gap-1">
-        <Ctrl title="Previous" onClick={() => send({ action: 'prev' })}>
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M6 6h2v12H6zM20 6v12l-8.5-6z" /></svg>
-        </Ctrl>
-        <Ctrl
-          title={paused ? 'Play' : 'Pause'}
-          onClick={() => send({ action: paused ? 'play' : 'pause' })}
-        >
-          {paused ? (
-            <svg viewBox="0 0 24 24" className="h-4 w-4 text-txt-1" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-          ) : (
-            <svg viewBox="0 0 24 24" className="h-4 w-4 text-txt-1" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z" /></svg>
-          )}
-        </Ctrl>
-        <Ctrl title="Next" onClick={() => send({ action: 'next' })}>
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M16 6h2v12h-2zM4 6l8.5 6L4 18z" /></svg>
-        </Ctrl>
+      {/* 2 — Controls. Loop on the far left, transport centered, expand far right. */}
+      <div className="flex items-center justify-between gap-1">
         <Ctrl title={loop ? 'Looping' : 'Loop'} onClick={() => send({ action: 'loop' })} active={loop}>
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M17 2l4 4-4 4" />
@@ -160,6 +144,24 @@ export default function MiniPlayerBar({ meta }: { meta: MiniPlayerMeta }): JSX.E
             <path d="M21 13v1a4 4 0 0 1-4 4H3" />
           </svg>
         </Ctrl>
+        <div className="flex items-center gap-1">
+          <Ctrl title="Previous" onClick={() => send({ action: 'prev' })}>
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M6 6h2v12H6zM20 6v12l-8.5-6z" /></svg>
+          </Ctrl>
+          <Ctrl
+            title={paused ? 'Play' : 'Pause'}
+            onClick={() => send({ action: paused ? 'play' : 'pause' })}
+          >
+            {paused ? (
+              <svg viewBox="0 0 24 24" className="h-4 w-4 text-txt-1" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+            ) : (
+              <svg viewBox="0 0 24 24" className="h-4 w-4 text-txt-1" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z" /></svg>
+            )}
+          </Ctrl>
+          <Ctrl title="Next" onClick={() => send({ action: 'next' })}>
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M16 6h2v12h-2zM4 6l8.5 6L4 18z" /></svg>
+          </Ctrl>
+        </div>
         <Ctrl title="Expand to full size" onClick={() => send({ action: 'close' })}>
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
