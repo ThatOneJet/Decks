@@ -273,14 +273,27 @@ const MP_INJECT_SCRIPT = `(() => {
   }
   function eqConnect(v) {
     try {
-      if (eqSrcEl === v || !eqCtx) return;
-      var cs = v.captureStream || v.mozCaptureStream;
-      if (!cs) return;
-      var stream = cs.call(v);
-      if (!stream || !stream.getAudioTracks || stream.getAudioTracks().length === 0) return; // not ready — retry later
+      if (eqSrcEl === v || !eqCtx || eqCtx.state !== 'running') return;
       ensureAnalyser();
-      var src = eqCtx.createMediaStreamSource(stream);
-      src.connect(eqAnalyser); // analysis copy only — NOT connected to destination
+      var src = null;
+      try {
+        // Preferred: tap the element directly (route its audio through the graph
+        // so it stays audible).
+        src = eqCtx.createMediaElementSource(v);
+        eqAnalyser.connect(eqCtx.destination);
+      } catch (e1) {
+        // The element is already tapped by the site (YouTube) → analyze a COPY via
+        // captureStream instead (do NOT connect to destination — avoids an echo).
+        var cs = v.captureStream || v.mozCaptureStream;
+        if (cs) {
+          var stream = cs.call(v);
+          if (stream && stream.getAudioTracks && stream.getAudioTracks().length) {
+            src = eqCtx.createMediaStreamSource(stream);
+          }
+        }
+      }
+      if (!src) return; // not ready yet — retry later
+      src.connect(eqAnalyser);
       eqSrcEl = v;
       if (!eqRAF) eqLoop();
     } catch (e) { /* not ready / unsupported — leave audio untouched, retry later */ }
@@ -1036,9 +1049,30 @@ export class PanelManager {
   private activateMini(panelId: PanelId): void {
     const entry = this.panels.get(panelId)
     if (!entry) return
+    const wasActive = this.miniPanelId === panelId
     this.miniPanelId = panelId
     const meta = entry.meta ?? { title: '', artist: '', paused: false }
     this.miniHooks?.onStart(this.barRect(), meta, this.miniCollapsed, this.miniArrowEdge())
+    // When a deck first becomes the mini-player, kick the visualizer WITH a user
+    // gesture (2nd arg) so its AudioContext can resume even if the video
+    // autoplayed without a page gesture — otherwise the analyser stays silent and
+    // the bars fall back to the canned animation.
+    if (!wasActive) this.kickVisualizer(panelId)
+  }
+
+  /** Resume + (re)connect the in-page analyser, executed AS a user gesture so a
+   *  suspended AudioContext (autoplay with no page gesture) can actually resume. */
+  private kickVisualizer(panelId: PanelId): void {
+    const entry = this.panels.get(panelId)
+    if (!entry) return
+    const wc = entry.view.webContents
+    if (wc.isDestroyed()) return
+    void wc
+      .executeJavaScript(
+        '(()=>{if(window.__decksMPRefresh){window.__decksMPRefresh();return true}return false})()',
+        true // userGesture → lets AudioContext.resume() succeed
+      )
+      .catch(() => {})
   }
 
   /** Which screen edge the collapsed tab sits on → the arrow points inward. */
@@ -1193,7 +1227,8 @@ export class PanelManager {
     if (!wc) return
     void wc
       .executeJavaScript(
-        '(()=>{if(window.__decksMPRefresh){window.__decksMPRefresh();return true}return false})()'
+        '(()=>{if(window.__decksMPRefresh){window.__decksMPRefresh();return true}return false})()',
+        true // userGesture → lets a suspended AudioContext resume
       )
       .then((ok) => {
         if (!ok) wc.reload()
