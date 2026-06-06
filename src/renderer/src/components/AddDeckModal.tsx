@@ -121,30 +121,63 @@ export default function AddDeckModal({ onClose }: { onClose: () => void }): JSX.
 }
 
 function PickStep({ onPick, onClose }: { onPick: (p: Picked) => void; onClose: () => void }): JSX.Element {
+  const [q, setQ] = useState('')
+  const query = q.trim().toLowerCase()
+  const match = (it: Integration): boolean =>
+    !query || it.label.toLowerCase().includes(query) || it.blurb.toLowerCase().includes(query)
+  const natives = NATIVE_INTEGRATIONS.filter(match)
+  const webs = WEB_INTEGRATIONS.filter(match)
+
   return (
     <div className="step-in">
+      {/* Fixed header — title + search always visible at the top. */}
       <h3>Add a deck</h3>
       <p className="sub">Choose an integration — or paste a custom link.</p>
+      <label className="field" style={{ marginBottom: 14 }}>
+        <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--txt-3)', flex: 'none' }}>
+          <circle cx="11" cy="11" r="7" />
+          <path d="m21 21-4.3-4.3" />
+        </svg>
+        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search integrations…" />
+      </label>
 
-      <div className="mt-1 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-txt-4">
-        Native — our UI on their data
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        {NATIVE_INTEGRATIONS.map((it) => (
-          <IntegrationCard key={it.id} it={it} onPick={() => onPick({ kind: 'integration', it })} />
-        ))}
+      {/* Scrollable body — the integration grids. */}
+      <div className="modal-scroll">
+        {natives.length > 0 && (
+          <>
+            <div className="mt-1 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-txt-4">
+              Native — our UI on their data
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {natives.map((it) => (
+                <IntegrationCard key={it.id} it={it} onPick={() => onPick({ kind: 'integration', it })} />
+              ))}
+            </div>
+          </>
+        )}
+
+        {webs.length > 0 && (
+          <>
+            <div className="mt-4 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-txt-4">
+              Web — embedded sites
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {webs.map((it) => (
+                <IntegrationCard key={it.id} it={it} onPick={() => onPick({ kind: 'integration', it })} />
+              ))}
+            </div>
+          </>
+        )}
+
+        {natives.length === 0 && webs.length === 0 && (
+          <p className="py-6 text-center text-xs text-txt-4">
+            No integration matches “{q}”. Try a custom URL below.
+          </p>
+        )}
       </div>
 
-      <div className="mt-4 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-txt-4">
-        Web — embedded sites
-      </div>
-      <div className="grid grid-cols-3 gap-2">
-        {WEB_INTEGRATIONS.map((it) => (
-          <IntegrationCard key={it.id} it={it} onPick={() => onPick({ kind: 'integration', it })} />
-        ))}
-      </div>
-
-      <div className="mt-4 flex items-center justify-between">
+      {/* Fixed footer. */}
+      <div className="mt-3 flex items-center justify-between" style={{ flex: 'none' }}>
         <button
           onClick={() => onPick({ kind: 'custom' })}
           className="rounded-lg border border-line bg-bg-elevated px-3 py-1.5 text-xs text-txt-2 transition-colors hover:border-accent-ring hover:text-txt-1"

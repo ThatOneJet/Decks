@@ -102,6 +102,13 @@ function DeckCard({
 }): JSX.Element {
   // Bumped by the rail "Reset decks" action to force a native deck to remount.
   const reloadNonce = useStore((s) => s.panelReloadNonce[panelId] ?? 0)
+  // Two-step confirm so a stray click can't delete a deck (and log you out).
+  const [confirmClose, setConfirmClose] = useState(false)
+  useEffect(() => {
+    if (!confirmClose) return
+    const t = setTimeout(() => setConfirmClose(false), 3000)
+    return () => clearTimeout(t)
+  }, [confirmClose])
   const deck = ws.panels.find((p) => p.id === panelId)
   const title = deck?.title || panelId
   const isNative = deck?.kind === 'native'
@@ -147,8 +154,19 @@ function DeckCard({
             <path d="M21 3v5h-5" />
           </svg>
         </HeadBtn>
-        <HeadBtn title="Close deck" onClick={() => actions.close(deck)} danger>
-          <svg viewBox="0 0 24 24" width={14} height={14} stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        <HeadBtn
+          title={confirmClose ? 'Click again to remove this deck (your login is kept)' : 'Close deck'}
+          onClick={() => {
+            if (confirmClose) actions.close(deck)
+            else setConfirmClose(true)
+          }}
+          danger
+        >
+          {confirmClose ? (
+            <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+          ) : (
+            <svg viewBox="0 0 24 24" width={14} height={14} stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+          )}
         </HeadBtn>
       </div>
 

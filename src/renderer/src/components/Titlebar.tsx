@@ -44,6 +44,22 @@ function Header(): JSX.Element {
   const focusMode = useStore((s) => s.focusMode)
   const toggleFocusMode = useStore((s) => s.toggleFocusMode)
 
+  // Live memory readout for the pill — real working-set RAM + live/idle counts.
+  const [mem, setMem] = useState<{ ramMB: number; live: number; discarded: number } | null>(null)
+  useEffect(() => {
+    let alive = true
+    const poll = async (): Promise<void> => {
+      const m = await window.decks?.metrics.get().catch(() => null)
+      if (alive && m) setMem({ ramMB: m.ramMB, live: m.liveRenderers, discarded: m.discarded })
+    }
+    void poll()
+    const id = setInterval(poll, 2500)
+    return () => {
+      alive = false
+      clearInterval(id)
+    }
+  }, [])
+
   const primary = ws?.panels[0]
   const onWorkspace = view === 'workspace' && !!primary
   const isNative = primary?.kind === 'native'
@@ -147,9 +163,20 @@ function Header(): JSX.Element {
           <span>Focus</span>
         </button>
 
-        <button className="mempill" onClick={openMemory} title="Memory manager">
+        <button
+          className="mempill"
+          onClick={openMemory}
+          title={mem ? `${mem.ramMB} MB · ${mem.live} live · ${mem.discarded} idle` : 'Memory manager'}
+        >
           <MemSpark />
-          <span className="mtxt">Memory</span>
+          <span className="mtxt">
+            {mem ? `${mem.ramMB} MB` : 'Memory'}
+            {mem && (
+              <s>
+                {mem.live} live · {mem.discarded} idle
+              </s>
+            )}
+          </span>
         </button>
 
         <button className="hbtn icon" onClick={openHelp} title="Help & shortcuts (?)" aria-label="Help">
