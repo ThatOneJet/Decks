@@ -95,13 +95,13 @@
 
   --r-card: 20px;
   --rail-w: 76px;
-  --top-h: 58px;
+  --top-h: 44px;
   --inset: 0px;
 
   /* Console shell geometry + motion */
   --dock-w: 268px;
   --dock-w-rail: 76px;
-  --head-h: 58px;
+  --head-h: 44px; /* thin topbar — don't waste vertical space on chrome */
   /* One continuous chrome color for header + dock (now a solid, calm surface). */
   --chrome: var(--chrome-c);
   --gap: 13px;

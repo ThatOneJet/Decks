@@ -353,18 +353,8 @@ function App(): JSX.Element {
       <SplitView />
     )
 
-  // Focus mode: small far-left, vertically-centered handle to expand back.
-  const focusHandle = inFocus ? (
-    <button
-      onClick={toggleFocusMode}
-      title="Exit focus (Ctrl/⌘+.)"
-      className="no-drag absolute left-0 top-1/2 z-50 grid h-12 w-6 -translate-y-1/2 place-items-center rounded-r-xl border border-l-0 border-line bg-bg-elevated/90 text-txt-2 shadow-lg backdrop-blur transition-colors hover:bg-accent-soft hover:text-accent"
-    >
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9 18l6-6-6-6" />
-      </svg>
-    </button>
-  ) : null
+  // Exit focus is the topbar "Focus" button (a left-edge handle would be covered
+  // by the deck's native view, which always paints above the DOM).
 
   return (
     // STABLE tree: Titlebar + Sidebar + workspace are ALWAYS rendered in the same
@@ -374,7 +364,10 @@ function App(): JSX.Element {
     <div
       className={
         'console' +
-        (collapsed ? ' rail' : '') +
+        // In focus mode the dock is hidden, so `rail` is meaningless there —
+        // dropping it makes collapsed+focus and expanded+focus render IDENTICALLY
+        // (full-bleed), instead of leaving the card at the smaller rail size.
+        (collapsed && !inFocus ? ' rail' : '') +
         (inFocus ? ' is-focus' : '') +
         (dockMode ? ' is-portrait' : '')
       }
@@ -388,7 +381,6 @@ function App(): JSX.Element {
       {/* WORKSPACE — the active surface (its own floating page card). */}
       <div className="workspace relative">
         {surface}
-        {focusHandle}
       </div>
 
       <CommandPalette />
