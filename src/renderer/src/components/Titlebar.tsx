@@ -16,6 +16,22 @@ import { hostOf } from '../lib/favicon'
 import { modCombo } from '../lib/platform'
 import Logo from './Logo'
 
+/**
+ * The current page as host + path (e.g. `instagram.com/reels`), not just the
+ * hostname — so the command bar reflects exactly where the deck is. Strips the
+ * protocol, a leading `www.`, and a trailing slash; keeps the path + query.
+ */
+function prettyUrl(url: string): string {
+  try {
+    const u = new URL(url)
+    const host = u.hostname.replace(/^www\./, '')
+    const path = (u.pathname + u.search).replace(/\/$/, '')
+    return host + path
+  } catch {
+    return hostOf(url)
+  }
+}
+
 /** Tiny animated equaliser for the memory pill — purely decorative. */
 function MemSpark(): JSX.Element {
   const [bars, setBars] = useState([7, 11, 6, 13, 9])
@@ -64,7 +80,7 @@ function Header(): JSX.Element {
   const onWorkspace = view === 'workspace' && !!primary
   const isNative = primary?.kind === 'native'
 
-  const urlText = isNative ? (primary?.provider ?? 'native') : hostOf(primary?.url ?? '')
+  const urlText = isNative ? (primary?.provider ?? 'native') : prettyUrl(primary?.url ?? '')
 
   const back = (): void => {
     if (primary) window.decks?.panel.goBack(primary.id)
