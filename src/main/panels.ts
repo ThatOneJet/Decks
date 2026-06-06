@@ -129,6 +129,22 @@ function isYouTube(url: string): boolean {
   }
 }
 
+/** True for the Spotify web player (open.spotify.com). */
+function isSpotify(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase()
+    return host === 'open.spotify.com' || host.endsWith('.spotify.com')
+  } catch {
+    return false
+  }
+}
+
+/** Any audio site we drive with the corner mini-player (now-playing + controls
+ *  via web-standard mediaSession/<video>/<audio>; ad-skip is YouTube-only). */
+function isMiniSite(url: string): boolean {
+  return isYouTube(url) || isSpotify(url)
+}
+
 // ── Mini-player card geometry ──
 // A vertical card: thumbnail + title, a controls row, a seek bar with a timer,
 // and a search box. Positioned in SCREEN coordinates (not window-relative) so it
@@ -167,11 +183,13 @@ const EQ_SENTINEL = 'DECKS_EQ::'
 const MP_INJECT_SCRIPT = `(() => {
   if (window.__decksMP) return;
   window.__decksMP = true;
+  // The playing media element — <video> (YouTube) or <audio> (Spotify web).
+  function mediaEl() { return document.querySelector('video') || document.querySelector('audio'); }
   var last = '';
   function report() {
     try {
       var md = (navigator.mediaSession && navigator.mediaSession.metadata) || null;
-      var v = document.querySelector('video');
+      var v = mediaEl();
       var art = '';
       if (md && md.artwork && md.artwork.length) art = md.artwork[0].src || '';
       var payload = {
@@ -205,9 +223,9 @@ const MP_INJECT_SCRIPT = `(() => {
     v.addEventListener('pause', report);
     v.addEventListener('timeupdate', onTimeUpdate);
   }
-  // Bind the current video and watch for SPA navigations swapping it out.
-  bind(document.querySelector('video'));
-  var mo = new MutationObserver(function () { bind(document.querySelector('video')); });
+  // Bind the current media element and watch for SPA navigations swapping it out.
+  bind(mediaEl());
+  var mo = new MutationObserver(function () { bind(mediaEl()); });
   try { mo.observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
   // Best-effort ad-skipper (YouTube-specific DOM; see JSDoc).
   function skipAds() {
@@ -246,8 +264,10 @@ const MP_INJECT_SCRIPT = `(() => {
       var src = eqCtx.createMediaElementSource(v); // one source per element ever
       if (!eqAnalyser) {
         eqAnalyser = eqCtx.createAnalyser();
-        eqAnalyser.fftSize = 128;
-        eqAnalyser.smoothingTimeConstant = 0.75;
+        // Larger FFT = finer frequency resolution; low smoothing = snappy to the
+        // beat so bars track the actual sound, not just overall loudness.
+        eqAnalyser.fftSize = 1024;
+        eqAnalyser.smoothingTimeConstant = 0.6;
         eqData = new Uint8Array(eqAnalyser.frequencyBinCount);
         eqAnalyser.connect(eqCtx.destination);
       }
@@ -280,24 +300,33 @@ const MP_INJECT_SCRIPT = `(() => {
       eqLastSend = now;
       if (!eqAnalyser || !eqData) return;
       eqAnalyser.getByteFrequencyData(eqData);
-      // Use the lower ~70% of bins (most musical energy) and bucket into bars.
-      var usable = Math.floor(eqData.length * 0.7);
+      // Map bins to bars on a LOG scale (music/pitch is logarithmic), so bass,
+      // mids and treble each get their own bars instead of bass swamping all of
+      // them. Skip the lowest couple of bins (DC/rumble). Use the peak in each
+      // band (punchier than the mean) and boost higher bands (naturally quieter).
+      var bins = eqData.length;
+      var minBin = 2;
+      var maxBin = Math.floor(bins * 0.85);
       var out = [];
       for (var b = 0; b < EQ_BARS; b++) {
-        var start = Math.floor((b / EQ_BARS) * usable);
-        var end = Math.max(start + 1, Math.floor(((b + 1) / EQ_BARS) * usable));
-        var sum = 0;
-        for (var k = start; k < end; k++) sum += eqData[k];
-        var avg = sum / (end - start) / 255; // 0..1
-        // Gentle curve so quiet detail still shows.
-        out.push(Math.round(Math.pow(avg, 0.7) * 100) / 100);
+        var lo = Math.floor(minBin * Math.pow(maxBin / minBin, b / EQ_BARS));
+        var hi = Math.floor(minBin * Math.pow(maxBin / minBin, (b + 1) / EQ_BARS));
+        if (hi <= lo) hi = lo + 1;
+        var peak = 0;
+        for (var k = lo; k < hi && k < bins; k++) if (eqData[k] > peak) peak = eqData[k];
+        var v = peak / 255; // 0..1
+        // Tilt up the higher bands so treble is visible next to bass.
+        v *= 1 + (b / EQ_BARS) * 0.9;
+        // Gentle curve so quiet detail still shows; clamp to 1.
+        v = Math.min(1, Math.pow(v, 0.78));
+        out.push(Math.round(v * 100) / 100);
       }
       console.log(${JSON.stringify(EQ_SENTINEL)} + JSON.stringify(out));
     } catch (e) {}
   }
-  setupEq(document.querySelector('video'));
-  // Re-tap when YouTube swaps the <video> on navigation.
-  var eqMo = new MutationObserver(function () { setupEq(document.querySelector('video')); });
+  setupEq(mediaEl());
+  // Re-tap when the page swaps the media element on navigation.
+  var eqMo = new MutationObserver(function () { setupEq(mediaEl()); });
   try { eqMo.observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
 
   report();
@@ -317,6 +346,9 @@ export class PanelManager {
   private discardAfterMs = DISCARD_AFTER_MS
   /** The single panel currently shrunk into the corner mini-player (or null). */
   private miniPanelId: PanelId | null = null
+  /** True when the active mini was popped because the window was minimized (so it
+   *  is torn down again on restore, rather than persisting like a switched-away one). */
+  private miniByMinimize = false
   /** Glue hooks for driving the overlay control bar (installed by index.ts). */
   private miniHooks: MiniPlayerHooks | null = null
   /**
@@ -497,6 +529,48 @@ export class PanelManager {
     })
   }
 
+  /**
+   * Override the User-Agent AND its client-hint METADATA at the CDP layer. Unlike
+   * setUserAgent (string only) or header rewriting (request headers only), this
+   * also drives `navigator.userAgentData` in page JS — which Google's OAuth
+   * "this browser may not be secure" check reads to detect Electron. Setting a
+   * real-Chrome brand list here is what actually lets Google sign-in through.
+   * Best-effort: a no-op if the debugger can't attach (e.g. DevTools open).
+   */
+  private applyUaOverride(wc: Electron.WebContents): void {
+    try {
+      if (wc.isDestroyed()) return
+      if (!wc.debugger.isAttached()) wc.debugger.attach('1.3')
+      void wc.debugger.sendCommand('Network.setUserAgentOverride', {
+        userAgent: CHROME_UA,
+        acceptLanguage: 'en-US,en',
+        platform: 'Windows',
+        userAgentMetadata: {
+          brands: [
+            { brand: 'Chromium', version: '130' },
+            { brand: 'Google Chrome', version: '130' },
+            { brand: 'Not?A_Brand', version: '99' }
+          ],
+          fullVersionList: [
+            { brand: 'Chromium', version: '130.0.0.0' },
+            { brand: 'Google Chrome', version: '130.0.0.0' },
+            { brand: 'Not?A_Brand', version: '99.0.0.0' }
+          ],
+          fullVersion: '130.0.0.0',
+          platform: 'Windows',
+          platformVersion: '15.0.0',
+          architecture: 'x86',
+          model: '',
+          mobile: false,
+          bitness: '64',
+          wow64: false
+        }
+      })
+    } catch {
+      /* debugger unavailable (e.g. DevTools attached) — header rewrite still applies */
+    }
+  }
+
   private buildView(panelId: PanelId, partition: string, url: string): PanelEntry {
     // Make room first so this new deck is guaranteed a renderer process.
     this.evictForRoom()
@@ -533,6 +607,9 @@ export class PanelManager {
     // Also rewrite the Sec-CH-UA* client-hint headers (brand list) so Chromium's
     // "Electron" brand never reaches Google — the UA string alone isn't enough.
     this.patchSessionUa(wc.session, partition)
+    // And override the UA metadata at the CDP layer so navigator.userAgentData
+    // (JS-visible) also presents as Chrome — required for Google OAuth.
+    this.applyUaOverride(wc)
 
     // OAuth (Google, GitHub, …) opens a popup via window.open/_blank. ALLOW it
     // IN-APP, sharing this deck's session partition, so: (1) the login persists
@@ -560,10 +637,12 @@ export class PanelManager {
       return { action: 'deny' }
     })
 
-    // The popup is a fresh WebContents — give it the Chrome UA too so the OAuth
-    // provider treats it like a normal browser window.
+    // The popup is a fresh WebContents — give it the Chrome UA + UA-metadata
+    // override too (it shares this partition's header-rewritten session), so the
+    // OAuth provider (Google etc.) treats it like a normal Chrome window.
     wc.on('did-create-window', (win) => {
       win.webContents.setUserAgent(CHROME_UA)
+      this.applyUaOverride(win.webContents)
     })
 
     void wc.loadURL(url).catch((err: NodeJS.ErrnoException) => {
@@ -629,7 +708,7 @@ export class PanelManager {
     // ready BEFORE the mini-player ever pops. Safe on non-YouTube views (skipped).
     wc.on('did-stop-loading', () => {
       const e = this.panels.get(panelId)
-      if (!e || !isYouTube(e.url)) return
+      if (!e || !isMiniSite(e.url)) return
       void wc.executeJavaScript(MP_INJECT_SCRIPT).catch(() => {
         /* page may navigate away mid-inject — harmless */
       })
@@ -853,23 +932,57 @@ export class PanelManager {
   }
 
   /**
-   * Pick the panel that should become the mini-player: the first YouTube view
-   * that is currently audible and NOT in the `show` set (the user is switching
-   * away from it while it plays). Returns null if none qualifies.
+   * Pick the panel that should become the mini-player: the first audio-site view
+   * (YouTube/Spotify) that is currently audible and NOT in the `show` set (the
+   * user is switching away from it while it plays). Returns null if none qualify.
    */
   private pickMiniCandidate(show: Set<PanelId>): PanelId | null {
     for (const [id, entry] of this.panels) {
       if (show.has(id)) continue
-      if (!isYouTube(entry.url)) continue
-      try {
-        if (entry.view.webContents.isDestroyed()) continue
-        if (!entry.view.webContents.isCurrentlyAudible()) continue
-      } catch {
-        continue
-      }
+      if (!this.isAudiblePanel(entry)) continue
       return id
     }
     return null
+  }
+
+  /** True if this panel is an audio site (YouTube/Spotify) currently audible. */
+  private isAudiblePanel(entry: PanelEntry): boolean {
+    if (!isMiniSite(entry.url)) return false
+    try {
+      if (entry.view.webContents.isDestroyed()) return false
+      return entry.view.webContents.isCurrentlyAudible()
+    } catch {
+      return false
+    }
+  }
+
+  /** First audible audio-site panel REGARDLESS of show-set (used on minimize). */
+  private pickAudibleAny(): PanelId | null {
+    for (const [id, entry] of this.panels) {
+      if (this.isAudiblePanel(entry)) return id
+    }
+    return null
+  }
+
+  /**
+   * The app window was minimized: if music is playing in a YouTube/Spotify deck,
+   * pop the floating mini-player (which lives in a separate always-on-top window)
+   * so the user can keep controlling it while Decks is out of the way.
+   */
+  onWindowMinimized(): void {
+    if (this.miniPanelId) return // a switched-away mini is already showing
+    const cand = this.pickAudibleAny()
+    if (cand) {
+      this.miniByMinimize = true
+      this.activateMini(cand)
+    }
+  }
+
+  /** The app window was restored/shown: tear down a minimize-triggered mini. */
+  onWindowRestored(): void {
+    if (!this.miniByMinimize) return
+    this.miniByMinimize = false
+    this.endMiniPlayer()
   }
 
   /**
@@ -965,27 +1078,27 @@ export class PanelManager {
     return wc.isDestroyed() ? null : wc
   }
 
-  /** Resume playback in the corner video. STABLE (web-standard HTMLMediaElement). */
+  /** Resume playback in the corner media. STABLE (web-standard HTMLMediaElement). */
   miniPlay(): void {
     void this.miniWc()
-      ?.executeJavaScript("document.querySelector('video')?.play()")
+      ?.executeJavaScript("(document.querySelector('video')||document.querySelector('audio'))?.play()")
       .catch(() => {})
   }
 
-  /** Pause the corner video. STABLE (web-standard HTMLMediaElement). */
+  /** Pause the corner media. STABLE (web-standard HTMLMediaElement). */
   miniPause(): void {
     void this.miniWc()
-      ?.executeJavaScript("document.querySelector('video')?.pause()")
+      ?.executeJavaScript("(document.querySelector('video')||document.querySelector('audio'))?.pause()")
       .catch(() => {})
   }
 
-  /** Toggle loop on the current video. STABLE (web-standard HTMLMediaElement). */
+  /** Toggle loop on the current media. STABLE (web-standard HTMLMediaElement). */
   miniToggleLoop(): void {
     const wc = this.miniWc()
     if (!wc) return
     void wc
       .executeJavaScript(
-        "(()=>{var v=document.querySelector('video');if(v){v.loop=!v.loop;return v.loop;}return false;})()"
+        "(()=>{var v=document.querySelector('video')||document.querySelector('audio');if(v){v.loop=!v.loop;return v.loop;}return false;})()"
       )
       .then((looped: unknown) => {
         const e = this.miniPanelId ? this.panels.get(this.miniPanelId) : null
@@ -997,11 +1110,13 @@ export class PanelManager {
       .catch(() => {})
   }
 
-  /** Seek the corner video. STABLE (web-standard HTMLMediaElement). */
+  /** Seek the corner media. STABLE (web-standard HTMLMediaElement). */
   miniSeek(time: number): void {
     const t = Number.isFinite(time) ? Math.max(0, time) : 0
     void this.miniWc()
-      ?.executeJavaScript(`(()=>{var v=document.querySelector('video');if(v)v.currentTime=${t};})()`)
+      ?.executeJavaScript(
+        `(()=>{var v=document.querySelector('video')||document.querySelector('audio');if(v)v.currentTime=${t};})()`
+      )
       .catch(() => {})
   }
 

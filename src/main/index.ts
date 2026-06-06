@@ -86,6 +86,11 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
 
+  // Keep the floating mini-player up when Decks is minimized with music playing.
+  mainWindow.on('minimize', () => panels.onWindowMinimized())
+  mainWindow.on('restore', () => panels.onWindowRestored())
+  mainWindow.on('show', () => panels.onWindowRestored())
+
   mainWindow.on('closed', () => {
     mainWindow = null
   })

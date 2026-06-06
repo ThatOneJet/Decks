@@ -414,13 +414,24 @@ function Sidebar({
       if (action === 'rename') setEdit({ ws, mode: 'rename' })
       else if (action === 'note') setEdit({ ws, mode: 'note' })
       else if (action === 'reset') {
-        // Refresh the workspace's decks IN PLACE (don't tear them down) so they
-        // actually re-render. Web decks reload their WebContentsView; native
-        // decks remount via a bumped nonce keyed in SplitView.
+        // FORCE the workspace's decks to load. Web decks: panel.create is
+        // idempotent — it builds the WebContentsView if it was never created or
+        // got discarded (so a blank/unloaded deck actually loads), and just
+        // re-navigates one that's already live. Native decks remount via a bumped
+        // nonce keyed in SplitView.
         const { bumpPanelReload } = useStore.getState()
         ws.panels.forEach((p) => {
-          if (p.kind === 'native') bumpPanelReload(p.id)
-          else window.decks?.panel.reload(p.id)
+          if (p.kind === 'native') {
+            bumpPanelReload(p.id)
+          } else {
+            void window.decks?.panel.create({
+              panelId: p.id,
+              workspaceId: ws.id,
+              partition: ws.partition,
+              url: p.url,
+              bounds: { x: 0, y: 0, width: 800, height: 600 }
+            })
+          }
         })
       } else if (action === 'keepalive') {
         useStore.getState().setKeepAlive(ws.id, !ws.keepAlive)
