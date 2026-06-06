@@ -242,6 +242,10 @@ export interface MiniPlayerMeta {
 export interface OverlayMiniPlayerEvent {
   show: boolean
   meta?: MiniPlayerMeta
+  /** When true, render the collapsed side-tab (arrow) instead of the full card. */
+  collapsed?: boolean
+  /** Which screen edge the collapsed tab is docked to (arrow points inward). */
+  edge?: 'left' | 'right'
 }
 
 /** payload: MiniPlayerControl (overlay → main). A control button / drag event. */
@@ -254,6 +258,8 @@ export interface MiniPlayerControlEvent {
     | 'loop'
     | 'close'
     | 'reload'
+    | 'collapse'
+    | 'expand'
     | 'seek'
     | 'search'
     | 'move-start'

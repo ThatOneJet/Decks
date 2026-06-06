@@ -324,11 +324,15 @@ function App(): JSX.Element {
     }
   }, [paletteOpen])
 
-  // Re-measure deck views when focus mode or the dock rail collapses/expands
-  // the workspace (the grid column width changes, so slot rects shift).
+  // Re-measure deck views when focus mode or the dock rail collapses/expands the
+  // workspace. The grid column width animates over ~0.32s, so the slot rects keep
+  // shifting; fire several re-measures ACROSS and just AFTER the transition so the
+  // native WebContentsViews never get left at a stale position ("monstrosity").
   useEffect(() => {
-    const id = setTimeout(() => window.dispatchEvent(new Event('resize')), 0)
-    return () => clearTimeout(id)
+    const ids = [0, 120, 240, 360, 420].map((d) =>
+      setTimeout(() => window.dispatchEvent(new Event('resize')), d)
+    )
+    return () => ids.forEach(clearTimeout)
   }, [focusMode, collapsed])
 
   const showSplit = view === 'workspace' && workspaces.length > 0

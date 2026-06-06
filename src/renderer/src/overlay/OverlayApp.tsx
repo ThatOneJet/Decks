@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react'
 import type { HoverSummary, MenuKind, MiniPlayerMeta } from '@shared/ipc'
 import FloatingHoverCard from './FloatingHoverCard'
 import OverlayMenu from './OverlayMenu'
-import MiniPlayerBar from './MiniPlayerBar'
+import MiniPlayerBar, { MiniTab } from './MiniPlayerBar'
 
 type MenuState = {
   kind: MenuKind
@@ -24,7 +24,11 @@ type MenuState = {
 export default function OverlayApp(): JSX.Element | null {
   const [summary, setSummary] = useState<HoverSummary | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
-  const [mini, setMini] = useState<MiniPlayerMeta | null>(null)
+  const [mini, setMini] = useState<{
+    meta: MiniPlayerMeta
+    collapsed: boolean
+    edge: 'left' | 'right'
+  } | null>(null)
   const [levels, setLevels] = useState<number[] | null>(null)
 
   useEffect(() => {
@@ -49,8 +53,12 @@ export default function OverlayApp(): JSX.Element | null {
 
   useEffect(() => {
     return window.decks?.onMiniPlayer((e) => {
-      setMini(e.show && e.meta ? e.meta : null)
-      if (!e.show) setLevels(null)
+      if (e.show && e.meta) {
+        setMini({ meta: e.meta, collapsed: !!e.collapsed, edge: e.edge ?? 'right' })
+      } else {
+        setMini(null)
+        setLevels(null)
+      }
     })
   }, [])
 
@@ -78,7 +86,11 @@ export default function OverlayApp(): JSX.Element | null {
   if (mini) {
     return (
       <div className="fixed inset-0">
-        <MiniPlayerBar meta={mini} levels={levels} />
+        {mini.collapsed ? (
+          <MiniTab edge={mini.edge} />
+        ) : (
+          <MiniPlayerBar meta={mini.meta} levels={levels} />
+        )}
       </div>
     )
   }

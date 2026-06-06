@@ -88,8 +88,14 @@ interface PanelEntry {
  * the glue owns the HOW (drawing the control bar).
  */
 export interface MiniPlayerHooks {
-  /** Mini-player became active: draw the bar at `rect` with `meta`. */
-  onStart(rect: PanelBounds, meta: MiniPlayerMeta): void
+  /** Mini-player became active: draw the bar at `rect` with `meta`. When
+   *  `collapsed`, draw the slim side tab (arrow points in from `edge`). */
+  onStart(
+    rect: PanelBounds,
+    meta: MiniPlayerMeta,
+    collapsed: boolean,
+    edge: 'left' | 'right'
+  ): void
   /** Now-playing metadata/playstate changed for the active mini-player. */
   onUpdate(meta: MiniPlayerMeta): void
   /** Live audio levels (0..1 per bar) for the active mini-player's visualizer. */
@@ -156,6 +162,9 @@ const CARD_WIDTH = 320
 // while still guaranteeing the content is never clipped.
 const CARD_HEIGHT = 196
 const BAR_MARGIN = 16
+// Collapsed "pull tab" — a slim arrow handle docked at a screen edge.
+const TAB_W = 22
+const TAB_H = 64
 
 /**
  * Page-injected metadata/playstate sentinel prefix. The injected script (which
@@ -349,6 +358,8 @@ export class PanelManager {
   /** True when the active mini was popped because the window was minimized (so it
    *  is torn down again on restore, rather than persisting like a switched-away one). */
   private miniByMinimize = false
+  /** True when the mini-player is collapsed to its slim side "pull tab". */
+  private miniCollapsed = false
   /** Glue hooks for driving the overlay control bar (installed by index.ts). */
   private miniHooks: MiniPlayerHooks | null = null
   /**
@@ -996,7 +1007,35 @@ export class PanelManager {
     if (!entry) return
     this.miniPanelId = panelId
     const meta = entry.meta ?? { title: '', artist: '', paused: false }
-    this.miniHooks?.onStart(this.barRect(), meta)
+    this.miniHooks?.onStart(this.barRect(), meta, this.miniCollapsed, this.miniArrowEdge())
+  }
+
+  /** Which screen edge the collapsed tab sits on → the arrow points inward. */
+  private miniArrowEdge(): 'left' | 'right' {
+    const area = this.currentDisplay().workArea
+    const x = this.miniPos?.x ?? area.x + area.width
+    return x + TAB_W / 2 < area.x + area.width / 2 ? 'left' : 'right'
+  }
+
+  /** Collapse the mini-player into its slim side tab, snapped to the nearer edge. */
+  miniCollapse(): void {
+    if (!this.miniPanelId || this.miniCollapsed) return
+    const area = this.currentDisplay().workArea
+    const r = this.barRect() // current expanded card rect
+    const onLeft = r.x + r.width / 2 < area.x + area.width / 2
+    this.miniPos = {
+      x: onLeft ? area.x : area.x + Math.max(0, area.width - TAB_W),
+      y: Math.min(Math.max(r.y, area.y), area.y + Math.max(0, area.height - TAB_H))
+    }
+    this.miniCollapsed = true
+    this.activateMini(this.miniPanelId)
+  }
+
+  /** Expand the collapsed tab back into the full mini-player card. */
+  miniExpand(): void {
+    if (!this.miniPanelId || !this.miniCollapsed) return
+    this.miniCollapsed = false
+    this.activateMini(this.miniPanelId)
   }
 
   /** The display the mini-player lives on — the one the app window is on (its
@@ -1023,17 +1062,20 @@ export class PanelManager {
    */
   private barRect(): PanelBounds {
     const area = this.currentDisplay().workArea
+    // Collapsed: a slim tab, free-positioned (clamped) by miniPos.
+    const w = this.miniCollapsed ? TAB_W : CARD_WIDTH
+    const h = this.miniCollapsed ? TAB_H : CARD_HEIGHT
     const minX = area.x
     const minY = area.y
-    const maxX = area.x + Math.max(0, area.width - CARD_WIDTH)
-    const maxY = area.y + Math.max(0, area.height - CARD_HEIGHT)
-    let x = area.x + Math.max(0, area.width - CARD_WIDTH - BAR_MARGIN) // right
+    const maxX = area.x + Math.max(0, area.width - w)
+    const maxY = area.y + Math.max(0, area.height - h)
+    let x = area.x + Math.max(0, area.width - w - BAR_MARGIN) // default top-right
     let y = area.y + BAR_MARGIN // top
     if (this.miniPos) {
       x = Math.min(Math.max(this.miniPos.x, minX), maxX)
       y = Math.min(Math.max(this.miniPos.y, minY), maxY)
     }
-    return this.toIntBounds({ x, y, width: CARD_WIDTH, height: CARD_HEIGHT })
+    return this.toIntBounds({ x, y, width: w, height: h })
   }
 
   /** Begin a drag: snapshot the bar's current top-left as the delta anchor. */
@@ -1049,7 +1091,7 @@ export class PanelManager {
     this.miniPos = { x: anchor.x + dx, y: anchor.y + dy }
     const entry = this.panels.get(this.miniPanelId)
     const meta = entry?.meta ?? { title: '', artist: '', paused: false }
-    this.miniHooks?.onStart(this.barRect(), meta)
+    this.miniHooks?.onStart(this.barRect(), meta, this.miniCollapsed, this.miniArrowEdge())
   }
 
   /** End a drag. */
@@ -1064,6 +1106,7 @@ export class PanelManager {
   private endMiniPlayer(): void {
     if (!this.miniPanelId) return
     this.miniPanelId = null
+    this.miniCollapsed = false // next pop starts as the full card
     this.miniHooks?.onEnd()
   }
 

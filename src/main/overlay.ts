@@ -35,8 +35,13 @@ export interface OverlayController {
   hideHover(): void
   showMenu(payload: MenuShowPayload): void
   hideMenu(): void
-  /** Show the mini-player control bar under the corner video at `rect`. */
-  showMiniPlayer(rect: PanelBounds, meta: MiniPlayerMeta): void
+  /** Show the mini-player at `rect` (full card, or the collapsed side tab). */
+  showMiniPlayer(
+    rect: PanelBounds,
+    meta: MiniPlayerMeta,
+    collapsed: boolean,
+    edge: 'left' | 'right'
+  ): void
   /** Update the now-playing metadata on an already-visible mini-player bar. */
   updateMiniPlayer(meta: MiniPlayerMeta): void
   /** Push live audio levels (0..1 per bar) to the visualizer. */
@@ -104,6 +109,8 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
   /** Remembered mini-player state so we can re-show the bar after a menu closes. */
   let miniRect: PanelBounds | null = null
   let miniMeta: MiniPlayerMeta | null = null
+  let miniCollapsed = false
+  let miniEdge: 'left' | 'right' = 'right'
 
   const send = (event: OverlayRenderEvent): void => {
     if (!alive()) return
@@ -135,7 +142,7 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
       width: miniRect.width,
       height: miniRect.height
     })
-    sendMini({ show: true, meta: miniMeta })
+    sendMini({ show: true, meta: miniMeta, collapsed: miniCollapsed, edge: miniEdge })
     win.setIgnoreMouseEvents(false)
     win.showInactive()
   }
@@ -234,10 +241,17 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
       closeMenu()
     },
 
-    showMiniPlayer(rect: PanelBounds, meta: MiniPlayerMeta): void {
+    showMiniPlayer(
+      rect: PanelBounds,
+      meta: MiniPlayerMeta,
+      collapsed: boolean,
+      edge: 'left' | 'right'
+    ): void {
       if (!alive()) return
       miniRect = rect
       miniMeta = meta
+      miniCollapsed = collapsed
+      miniEdge = edge
       // A menu outranks the mini-player: remember state, let the menu finish; the
       // bar reappears on closeMenu. Otherwise take the window now.
       if (mode === 'menu') return
@@ -250,7 +264,8 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
       miniMeta = meta
       // Only push to the visible bar; if a menu is up the new meta is applied
       // when the bar is restored.
-      if (mode === 'miniplayer') sendMini({ show: true, meta })
+      if (mode === 'miniplayer')
+        sendMini({ show: true, meta, collapsed: miniCollapsed, edge: miniEdge })
     },
 
     updateMiniLevels(levels: number[]): void {

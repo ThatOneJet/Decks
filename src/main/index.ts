@@ -78,7 +78,7 @@ function createWindow(): void {
   // Bridge the corner mini-player (owned by PanelManager) to the overlay window's
   // control bar. PanelManager decides WHEN (corner/teardown); these hooks draw it.
   panels.setMiniPlayerHooks({
-    onStart: (rect, meta) => overlay?.showMiniPlayer(rect, meta),
+    onStart: (rect, meta, collapsed, edge) => overlay?.showMiniPlayer(rect, meta, collapsed, edge),
     onUpdate: (meta) => overlay?.updateMiniPlayer(meta),
     onLevels: (levels) => overlay?.updateMiniLevels(levels),
     onEnd: () => overlay?.hideMiniPlayer()
@@ -250,6 +250,12 @@ function registerIpc(): void {
         break
       case 'reload':
         panels.miniReload()
+        break
+      case 'collapse':
+        panels.miniCollapse()
+        break
+      case 'expand':
+        panels.miniExpand()
         break
       case 'seek':
         panels.miniSeek(p.time ?? 0)

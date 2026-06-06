@@ -204,16 +204,26 @@ export default function MiniPlayerBar({
         </div>
       )}
 
-      {/* 3 — Controls. Loop on the far left, transport centered, expand far right. */}
+      {/* 3 — Controls. Minimize + loop on the left, transport centered, refresh +
+          expand on the right. */}
       <div className="flex items-center justify-between gap-1">
-        <Ctrl title={loop ? 'Looping' : 'Loop'} onClick={() => send({ action: 'loop' })} active={loop}>
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M17 2l4 4-4 4" />
-            <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
-            <path d="M7 22l-4-4 4-4" />
-            <path d="M21 13v1a4 4 0 0 1-4 4H3" />
-          </svg>
-        </Ctrl>
+        <div className="flex items-center gap-1">
+          <Ctrl title="Tuck to the side" onClick={() => send({ action: 'collapse' })}>
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 5v14" />
+              <path d="M21 12H8" />
+              <path d="M13 7l-5 5 5 5" />
+            </svg>
+          </Ctrl>
+          <Ctrl title={loop ? 'Looping' : 'Loop'} onClick={() => send({ action: 'loop' })} active={loop}>
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 2l4 4-4 4" />
+              <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+              <path d="M7 22l-4-4 4-4" />
+              <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+            </svg>
+          </Ctrl>
+        </div>
         <div className="flex items-center gap-1">
           <Ctrl title="Previous" onClick={() => send({ action: 'prev' })}>
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M6 6h2v12H6zM20 6v12l-8.5-6z" /></svg>
@@ -291,6 +301,55 @@ export default function MiniPlayerBar({
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
         </button>
       </form>
+    </div>
+  )
+}
+
+/**
+ * MiniTab — the collapsed mini-player: a slim translucent handle docked at a
+ * screen edge with an arrow pointing inward. Click to pull the full player back
+ * out; drag the handle to move it (snaps stay where you leave it). The window is
+ * already sized/positioned to the tab by main; this just fills it.
+ */
+export function MiniTab({ edge }: { edge: 'left' | 'right' }): JSX.Element {
+  const start = useRef<{ x: number; y: number } | null>(null)
+  const moved = useRef(false)
+
+  const onMove = (e: PointerEvent): void => {
+    if (!start.current) return
+    const dx = e.screenX - start.current.x
+    const dy = e.screenY - start.current.y
+    if (Math.abs(dx) + Math.abs(dy) > 4) moved.current = true
+    send({ action: 'move', dx, dy })
+  }
+  const onUp = (): void => {
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    send({ action: 'move-end' })
+    if (!moved.current) send({ action: 'expand' }) // a tap (not a drag) pulls it out
+    start.current = null
+  }
+  const onDown = (e: React.PointerEvent): void => {
+    start.current = { x: e.screenX, y: e.screenY }
+    moved.current = false
+    send({ action: 'move-start' })
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  // Arrow points away from the docked edge (toward screen center).
+  const arrow = edge === 'left' ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6'
+  return (
+    <div
+      onPointerDown={onDown}
+      title="Drag to move · click to open the player"
+      className={`overlay-pop pointer-events-auto fixed inset-0 flex cursor-grab items-center justify-center border border-line bg-bg-elevated/70 text-txt-2 backdrop-blur transition-colors hover:text-accent active:cursor-grabbing ${
+        edge === 'left' ? 'rounded-r-xl rounded-l-sm' : 'rounded-l-xl rounded-r-sm'
+      }`}
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d={arrow} />
+      </svg>
     </div>
   )
 }
