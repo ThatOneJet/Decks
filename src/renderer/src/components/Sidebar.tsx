@@ -347,12 +347,10 @@ const ICON = {
 
 function Sidebar({
   orientation = 'vertical',
-  collapsed = false,
-  onToggleCollapse
+  collapsed = false
 }: {
   orientation?: 'vertical' | 'horizontal'
   collapsed?: boolean
-  onToggleCollapse?: () => void
 } = {}): JSX.Element {
   const horizontal = orientation === 'horizontal'
   // Collapse only applies to the vertical dock; the portrait taskbar ignores it.
@@ -554,16 +552,7 @@ function Sidebar({
 
   return (
     <aside className={`dock ${rail ? 'rail' : ''} ${focusMode ? 'focusdim' : ''}`}>
-      {onToggleCollapse && (
-        <button
-          className="dock-collapse"
-          onClick={onToggleCollapse}
-          title={rail ? 'Expand dock' : `Collapse to rail (${MOD === '⌘' ? '⌘B' : 'Ctrl+B'})`}
-        >
-          {ICON.chevL}
-        </button>
-      )}
-
+      {/* Collapse toggle moved to the topbar (Titlebar). */}
       <div className="dock-scroll">
         {nativeWs.length > 0 && (
           <div className="dock-sec">

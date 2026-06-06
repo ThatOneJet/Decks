@@ -51,9 +51,10 @@ function App(): JSX.Element {
   const openTour = useStore((s) => s.openTour)
   const [welcomeOpen, setWelcomeOpen] = useState(() => welcomeUnseen())
 
-  // ── Console dock: collapse to a slim rail (⌘/Ctrl+B), and AUTO-collapse on
-  // narrow screens so small laptops feel as roomy as a big monitor. ──
-  const [dockCollapsed, setDockCollapsed] = useState(false)
+  // ── Console dock: collapse to a slim rail (⌘/Ctrl+B or the topbar button), and
+  // AUTO-collapse on narrow screens so small laptops feel as roomy as big ones. ──
+  const dockCollapsed = useStore((s) => s.sidebarCollapsed)
+  const toggleSidebar = useStore((s) => s.toggleSidebar)
   const [narrow, setNarrow] = useState(
     () => typeof window !== 'undefined' && window.innerWidth < 1080
   )
@@ -294,7 +295,7 @@ function App(): JSX.Element {
         openAddDeck()
       } else if (mod && e.key.toLowerCase() === 'b') {
         e.preventDefault()
-        setDockCollapsed((v) => !v)
+        toggleSidebar()
       } else if (mod && e.key === '.') {
         e.preventDefault()
         toggleFocusMode()
@@ -382,11 +383,7 @@ function App(): JSX.Element {
       <Titlebar />
 
       {/* DOCK — vertical rail (landscape) or bottom taskbar (portrait). */}
-      <Sidebar
-        collapsed={collapsed}
-        onToggleCollapse={() => setDockCollapsed((v) => !v)}
-        orientation={dockMode ? 'horizontal' : 'vertical'}
-      />
+      <Sidebar collapsed={collapsed} orientation={dockMode ? 'horizontal' : 'vertical'} />
 
       {/* WORKSPACE — the active surface (its own floating page card). */}
       <div className="workspace relative">
