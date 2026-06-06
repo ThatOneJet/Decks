@@ -9,82 +9,135 @@
 :root {
   color-scheme: dark;
 
-  --bg-void: #07090e;
-  --bg-chrome: #0c0f16;
-  --bg-chrome-2: #10141d;
-  --bg-card: #0f1118;
-  --bg-elevated: #161b26;
-  --bg-glass: rgba(19, 24, 35, 0.92);
+  /* ── Calm/clean themable design system (ported from Claude Design) ──
+     All neutral surfaces derive from ONE hue (--nh) + chroma (--nc) in oklch,
+     so a future theme designer can repaint the whole app. Dark by default;
+     `[data-theme="light"]` flips the lightness scale. The app's older token
+     NAMES are kept as aliases below so every existing component re-skins. */
+  --nh: 256; /* neutral hue */
+  --nc: 0.016; /* neutral chroma (tint strength) */
+  --accent: #5b8cff; /* single highlight color */
+  --accent-ink: #ffffff;
 
-  --line: rgba(255, 255, 255, 0.07);
-  --line-2: rgba(255, 255, 255, 0.12);
-  --line-bright: rgba(110, 240, 255, 0.3);
+  /* Dark lightness scale */
+  --l-window: 0.155; /* outermost */
+  --l-chrome: 0.176; /* sidebar + topbar (one continuous frame) */
+  --l-card: 0.248; /* the floating page card (clearly lighter) */
+  --l-elev: 0.292; /* rows / cards inside the page */
+  --l-elev-2: 0.335; /* hover / nested */
+  --l-input: 0.214;
 
-  /* Console palette — iced cyan accent, amber "live". */
-  --accent: #45d6e8;
-  --accent-dim: #2aa7c4;
-  --accent-2: #2aa7c4;
-  --accent-soft: rgba(69, 214, 232, 0.12);
-  --accent-ring: rgba(69, 214, 232, 0.34);
-  --accent-line: rgba(69, 214, 232, 0.34);
-  --accent-glow: rgba(69, 214, 232, 0.5);
-  --live: #ffb454;
-  --live-soft: rgba(255, 180, 84, 0.14);
+  /* Derived neutral surfaces */
+  --window: oklch(var(--l-window) var(--nc) var(--nh));
+  --chrome-c: oklch(var(--l-chrome) var(--nc) var(--nh));
+  --card: oklch(var(--l-card) var(--nc) var(--nh));
+  --elev: oklch(var(--l-elev) var(--nc) var(--nh));
+  --elev-2: oklch(var(--l-elev-2) var(--nc) var(--nh));
+  --input: oklch(var(--l-input) var(--nc) var(--nh));
 
-  /* Console surface + text scale (used by the Console shell + panels). */
-  --void: #06070b;
-  --panel: #0e1118;
-  --panel-2: #12151e;
-  --elev: #181c27;
-  --elev-2: #1e2330;
-  --glass-hi: rgba(24, 29, 41, 0.9);
-  --line-3: rgba(255, 255, 255, 0.16);
-  --native: #45d6e8;
-  --web: #7e8aa0;
-  --ok: #54e0a0;
-  --warn: #ffcf5c;
-  --danger: #ff6470;
-  --t1: #f0f3f8;
-  --t2: #aeb7c7;
-  --t3: #717c90;
-  --t4: #4a5364;
-  --ok: #4ef0a6;
-  --warn: #ffc25c;
-  --err: #ff5d6c;
+  /* Text scale */
+  --txt-1: oklch(0.965 0.006 var(--nh));
+  --txt-2: oklch(0.79 0.012 var(--nh));
+  --txt-3: oklch(0.63 0.016 var(--nh));
+  --txt-4: oklch(0.5 0.018 var(--nh));
 
-  --txt-1: #eef2f8;
-  --txt-2: #aab3c4;
-  --txt-3: #6d7689;
-  --txt-4: #454d5e;
+  /* Lines */
+  --line: color-mix(in oklch, white 9%, transparent);
+  --line-2: color-mix(in oklch, white 15%, transparent);
+  --line-strong: color-mix(in oklch, white 22%, transparent);
 
-  --font-display: 'Space Grotesk', system-ui, sans-serif;
-  --font-ui: 'Inter', system-ui, sans-serif;
+  /* Accent derivations */
+  --accent-soft: color-mix(in oklch, var(--accent) 16%, transparent);
+  --accent-softer: color-mix(in oklch, var(--accent) 9%, transparent);
+  --accent-line: color-mix(in oklch, var(--accent) 42%, transparent);
+  --accent-glow: color-mix(in oklch, var(--accent) 50%, transparent);
+
+  /* Status */
+  --ok: oklch(0.78 0.15 155);
+  --warn: oklch(0.82 0.15 75);
+  --err: oklch(0.68 0.2 22);
+  --live: oklch(0.72 0.19 330);
+
+  --shadow-card:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 18px 40px -22px rgba(0, 0, 0, 0.75),
+    0 2px 8px -2px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 24px 60px -18px rgba(0, 0, 0, 0.7), 0 2px 10px rgba(0, 0, 0, 0.35);
+  --scrim: rgba(8, 10, 16, 0.55);
+
+  /* ── Compatibility aliases — existing components + Tailwind use these ── */
+  --bg-void: var(--window);
+  --bg-chrome: var(--chrome-c);
+  --bg-chrome-2: var(--chrome-c);
+  --bg-card: var(--card);
+  --bg-elevated: var(--elev);
+  --bg-glass: var(--card);
+  --void: var(--window);
+  --panel: var(--chrome-c);
+  --panel-2: var(--input);
+  --glass-hi: var(--card);
+  --line-bright: var(--accent-line);
+  --line-3: var(--line-strong);
+  --accent-dim: color-mix(in oklch, var(--accent) 72%, black);
+  --accent-2: var(--accent-dim);
+  --accent-ring: var(--accent-line);
+  --live-soft: color-mix(in oklch, var(--live) 16%, transparent);
+  --native: var(--accent);
+  --web: var(--txt-3);
+  --danger: var(--err);
+  --t1: var(--txt-1);
+  --t2: var(--txt-2);
+  --t3: var(--txt-3);
+  --t4: var(--txt-4);
+
+  --font-display: 'Manrope', system-ui, -apple-system, sans-serif;
+  --font-ui: 'Manrope', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
-  --r-card: 18px;
+  --r-card: 20px;
   --rail-w: 76px;
-  --top-h: 52px;
-  /* The floating page card hugs the dock + header (just a hairline so the card
-     edge reads). More room for the actual pages. */
-  --inset: 4px;
+  --top-h: 58px;
+  --inset: 0px;
 
-  /* Console shell geometry + motion (the grid in `.console`, dock widths,
-     header height, radii, and the shared easing the panels animate with). */
-  --dock-w: 252px;
-  --dock-w-rail: 72px;
-  --head-h: 46px;
-  /* The chrome color — header + dock share this exact dark so they read as one
-     continuous L-shape wrapping the (lighter) page card. */
-  --chrome: linear-gradient(180deg, rgba(14, 17, 24, 0.96), rgba(10, 12, 18, 0.96));
-  --r-lg: 18px;
-  --r-md: 13px;
+  /* Console shell geometry + motion */
+  --dock-w: 268px;
+  --dock-w-rail: 76px;
+  --head-h: 58px;
+  /* One continuous chrome color for header + dock (now a solid, calm surface). */
+  --chrome: var(--chrome-c);
+  --gap: 13px;
+  --r-lg: 16px;
+  --r-md: 12px;
   --r-sm: 9px;
-  --ease: cubic-bezier(0.32, 0.72, 0.28, 1);
+  --ease: cubic-bezier(0.22, 0.85, 0.3, 1);
 
-  /* Console accent aliases. `--accent-line` already exists; `--accent-soft`,
-     `--accent-glow`, `--native`, `--web`, `--live`, `--ok`, `--warn`,
-     `--danger`, `--t1`..`--t4`, `--panel`, `--panel-2`, `--elev`, `--elev-2`,
-     `--line-3`, `--glass-hi` are all defined above and reused as-is. */
+  /* Aliases above keep every existing component + Tailwind utility on the new
+     oklch palette without per-component edits. */
+}
+
+/* ── LIGHT MODE — first-class; toggled via [data-theme="light"] on <html> ── */
+[data-theme='light'] {
+  color-scheme: light;
+  --l-window: 0.93;
+  --l-chrome: 0.955; /* frame — slightly off-white */
+  --l-card: 0.998; /* page card — brightest */
+  --l-elev: 0.985;
+  --l-elev-2: 0.965;
+  --l-input: 0.975;
+
+  --txt-1: oklch(0.27 0.02 var(--nh));
+  --txt-2: oklch(0.42 0.022 var(--nh));
+  --txt-3: oklch(0.56 0.02 var(--nh));
+  --txt-4: oklch(0.68 0.016 var(--nh));
+
+  --line: color-mix(in oklch, oklch(0.2 0.02 var(--nh)) 10%, transparent);
+  --line-2: color-mix(in oklch, oklch(0.2 0.02 var(--nh)) 16%, transparent);
+  --line-strong: color-mix(in oklch, oklch(0.2 0.02 var(--nh)) 26%, transparent);
+
+  --shadow-card:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 14px 34px -20px rgba(20, 24, 40, 0.32),
+    0 2px 6px -2px rgba(20, 24, 40, 0.12);
+  --shadow-pop: 0 24px 60px -18px rgba(20, 24, 40, 0.28), 0 2px 10px rgba(20, 24, 40, 0.12);
+  --scrim: rgba(30, 34, 48, 0.3);
 }
 
 * {
@@ -612,34 +665,22 @@ html.overlay-mode #root {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  /* The card hugs the dock (left) + header (top) and bleeds off the window's
-     right + bottom edges, so only its top + left sides are visible. */
   padding: 0;
 }
 .page-card {
   position: relative;
   height: 100%;
   width: 100%;
-  /* Only the top-left corner is rounded; right + bottom run to the window edge. */
-  border-radius: var(--r-card) 0 0 0;
+  /* Calm/clean redesign: the card FLOATS inset on all sides (the workspace gap
+     around it is the chrome color), fully rounded with a soft shadow — the
+     continuous chrome frame wraps a clearly-lighter page card. */
+  border-radius: var(--r-card);
   background: var(--bg-card);
   border: none;
-  border-top: 1px solid var(--line-2);
-  border-left: 1px solid var(--line-2);
-  box-shadow: none;
+  box-shadow: var(--shadow-card);
   overflow: hidden;
   display: flex;
   min-height: 0;
-}
-/* A faint accent hairline on just the two visible (top + left) edges. */
-.page-card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: var(--r-card) 0 0 0;
-  pointer-events: none;
-  border-top: 1px solid rgba(69, 214, 232, 0.08);
-  border-left: 1px solid rgba(69, 214, 232, 0.08);
 }
 .deck-pane {
   position: relative;
@@ -2547,8 +2588,16 @@ html.overlay-mode #root {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 10px 12px 10px 10px;
+  /* Card floats inset: left edge meets the dock (the left frame), small gap under
+     the topbar, full gap on the right + bottom — all painted the chrome color so
+     the chrome reads as one continuous frame wrapping the lighter card. */
+  padding: 2px var(--gap) var(--gap) 0;
+  background: var(--chrome);
   gap: 8px;
+}
+/* Portrait: the dock is a bottom bar, so don't pad the workspace bottom twice. */
+.console.is-portrait .workspace {
+  padding: var(--gap);
 }
 
 /* tab strip */

@@ -4,38 +4,40 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Futuristic redesign palette — deep cool-black void, cyan glow, magenta live.
+        // Calm/clean palette (sRGB of the oklch design: cool blue-black neutrals,
+        // soft blue accent). Static hex so /opacity utilities keep working; the
+        // shell CSS also tracks these via oklch vars (enables light mode there).
         bg: {
-          DEFAULT: '#07090e', // outermost void
-          rail: '#0c0f16', // rail + topbar chrome frame
-          panel: '#0f1118', // floating page card backdrop
-          elevated: '#161b26'
+          DEFAULT: '#14161b', // window — outermost
+          rail: '#181a20', // dock + topbar chrome frame
+          panel: '#25272e', // floating page card backdrop (clearly lighter)
+          elevated: '#2e3038'
         },
-        line: 'rgba(255,255,255,0.07)',
+        line: 'rgba(255,255,255,0.09)',
         accent: {
-          DEFAULT: '#45d6e8',
-          soft: 'rgba(69,214,232,0.14)',
-          ring: 'rgba(69,214,232,0.34)'
+          DEFAULT: '#5b8cff',
+          soft: 'rgba(91,140,255,0.16)',
+          ring: 'rgba(91,140,255,0.34)'
         },
-        live: '#ffb454',
-        ok: '#4ef0a6',
-        warn: '#ffc25c',
-        err: '#ff5d6c',
+        live: '#d65bbf',
+        ok: '#3fcf8f',
+        warn: '#e0a23a',
+        err: '#e85544',
         txt: {
-          1: '#eef2f8',
-          2: '#aab3c4',
-          3: '#6d7689',
-          4: '#454d5e'
+          1: '#f3f4f6',
+          2: '#b4b9c2',
+          3: '#868c98',
+          4: '#636873'
         }
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        display: ['Space Grotesk', 'system-ui', 'sans-serif'],
+        sans: ['Manrope', 'system-ui', 'sans-serif'],
+        display: ['Manrope', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'ui-monospace', 'monospace']
       },
       borderRadius: {
         xl2: '14px',
-        card: '18px'
+        card: '20px'
       }
     }
   },
