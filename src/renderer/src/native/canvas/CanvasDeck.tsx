@@ -108,6 +108,8 @@ interface CanvasAttachment {
   previewUrl?: string
   sizeBytes?: number
   mimeClass?: string
+  /** True for embedded media/video (Studio, iframe, <video>, media_object). */
+  isMedia?: boolean
 }
 
 /** Full assignment detail (from the `assignment` resource). */
@@ -381,6 +383,8 @@ const OFFICE_EXT = /\.(docx?|xlsx?|pptx?|odt|ods|odp)$/i
 
 /** Classify an attachment into a viewer category (content type first, name fallback). */
 function fileKind(att: CanvasAttachment): FileKind {
+  // Embedded media (Studio/iframe/<video>/media_object) is always a video.
+  if (att.isMedia) return 'video'
   const ct = (att.contentType ?? '').toLowerCase()
   const mc = (att.mimeClass ?? '').toLowerCase()
   const name = (att.fileName ?? att.displayName ?? '').toLowerCase()
@@ -2377,15 +2381,19 @@ function OpenInCanvasLink({ url }: { url?: string }): JSX.Element | null {
 
 /* ── Attachments / embedded files section ──
  *
- * Lists each file with a type icon + name, and a primary "View" action whose
- * behavior depends on the file type:
- *  - image  → expands inline (<img>); also "Open" in a web deck.
- *  - pdf    → expands inline (<iframe> of the file url); also "Open".
- *  - video  → expands inline (<video>); also "Open".
- *  - audio  → expands inline (<audio>); also "Open".
- *  - office → opens in a new embedded WEB deck via the Microsoft Office Online
- *             viewer (Canvas verifier urls are publicly reachable).
- *  - other  → opens the raw Canvas url in a new embedded WEB deck (view/download).
+ * Lists each file/video with a type icon + name and a single "View" action that
+ * ALWAYS opens the item in a new embedded WEB deck (a WebContentsView — its own
+ * sandboxed process). We deliberately NEVER embed files inline in this renderer:
+ * loading a remote file into an <iframe>/<embed>/<video>/<audio> inside the app's
+ * own renderer can crash that renderer (and reload the whole app). The embedded
+ * web deck has native viewers for PDF/image/video/audio/text and isolates any
+ * crash from the app. "View" targets per type:
+ *  - pdf / image / video / audio / text / embedded media → the direct Canvas
+ *    (verifier) url, or the media embed url (Studio/YouTube/Vimeo iframes play
+ *    there).
+ *  - office (Word/Excel/PowerPoint/OpenDocument) → the Microsoft Office Online
+ *    viewer url (Canvas verifier urls are publicly reachable).
+ *  - anything else → the direct url (view/download).
  */
 
 /** A small type glyph for an attachment (image/pdf/video/audio/office/file). */
@@ -2425,80 +2433,51 @@ function FileIcon({ kind }: { kind: FileKind }): JSX.Element {
   )
 }
 
-/** One attachment row with a type icon, name/size, and View / Open actions. */
+/** One attachment row with a type icon, name/size, and a "View" action. */
 function AttachmentRow({ att }: { att: CanvasAttachment }): JSX.Element {
   const kind = fileKind(att)
-  const name = att.displayName ?? att.fileName ?? 'File'
+  const name = att.displayName ?? att.fileName ?? (att.isMedia ? 'Video' : 'File')
   const url = att.url
   const size = formatSize(att.sizeBytes)
-  const [open, setOpen] = useState(false)
-  // Inline-previewable types expand within the deck; others open a web deck.
-  const canInline = kind === 'image' || kind === 'pdf' || kind === 'video' || kind === 'audio'
 
+  // Every attachment opens in a NEW embedded web deck — we never embed files in
+  // this renderer (an inline <iframe>/<embed>/<video> can crash it). Office docs
+  // go through the Office Online viewer; everything else (PDF/image/video/audio/
+  // text/embedded media/other) opens its direct/embed url, which the embedded
+  // browser renders with its native viewers / media player.
   const openInWebDeck = useCallback((): void => {
     if (!url) return
     if (kind === 'office') addWebDeck(officeViewerUrl(url), name)
     else addWebDeck(url, name)
   }, [url, kind, name])
 
-  const onView = useCallback((): void => {
-    if (!url) return
-    if (canInline) setOpen((o) => !o)
-    else openInWebDeck()
-  }, [url, canInline, openInWebDeck])
+  // Label: media/video → its kind; office → "office"; other → "file".
+  const typeLabel = att.isMedia ? 'video' : kind === 'other' ? 'file' : kind
 
   return (
     <div className="rounded-lg border border-line bg-bg-elevated">
       <div className="flex items-center gap-2.5 px-3 py-2.5">
-        <span className={`shrink-0 ${kind === 'office' ? 'text-accent' : 'text-txt-3'}`}>
+        <span
+          className={`shrink-0 ${kind === 'office' ? 'text-accent' : att.isMedia ? 'text-warn' : 'text-txt-3'}`}
+        >
           <FileIcon kind={kind} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-xs font-medium text-txt-1">{name}</div>
           <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-txt-4">
-            <span className="uppercase">{kind === 'other' ? 'File' : kind}</span>
+            <span className="uppercase">{typeLabel}</span>
             {size && <span>· {size}</span>}
           </div>
         </div>
         <button
           type="button"
-          onClick={onView}
+          onClick={openInWebDeck}
           disabled={!url}
           className="shrink-0 rounded-md border border-accent-ring px-2.5 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-50"
         >
-          {canInline ? (open ? 'Hide' : 'View') : kind === 'office' ? 'View' : 'Open'}
+          {att.isMedia ? 'Play' : 'View'}
         </button>
-        {canInline && url && (
-          <button
-            type="button"
-            onClick={openInWebDeck}
-            title="Open in a new deck"
-            className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-txt-3 transition-colors hover:text-txt-1"
-          >
-            Open
-          </button>
-        )}
       </div>
-
-      {/* Inline preview (lazy: only mounted once expanded) */}
-      {open && canInline && url && (
-        <div className="border-t border-line p-2">
-          {kind === 'image' && (
-            <img src={url} alt={name} className="max-h-[60vh] w-full rounded-md object-contain" />
-          )}
-          {kind === 'pdf' && (
-            <iframe src={url} title={name} className="h-[60vh] w-full rounded-md border-0 bg-white" />
-          )}
-          {kind === 'video' && (
-            // eslint-disable-next-line jsx-a11y/media-has-caption
-            <video src={url} controls className="max-h-[60vh] w-full rounded-md bg-black" />
-          )}
-          {kind === 'audio' && (
-            // eslint-disable-next-line jsx-a11y/media-has-caption
-            <audio src={url} controls className="w-full" />
-          )}
-        </div>
-      )}
     </div>
   )
 }

@@ -61,6 +61,8 @@ export const IPC = {
   // ── Process metrics — renderer → main (invoke) ──
   /** Total RAM + live/discarded panel counts for the sidebar readout. */
   MetricsGet: 'metrics:get',
+  /** Real per-panel memory (MB) for each live web deck. */
+  PanelMetricsGet: 'metrics:panels',
 
   // ── Window controls — renderer → main (send) ──
   WindowMinimize: 'window:minimize',
@@ -321,6 +323,13 @@ export interface MetricsResult {
   discarded: number
 }
 
+/** result entry: PanelMetricsGet — one live panel's real memory in MB. */
+export interface PanelMetric {
+  panelId: PanelId
+  /** Resident working set of this panel's renderer process, in MB. */
+  mb: number
+}
+
 /** result: CodeServerStart — outcome of trying to launch local code-server. */
 export interface CodeServerResult {
   /** The loopback URL to load as a web deck, when it started. */
@@ -380,6 +389,8 @@ export interface DecksApi {
   metrics: {
     /** Total RAM + live/discarded panel counts for the sidebar readout. */
     get(): Promise<MetricsResult>
+    /** Real per-panel memory (MB) for each live web deck, keyed by panelId. */
+    panels(): Promise<PanelMetric[]>
   }
   window: {
     minimize(): void

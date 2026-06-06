@@ -64,7 +64,8 @@ const api: DecksApi = {
     save: (state: PersistedState) => ipcRenderer.invoke(IPC.StateSave, state)
   },
   metrics: {
-    get: () => ipcRenderer.invoke(IPC.MetricsGet)
+    get: () => ipcRenderer.invoke(IPC.MetricsGet),
+    panels: () => ipcRenderer.invoke(IPC.PanelMetricsGet)
   },
   window: {
     minimize: () => ipcRenderer.send(IPC.WindowMinimize),

@@ -183,5 +183,10 @@ export const WEB_INTEGRATIONS: WebIntegration[] = [
   { kind: 'web', id: 'gmail', label: 'Gmail', url: 'https://mail.google.com', glyph: '✉', color: '#ea4335', blurb: 'Your inbox.' },
   { kind: 'web', id: 'notion', label: 'Notion', url: 'https://notion.so', glyph: '📝', color: '#8b95a5', blurb: 'Docs & wikis.' },
   { kind: 'web', id: 'figma', label: 'Figma', url: 'https://figma.com', glyph: '🎨', color: '#a259ff', blurb: 'Design files.' },
-  { kind: 'web', id: 'chatgpt', label: 'ChatGPT', url: 'https://chat.openai.com', glyph: '🤖', color: '#10a37f', blurb: 'Chat.' }
+  { kind: 'web', id: 'chatgpt', label: 'ChatGPT', url: 'https://chat.openai.com', glyph: '🤖', color: '#10a37f', blurb: 'Chat.' },
+  // PowerSchool is per-district (you sign in at your own portal URL) and has no
+  // public grades API — a native graderoom-style reskin can't be reliably built
+  // or kept working across districts, so we embed your portal instead. Edit the
+  // deck URL to your district (e.g. https://yourdistrict.powerschool.com).
+  { kind: 'web', id: 'powerschool', label: 'PowerSchool', url: 'https://powerschool.com', glyph: '🎒', color: '#4f7cff', blurb: 'Grades & attendance — set your district URL.' }
 ]

@@ -10,7 +10,7 @@
  * The per-workspace `partition` (always `persist:<workspaceId>`) gives each
  * workspace its own persistent Electron session, so logins survive restarts.
  */
-import { WebContentsView, shell } from 'electron'
+import { WebContentsView, shell, app } from 'electron'
 import type { BrowserWindow } from 'electron'
 import { IPC } from '@shared/ipc'
 import type {
@@ -42,6 +42,16 @@ const SWEEP_INTERVAL_MS = 60 * 1000
  * Visible (attached), audible, and keep-alive decks are never evicted.
  */
 const MAX_LIVE_PANELS = 14
+
+/**
+ * Clean desktop-Chrome User-Agent presented to every embedded deck (and any
+ * in-app OAuth popup it opens). Google sign-in and other providers reject the
+ * default Electron UA ("disallowed_useragent" / "unsupported browser"), so we
+ * masquerade as plain Chrome. Shared with the app-level userAgentFallback in
+ * index.ts so child windows that bypass the per-view UA still look like Chrome.
+ */
+export const CHROME_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
 
 interface PanelEntry {
   view: WebContentsView
@@ -266,6 +276,35 @@ export class PanelManager {
     return this.discarded.size
   }
 
+  /**
+   * Real per-panel memory for every LIVE panel. Maps each view's renderer OS pid
+   * (getOSProcessId) to that pid's workingSetSize (KB) from app.getAppMetrics(),
+   * converted to MB. Panels whose pid can't be resolved/found report 0 MB.
+   */
+  panelMetrics(): Array<{ panelId: string; mb: number }> {
+    // Build a pid → workingSetSize(KB) lookup once per call.
+    const byPid = new Map<number, number>()
+    for (const m of app.getAppMetrics()) {
+      byPid.set(m.pid, m.memory?.workingSetSize ?? 0)
+    }
+    const out: Array<{ panelId: string; mb: number }> = []
+    for (const [panelId, entry] of this.panels) {
+      let mb = 0
+      try {
+        const wc = entry.view.webContents
+        if (!wc.isDestroyed()) {
+          const pid = wc.getOSProcessId()
+          const kb = byPid.get(pid)
+          if (kb) mb = Math.round(kb / 1024)
+        }
+      } catch {
+        /* destroyed mid-call — report 0 */
+      }
+      out.push({ panelId, mb })
+    }
+    return out
+  }
+
   /** Emit a discard/recreate state change to the renderer. */
   private emitDiscardState(panelId: PanelId, discarded: boolean, url?: string): void {
     const wc = this.window?.webContents
@@ -338,12 +377,40 @@ export class PanelManager {
     this.wireEvents(panelId, view)
 
     const wc = view.webContents
-    // Keep navigation inside the view; route real new-window/_blank externally.
+    // Present as plain Chrome so Google sign-in et al. don't block the embedded
+    // page ("disallowed_useragent"). Must be set BEFORE the first load.
+    wc.setUserAgent(CHROME_UA)
+
+    // OAuth (Google, GitHub, …) opens a popup via window.open/_blank. ALLOW it
+    // IN-APP, sharing this deck's session partition, so: (1) the login persists
+    // into the deck, and (2) the opener page can track window.closed / receive
+    // postMessage to finish the flow. Opening it in the OS browser (the old
+    // behavior) broke OAuth because the embedded page can't observe an external
+    // window. Non-http(s) schemes (mailto:, custom protocols) still go external.
     wc.setWindowOpenHandler(({ url: target }) => {
       if (target && /^https?:\/\//i.test(target)) {
-        void shell.openExternal(target)
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: {
+            webPreferences: {
+              partition,
+              contextIsolation: true,
+              sandbox: true
+            },
+            autoHideMenuBar: true,
+            width: 520,
+            height: 640
+          }
+        }
       }
+      if (target) void shell.openExternal(target)
       return { action: 'deny' }
+    })
+
+    // The popup is a fresh WebContents — give it the Chrome UA too so the OAuth
+    // provider treats it like a normal browser window.
+    wc.on('did-create-window', (win) => {
+      win.webContents.setUserAgent(CHROME_UA)
     })
 
     void wc.loadURL(url).catch((err: NodeJS.ErrnoException) => {

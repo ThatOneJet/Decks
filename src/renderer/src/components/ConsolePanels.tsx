@@ -9,7 +9,7 @@ import { useStore } from '../store'
 import { faviconFor } from '../lib/favicon'
 import { modCombo, MOD } from '../lib/platform'
 import Logo from './Logo'
-import type { MetricsResult } from '@shared/ipc'
+import type { MetricsResult, PanelMetric } from '@shared/ipc'
 
 const WELCOME_KEY = 'decks.welcomeSeen'
 
@@ -154,12 +154,21 @@ export function HelpPanel({
 export function MemoryPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const workspaces = useStore((s) => s.workspaces)
   const [m, setM] = useState<MetricsResult | null>(null)
+  // Real per-panel memory (MB) keyed by panelId, polled from main.
+  const [perPanel, setPerPanel] = useState<Record<string, number>>({})
 
   useEffect(() => {
     let alive = true
     const poll = async (): Promise<void> => {
-      const next = await window.decks?.metrics.get().catch(() => null)
-      if (alive && next) setM(next)
+      const [next, panelMetrics] = await Promise.all([
+        window.decks?.metrics.get().catch(() => null),
+        window.decks?.metrics.panels().catch(() => [] as PanelMetric[])
+      ])
+      if (!alive) return
+      if (next) setM(next)
+      const map: Record<string, number> = {}
+      for (const pm of panelMetrics ?? []) map[pm.panelId] = pm.mb
+      setPerPanel(map)
     }
     void poll()
     const id = setInterval(poll, 2500)
@@ -169,19 +178,28 @@ export function MemoryPanel({ onClose }: { onClose: () => void }): JSX.Element {
     }
   }, [])
 
-  // Derive deck rollups from the real workspace list.
-  type Row = { id: string; name: string; url: string; native: boolean; live: boolean }
+  // Derive deck rollups from the real workspace list, summing the REAL renderer
+  // memory of each workspace's web panels (matched by panelId to main's metrics).
+  type Row = { id: string; name: string; url: string; native: boolean; live: boolean; mb: number }
   const rows: Row[] = workspaces.map((w) => {
     const primary = w.panels[0]
     const native = primary?.kind === 'native'
     const live = !native && w.panels.some((p) => p.kind !== 'native' && !p.discarded)
-    return { id: w.id, name: w.name, url: primary?.url ?? '', native, live }
+    // Sum real MB across this workspace's live web panels (a panel that's truly
+    // live in main shows up in perPanel; discarded/unknown contribute 0).
+    let mb = 0
+    for (const p of w.panels) {
+      if (p.kind === 'native') continue
+      mb += perPanel[p.id] ?? 0
+    }
+    return { id: w.id, name: w.name, url: primary?.url ?? '', native, live, mb }
   })
   const liveWeb = rows.filter((r) => r.live)
   const freed = rows.filter((r) => !r.live)
   const total = m?.ramMB ?? 0
-  const cap = Math.max(1024, total + 200)
-  const webPct = total > 0 ? Math.min(100, ((m?.liveRenderers ?? 0) / Math.max(1, m?.liveRenderers ?? 1)) * (total / cap) * 100) : 0
+  // Share of total RAM attributable to live web decks (real per-deck sum / total).
+  const webMB = liveWeb.reduce((sum, r) => sum + r.mb, 0)
+  const webPct = total > 0 ? Math.min(100, (webMB / total) * 100) : 0
 
   const ddImg = (url: string): string => faviconFor(url)
 
@@ -228,9 +246,9 @@ export function MemoryPanel({ onClose }: { onClose: () => void }): JSX.Element {
               <span className="mi">{r.url ? <img src={ddImg(r.url)} alt="" /> : null}</span>
               <span className="mm">
                 <div className="l">{r.name}</div>
-                <div className="d">Renderer active</div>
+                <div className="d">{r.mb > 0 ? 'Renderer active' : 'Renderer active — measuring…'}</div>
               </span>
-              <span className="mv live">active</span>
+              <span className="mv live">{r.mb > 0 ? `${r.mb} MB` : 'active'}</span>
             </div>
           ))}
           <div className="psec" style={{ paddingLeft: 2 }}>Native &amp; idle · free</div>
@@ -241,7 +259,7 @@ export function MemoryPanel({ onClose }: { onClose: () => void }): JSX.Element {
                 <div className="l">{r.name}</div>
                 <div className="d">{r.native ? 'Native deck — no renderer' : 'Idle — reloads on open'}</div>
               </span>
-              <span className="mv zero">0 MB</span>
+              <span className="mv zero">{r.native ? 'native · 0 MB' : '0 MB'}</span>
             </div>
           ))}
         </div>

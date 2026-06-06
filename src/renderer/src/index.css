@@ -72,7 +72,10 @@
      header height, radii, and the shared easing the panels animate with). */
   --dock-w: 252px;
   --dock-w-rail: 72px;
-  --head-h: 56px;
+  --head-h: 46px;
+  /* The chrome color — header + dock share this exact dark so they read as one
+     continuous L-shape wrapping the (lighter) page card. */
+  --chrome: linear-gradient(180deg, rgba(14, 17, 24, 0.96), rgba(10, 12, 18, 0.96));
   --r-lg: 18px;
   --r-md: 13px;
   --r-sm: 9px;
@@ -1845,7 +1848,7 @@ html.overlay-mode #root {
   align-items: center;
   gap: 14px;
   padding: 0 12px 0 16px;
-  background: linear-gradient(180deg, rgba(14, 17, 24, 0.96), rgba(10, 12, 18, 0.96));
+  background: var(--chrome);
   /* No seam between the header and the dock — the chrome is one continuous
      L-shape; the page card's own top/left border draws the only edge. */
   -webkit-app-region: drag;
@@ -2072,7 +2075,7 @@ html.overlay-mode #root {
 /* Short windows: trim the chrome height so the page card gets the space. */
 @media (max-height: 720px) {
   :root {
-    --head-h: 48px;
+    --head-h: 42px;
   }
 }
 .winbtn {
@@ -2105,8 +2108,9 @@ html.overlay-mode #root {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: linear-gradient(180deg, var(--panel), var(--bg-void));
-  border-right: 1px solid var(--line);
+  /* Same dark chrome as the header — one continuous L wrapping the page card.
+     No seam on the right; the page card's own left border draws the only edge. */
+  background: var(--chrome);
 }
 .dock-scroll {
   flex: 1 1 auto;

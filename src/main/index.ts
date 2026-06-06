@@ -26,7 +26,7 @@ import type {
   FocusPanelEvent
 } from '@shared/ipc'
 import type { PanelId, PersistedState } from '@shared/types'
-import { PanelManager } from './panels'
+import { PanelManager, CHROME_UA } from './panels'
 import { loadState, saveState } from './persistence'
 import { killTrackedChildren } from './lifecycle'
 import { createOverlay, type OverlayController } from './overlay'
@@ -189,6 +189,8 @@ function registerIpc(): void {
       discarded: panels.discardedCount
     }
   })
+  // Real per-deck memory for the Memory panel's per-deck list.
+  ipcMain.handle(IPC.PanelMetricsGet, () => panels.panelMetrics())
 
   // ── Floating hover card overlay (always-on-top, over live web pages) ──
   ipcMain.on(IPC.HoverShow, (_e, p: HoverShowPayload) => overlay?.showHover(p))
@@ -294,8 +296,10 @@ app.whenReady().then(async () => {
 
   // Present as plain Chrome to embedded sites: the default UA contains
   // "decks/x" and "Electron/x" tokens that some sites (Google sign-in, etc.)
-  // reject outright. Strip them so pages load like in a normal browser.
-  app.userAgentFallback = app.userAgentFallback.replace(/\s(decks|Electron)\/[^\s]+/gi, '')
+  // reject outright ("disallowed_useragent" / "unsupported browser"). Use a
+  // clean, fixed Chrome UA — shared with the per-view UA so every embedded deck
+  // and OAuth popup looks like a normal browser.
+  app.userAgentFallback = CHROME_UA
 
   // NOTE: do NOT free the renderer dev port here. By the time main runs,
   // electron-vite has already started the dev server ON that port — freeing it

@@ -120,6 +120,14 @@ interface CanvasAttachment {
   previewUrl?: string
   sizeBytes?: number
   mimeClass?: string
+  /**
+   * Set when this entry is an EMBEDDED media/video (Canvas Studio, a YouTube/
+   * Vimeo/other iframe, a `<video>`/`<source>` tag, or a Canvas media_object).
+   * The renderer shows a video icon and opens `url` in an embedded web deck so
+   * the media player / Studio iframe plays in the sandboxed browser (it can't be
+   * rendered inline). Not a downloadable file — it has no file id/size.
+   */
+  isMedia?: boolean
 }
 
 /** Map a Canvas file object (from /files endpoints or an `attachments[]` entry). */
@@ -185,6 +193,99 @@ function fileIdsFromHtml(html: unknown): string[] {
     if (m[1]) ids.add(m[1])
   }
   return [...ids]
+}
+
+/** Decode the handful of HTML entities that appear inside attribute urls. */
+function decodeAttr(s: string): string {
+  return s
+    .replace(/&amp;/gi, '&')
+    .replace(/&#38;/g, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+}
+
+/** Resolve a possibly-relative media url against the instance origin. */
+function absolutize(url: string, instanceUrl: string): string {
+  const u = decodeAttr(url.trim())
+  if (!u) return ''
+  if (/^https?:\/\//i.test(u)) return u
+  if (u.startsWith('//')) return `https:${u}`
+  return `${instanceUrl}${u.startsWith('/') ? '' : '/'}${u}`
+}
+
+/** A short, human label for an embedded media item (from the host, best-effort). */
+function mediaLabelFor(url: string): string {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '')
+    if (/youtu/.test(host)) return 'YouTube video'
+    if (/vimeo/.test(host)) return 'Vimeo video'
+    if (/instructuremedia|studio/.test(host)) return 'Canvas Studio video'
+    return 'Embedded video'
+  } catch {
+    return 'Embedded video'
+  }
+}
+
+/**
+ * Scrape EMBEDDED media (video) references out of a body/description HTML string.
+ * Canvas videos are usually not plain file links — they're Studio embeds, external
+ * `<iframe>`s (YouTube/Vimeo/embed), `<video>`/`<source>` tags, or links to
+ * `/media_objects/` / `/media_attachments_iframe/`. Returns each as a media
+ * attachment (with a video icon flag) whose `url` is openable in a web deck so it
+ * plays in the embedded browser. Best-effort; tolerant of any/no HTML. Deduped.
+ */
+function mediaEmbedsFromHtml(html: unknown, instanceUrl: string): CanvasAttachment[] {
+  if (typeof html !== 'string' || !html) return []
+  const out: CanvasAttachment[] = []
+  const seen = new Set<string>()
+
+  const add = (rawUrl: string, label?: string): void => {
+    const url = absolutize(rawUrl, instanceUrl)
+    if (!url || seen.has(url)) return
+    // Skip obvious non-video iframes (Office viewer, docs previews) and the
+    // file-preview iframes already surfaced via fileIdsFromHtml.
+    if (/\/files\/\d+/.test(url)) return
+    seen.add(url)
+    out.push({ url, displayName: label ?? mediaLabelFor(url), isMedia: true })
+  }
+
+  // <iframe src="..."> — Studio / YouTube / Vimeo / generic embeds.
+  const iframeRe = /<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi
+  let m: RegExpExecArray | null
+  while ((m = iframeRe.exec(html)) !== null) {
+    const src = m[1] ?? ''
+    if (!src) continue
+    // Only treat as media when it looks like a video host / Canvas media embed.
+    if (
+      /(youtu|vimeo|instructuremedia|studio|media_objects|media_attachments|\/embed\b|player|wistia|kaltura|dailymotion|loom)/i.test(
+        src
+      )
+    ) {
+      add(src)
+    }
+  }
+
+  // <video ... src="..."> and nested <source src="...">.
+  const videoTagRe = /<video\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi
+  while ((m = videoTagRe.exec(html)) !== null) {
+    if (m[1]) add(m[1])
+  }
+  const sourceRe = /<source\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi
+  while ((m = sourceRe.exec(html)) !== null) {
+    if (m[1]) add(m[1])
+  }
+
+  // Canvas media links: /media_objects/{id}, /media_attachments_iframe/{id},
+  // /media_attachments/{id} (also caught via href on <a class="instructure_..">).
+  const mediaPathRe = /(https?:\/\/[^\s"'<>]*)?(\/media_(?:objects|attachments(?:_iframe)?)\/[\w-]+)/gi
+  while ((m = mediaPathRe.exec(html)) !== null) {
+    const full = `${m[1] ?? ''}${m[2] ?? ''}`
+    if (full) add(full)
+  }
+
+  return out
 }
 
 /** One threaded discussion entry (recursive: replies are the same shape). */
@@ -415,6 +516,10 @@ export class CanvasClient implements ProviderClient {
         }
       }
     }
+
+    // 3) Embedded media/video (Studio, iframes, <video>, media_objects). These
+    //    aren't file links so they're scraped separately and opened in a web deck.
+    for (const media of mediaEmbedsFromHtml(html, creds.instanceUrl)) push(media)
 
     return out
   }
