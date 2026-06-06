@@ -895,6 +895,9 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
 
   const [mode, setMode] = useState<ViewMode>('week')
   const [cursor, setCursor] = useState<Date>(() => new Date())
+  // Filters (calendars + overlays + mini-month) live in a header popover now — the
+  // sidebar was removed so the calendar itself gets the full width.
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   // Holidays overlay (Canvas classwork is folded into the School calendar below).
   const [showHolidays, setShowHolidays] = useState(true)
@@ -1343,81 +1346,9 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
   }
 
   return (
-    <div className="relative flex h-full w-full bg-bg text-txt-1">
-      {/* Left sidebar */}
-      <aside className="flex w-48 shrink-0 flex-col gap-3 overflow-y-auto border-r border-line p-3">
-        <MiniMonth anchor={cursor} cursor={cursor} onPick={(d) => setCursor(d)} />
-
-        <div>
-          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-txt-4">
-            Calendars
-          </div>
-          <div className="space-y-1">
-            {calendars.map((c) => (
-              <label
-                key={c.id}
-                className="flex cursor-pointer items-center gap-2 text-xs text-txt-2"
-              >
-                <input
-                  type="checkbox"
-                  checked={c.visible}
-                  onChange={() => toggleCalendar(c.id)}
-                  className="sr-only"
-                />
-                <span
-                  className="grid h-3.5 w-3.5 place-items-center rounded-[4px] border"
-                  style={{
-                    backgroundColor: c.visible ? c.color : 'transparent',
-                    borderColor: c.color
-                  }}
-                >
-                  {c.visible && (
-                    <svg viewBox="0 0 24 24" className="h-2.5 w-2.5 text-black" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M20 6 9 17l-5-5" />
-                    </svg>
-                  )}
-                </span>
-                <span className="truncate">{c.name}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-txt-4">
-            Overlays
-          </div>
-          <div className="space-y-1">
-            <label className="flex cursor-pointer items-center gap-2 text-xs text-txt-2">
-              <input
-                type="checkbox"
-                checked={showHolidays}
-                onChange={(e) => setShowHolidays(e.target.checked)}
-                className="sr-only"
-              />
-              <span
-                className="grid h-3.5 w-3.5 place-items-center rounded-[4px] border"
-                style={{
-                  backgroundColor: showHolidays ? HOLIDAY_COLOR : 'transparent',
-                  borderColor: HOLIDAY_COLOR
-                }}
-              >
-                {showHolidays && (
-                  <svg viewBox="0 0 24 24" className="h-2.5 w-2.5 text-black" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
-                )}
-              </span>
-              <span>Holidays</span>
-            </label>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main area */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* Header */}
-        <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
+    <div className="relative flex h-full w-full flex-col bg-bg text-txt-1">
+      {/* Header (full width — sidebar removed; filters live in the popover) */}
+      <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
           <button
             onClick={goToday}
             className="rounded-lg border border-line bg-bg-elevated px-2.5 py-1 text-xs font-medium text-txt-2 transition-colors hover:text-txt-1"
@@ -1446,6 +1377,78 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
           </div>
           <div className="min-w-0 flex-1 truncate text-sm font-semibold text-txt-1">
             {periodLabel}
+          </div>
+
+          {/* Filters popover (calendars + overlays + quick mini-month nav) */}
+          <div className="relative shrink-0">
+            <button
+              onClick={() => setFiltersOpen((o) => !o)}
+              className={`flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium transition-colors ${
+                filtersOpen ? 'bg-accent text-black' : 'bg-bg-elevated text-txt-2 hover:text-txt-1'
+              }`}
+            >
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 5h18M6 12h12M10 19h4" />
+              </svg>
+              Filters
+            </button>
+            {filtersOpen && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setFiltersOpen(false)} />
+                <div className="absolute right-0 top-full z-30 mt-1.5 w-60 space-y-3 rounded-xl border border-line bg-bg-elevated p-3 shadow-2xl">
+                  <MiniMonth
+                    anchor={cursor}
+                    cursor={cursor}
+                    onPick={(d) => {
+                      setCursor(d)
+                      setFiltersOpen(false)
+                    }}
+                  />
+                  <div>
+                    <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-txt-4">
+                      Calendars
+                    </div>
+                    <div className="space-y-1">
+                      {calendars.map((c) => (
+                        <label key={c.id} className="flex cursor-pointer items-center gap-2 text-xs text-txt-2">
+                          <input type="checkbox" checked={c.visible} onChange={() => toggleCalendar(c.id)} className="sr-only" />
+                          <span
+                            className="grid h-3.5 w-3.5 place-items-center rounded-[4px] border"
+                            style={{ backgroundColor: c.visible ? c.color : 'transparent', borderColor: c.color }}
+                          >
+                            {c.visible && (
+                              <svg viewBox="0 0 24 24" className="h-2.5 w-2.5 text-black" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M20 6 9 17l-5-5" />
+                              </svg>
+                            )}
+                          </span>
+                          <span className="truncate">{c.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-txt-4">
+                      Overlays
+                    </div>
+                    <label className="flex cursor-pointer items-center gap-2 text-xs text-txt-2">
+                      <input type="checkbox" checked={showHolidays} onChange={(e) => setShowHolidays(e.target.checked)} className="sr-only" />
+                      <span
+                        className="grid h-3.5 w-3.5 place-items-center rounded-[4px] border"
+                        style={{ backgroundColor: showHolidays ? HOLIDAY_COLOR : 'transparent', borderColor: HOLIDAY_COLOR }}
+                      >
+                        {showHolidays && (
+                          <svg viewBox="0 0 24 24" className="h-2.5 w-2.5 text-black" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M20 6 9 17l-5-5" />
+                          </svg>
+                        )}
+                      </span>
+                      <span>Holidays</span>
+                    </label>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* View segmented control */}
@@ -1494,7 +1497,6 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
             }}
           />
         )}
-      </div>
 
       {/* Editor modal */}
       {editor && (

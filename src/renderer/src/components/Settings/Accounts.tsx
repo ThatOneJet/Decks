@@ -121,16 +121,6 @@ const PROVIDERS: ProviderDef[] = [
     fields: []
   },
   {
-    id: 'discovery',
-    label: 'Dashboard',
-    glyph: '📊',
-    color: '#22d3ee',
-    blurb: "Your home dashboard — what's new across all your connected decks.",
-    kind: 'aggregate',
-    mode: 'token',
-    fields: []
-  },
-  {
     id: 'notes',
     label: 'Notes',
     glyph: '📝',

@@ -15,7 +15,6 @@ import BlueskyDeck from './bluesky/BlueskyDeck'
 import MastodonDeck from './mastodon/MastodonDeck'
 import RssDeck from './rss/RssDeck'
 import FollowsWallDeck from './follows-wall/FollowsWallDeck'
-import DiscoveryDeck from './discovery/DiscoveryDeck'
 import NotesDeck from './notes/NotesDeck'
 import CalendarDeck from './calendar/CalendarDeck'
 
@@ -30,7 +29,6 @@ export const nativeDeckRegistry: NativeDeckRegistry = {
   mastodon: MastodonDeck,
   rss: RssDeck,
   'follows-wall': FollowsWallDeck,
-  discovery: DiscoveryDeck,
   notes: NotesDeck,
   calendar: CalendarDeck
 }
