@@ -80,6 +80,7 @@ function createWindow(): void {
   panels.setMiniPlayerHooks({
     onStart: (rect, meta) => overlay?.showMiniPlayer(rect, meta),
     onUpdate: (meta) => overlay?.updateMiniPlayer(meta),
+    onLevels: (levels) => overlay?.updateMiniLevels(levels),
     onEnd: () => overlay?.hideMiniPlayer()
   })
 

@@ -39,6 +39,8 @@ export interface OverlayController {
   showMiniPlayer(rect: PanelBounds, meta: MiniPlayerMeta): void
   /** Update the now-playing metadata on an already-visible mini-player bar. */
   updateMiniPlayer(meta: MiniPlayerMeta): void
+  /** Push live audio levels (0..1 per bar) to the visualizer. */
+  updateMiniLevels(levels: number[]): void
   /** Hide the mini-player control bar. */
   hideMiniPlayer(): void
   destroy(): void
@@ -249,6 +251,11 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
       // Only push to the visible bar; if a menu is up the new meta is applied
       // when the bar is restored.
       if (mode === 'miniplayer') sendMini({ show: true, meta })
+    },
+
+    updateMiniLevels(levels: number[]): void {
+      if (!alive() || mode !== 'miniplayer') return
+      win.webContents.send(IPC.OverlayMiniLevels, levels)
     },
 
     hideMiniPlayer(): void {

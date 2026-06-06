@@ -122,6 +122,11 @@ const api: DecksApi = {
     ipcRenderer.on(IPC.OverlayMiniPlayer, listener)
     return () => ipcRenderer.removeListener(IPC.OverlayMiniPlayer, listener)
   },
+  onMiniLevels: (cb: (levels: number[]) => void) => {
+    const listener = (_: unknown, levels: number[]): void => cb(levels)
+    ipcRenderer.on(IPC.OverlayMiniLevels, listener)
+    return () => ipcRenderer.removeListener(IPC.OverlayMiniLevels, listener)
+  },
   onFocusPanel: (cb: (e: FocusPanelEvent) => void) => {
     const listener = (_: unknown, e: FocusPanelEvent): void => cb(e)
     ipcRenderer.on(IPC.FocusPanel, listener)

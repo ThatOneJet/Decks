@@ -53,6 +53,19 @@ const MAX_LIVE_PANELS = 14
 export const CHROME_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
 
+/**
+ * Client-hint (`Sec-CH-UA*`) values matching CHROME_UA. Setting the User-Agent
+ * string alone is NOT enough for Google sign-in: Chromium ALSO sends a brand
+ * list that includes "Electron", and Google reads those headers to flag an
+ * embedded/insecure browser ("Couldn't sign you in — this browser may not be
+ * secure"). We rewrite the brand headers per session so they look like real
+ * Chrome. ⚠️ Best-effort: Google actively fights embedded sign-in and may add
+ * new signals, so this can need bumping over time.
+ */
+const CH_UA = '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"'
+const CH_UA_FULL =
+  '"Chromium";v="130.0.0.0", "Google Chrome";v="130.0.0.0", "Not?A_Brand";v="99.0.0.0"'
+
 interface PanelEntry {
   view: WebContentsView
   /** Whether the view is currently a child of the window's contentView. */
@@ -79,6 +92,8 @@ export interface MiniPlayerHooks {
   onStart(rect: PanelBounds, meta: MiniPlayerMeta): void
   /** Now-playing metadata/playstate changed for the active mini-player. */
   onUpdate(meta: MiniPlayerMeta): void
+  /** Live audio levels (0..1 per bar) for the active mini-player's visualizer. */
+  onLevels(levels: number[]): void
   /** Mini-player ended (returned to full size / went away): hide the bar. */
   onEnd(): void
 }
@@ -119,9 +134,11 @@ function isYouTube(url: string): boolean {
 // and a search box. Positioned in SCREEN coordinates (not window-relative) so it
 // floats anywhere on the display and survives the app window being minimized.
 const CARD_WIDTH = 320
-// Sized to fit the card's content exactly (thumbnail row + controls + seek bar +
-// search box) so there's no empty gap below the search box.
-const CARD_HEIGHT = 164
+// Generous upper bound for the card's content (thumbnail row + visualizer +
+// controls + seek bar + search box). The card is top-anchored with AUTO height,
+// so any leftover window space below it is transparent — never a visible gap —
+// while still guaranteeing the content is never clipped.
+const CARD_HEIGHT = 196
 const BAR_MARGIN = 16
 
 /**
@@ -131,6 +148,9 @@ const BAR_MARGIN = 16
  * `console-message` handler. This is the ONLY page→main channel for these views.
  */
 const MP_SENTINEL = 'DECKS_MP::'
+
+/** Sentinel for live audio levels (real visualizer): `DECKS_EQ::[0.1,0.4,...]`. */
+const EQ_SENTINEL = 'DECKS_EQ::'
 
 /**
  * Idempotent in-page reporter for now-playing state. Reads the WEB-STANDARD
@@ -181,6 +201,7 @@ const MP_INJECT_SCRIPT = `(() => {
     v.__decksBound = true;
     v.addEventListener('loadedmetadata', report);
     v.addEventListener('play', report);
+    v.addEventListener('play', function () { setupEq(v); });
     v.addEventListener('pause', report);
     v.addEventListener('timeupdate', onTimeUpdate);
   }
@@ -207,6 +228,78 @@ const MP_INJECT_SCRIPT = `(() => {
     } catch (e) {}
   }
   try { setInterval(skipAds, 500); } catch (e) {}
+
+  // ── Real audio visualizer ──
+  // Tap the page's <video> with a Web Audio AnalyserNode and stream the
+  // frequency spectrum (downsampled to EQ_BARS bars, 0..1) so the mini-player's
+  // bars actually react to the music. YouTube uses MSE/blob (same-origin) media,
+  // so the analyser gets real data. Best-effort: createMediaElementSource can
+  // only run once per element, and may be blocked by autoplay/CORS — guarded.
+  var EQ_BARS = ${'18'};
+  var eqCtx = null, eqAnalyser = null, eqData = null, eqRAF = 0, eqSrcEl = null;
+  function eqConnect(v) {
+    try {
+      if (eqSrcEl === v) return;
+      // createMediaElementSource reroutes audio through the context — only do it
+      // once the context is RUNNING, else playback would be silenced.
+      if (!eqCtx || eqCtx.state !== 'running') return;
+      var src = eqCtx.createMediaElementSource(v); // one source per element ever
+      if (!eqAnalyser) {
+        eqAnalyser = eqCtx.createAnalyser();
+        eqAnalyser.fftSize = 128;
+        eqAnalyser.smoothingTimeConstant = 0.75;
+        eqData = new Uint8Array(eqAnalyser.frequencyBinCount);
+        eqAnalyser.connect(eqCtx.destination);
+      }
+      src.connect(eqAnalyser);
+      eqSrcEl = v;
+      if (!eqRAF) eqLoop();
+    } catch (e) { /* already-connected / blocked — leave audio untouched */ }
+  }
+  function setupEq(v) {
+    try {
+      if (!v || eqSrcEl === v) return;
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!eqCtx) eqCtx = new AC();
+      if (eqCtx.state === 'suspended') {
+        // Don't tap the element until we can resume — connecting a suspended
+        // context would mute the page. Retry happens on the next play/mutation.
+        eqCtx.resume().then(function () { eqConnect(v); }).catch(function () {});
+      } else {
+        eqConnect(v);
+      }
+    } catch (e) {}
+  }
+  var eqLastSend = 0;
+  function eqLoop() {
+    eqRAF = requestAnimationFrame(eqLoop);
+    try {
+      var now = Date.now();
+      if (now - eqLastSend < 66) return; // ~15fps
+      eqLastSend = now;
+      if (!eqAnalyser || !eqData) return;
+      eqAnalyser.getByteFrequencyData(eqData);
+      // Use the lower ~70% of bins (most musical energy) and bucket into bars.
+      var usable = Math.floor(eqData.length * 0.7);
+      var out = [];
+      for (var b = 0; b < EQ_BARS; b++) {
+        var start = Math.floor((b / EQ_BARS) * usable);
+        var end = Math.max(start + 1, Math.floor(((b + 1) / EQ_BARS) * usable));
+        var sum = 0;
+        for (var k = start; k < end; k++) sum += eqData[k];
+        var avg = sum / (end - start) / 255; // 0..1
+        // Gentle curve so quiet detail still shows.
+        out.push(Math.round(Math.pow(avg, 0.7) * 100) / 100);
+      }
+      console.log(${JSON.stringify(EQ_SENTINEL)} + JSON.stringify(out));
+    } catch (e) {}
+  }
+  setupEq(document.querySelector('video'));
+  // Re-tap when YouTube swaps the <video> on navigation.
+  var eqMo = new MutationObserver(function () { setupEq(document.querySelector('video')); });
+  try { eqMo.observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
+
   report();
 })();`
 
@@ -216,6 +309,8 @@ export class PanelManager {
   private readonly discarded = new Map<PanelId, DiscardedEntry>()
   /** Panels the user pinned "keep alive": never discarded/evicted, kept loaded. */
   private readonly keepAlive = new Set<PanelId>()
+  /** Partitions whose session has had the Chrome client-hint header patch applied. */
+  private readonly patchedSessions = new Set<string>()
   private window: BrowserWindow | null = null
   private sweepTimer: ReturnType<typeof setInterval> | null = null
   /** Idle-discard threshold (ms); configurable from Settings. */
@@ -376,6 +471,32 @@ export class PanelManager {
    * Build a hidden WebContentsView for a panel, wire it, and load `url`. Shared
    * by create() and the recreate-on-return path; both want identical setup.
    */
+  /**
+   * Rewrite outgoing User-Agent + Sec-CH-UA* client-hint headers on a session so
+   * it presents as real Chrome (no "Electron" brand). Applied once per partition.
+   * This is the server-side half of defeating Google's "browser may not be
+   * secure" block; the UA string is set per-webContents separately.
+   */
+  private patchSessionUa(ses: Electron.Session, partition: string): void {
+    if (this.patchedSessions.has(partition)) return
+    this.patchedSessions.add(partition)
+    ses.webRequest.onBeforeSendHeaders((details, cb) => {
+      const headers = details.requestHeaders
+      // Drop any existing UA / client-hint variants (case-insensitive) first so
+      // we never end up sending duplicates of the same header.
+      for (const key of Object.keys(headers)) {
+        if (/^user-agent$/i.test(key) || /^sec-ch-ua/i.test(key)) delete headers[key]
+      }
+      headers['User-Agent'] = CHROME_UA
+      headers['sec-ch-ua'] = CH_UA
+      headers['sec-ch-ua-full-version-list'] = CH_UA_FULL
+      headers['sec-ch-ua-mobile'] = '?0'
+      headers['sec-ch-ua-platform'] = '"Windows"'
+      headers['sec-ch-ua-platform-version'] = '"15.0.0"'
+      cb({ requestHeaders: headers })
+    })
+  }
+
   private buildView(panelId: PanelId, partition: string, url: string): PanelEntry {
     // Make room first so this new deck is guaranteed a renderer process.
     this.evictForRoom()
@@ -409,6 +530,9 @@ export class PanelManager {
     // Present as plain Chrome so Google sign-in et al. don't block the embedded
     // page ("disallowed_useragent"). Must be set BEFORE the first load.
     wc.setUserAgent(CHROME_UA)
+    // Also rewrite the Sec-CH-UA* client-hint headers (brand list) so Chromium's
+    // "Electron" brand never reaches Google — the UA string alone isn't enough.
+    this.patchSessionUa(wc.session, partition)
 
     // OAuth (Google, GitHub, …) opens a popup via window.open/_blank. ALLOW it
     // IN-APP, sharing this deck's session partition, so: (1) the login persists
@@ -514,7 +638,19 @@ export class PanelManager {
     // One-way page→main channel: the injected reporter emits a sentinel line over
     // console.log; parse it into MiniPlayerMeta and forward to the active player.
     wc.on('console-message', (_e, _level, message) => {
-      if (typeof message !== 'string' || !message.startsWith(MP_SENTINEL)) return
+      if (typeof message !== 'string') return
+      // Live audio levels for the visualizer (high-frequency, separate channel).
+      if (message.startsWith(EQ_SENTINEL)) {
+        if (this.miniPanelId !== panelId) return
+        try {
+          const levels = JSON.parse(message.slice(EQ_SENTINEL.length)) as number[]
+          if (Array.isArray(levels)) this.miniHooks?.onLevels(levels)
+        } catch {
+          /* malformed — ignore */
+        }
+        return
+      }
+      if (!message.startsWith(MP_SENTINEL)) return
       try {
         const data = JSON.parse(message.slice(MP_SENTINEL.length)) as {
           title?: string
@@ -870,30 +1006,63 @@ export class PanelManager {
   }
 
   /**
-   * Play another song/video from the mini-player's search box: navigate the
-   * (hidden) YouTube deck to the search results, then click the first result so
-   * playback starts in place — the bar keeps controlling it. ⚠️ FRAGILE: the
-   * result-click depends on YouTube's DOM (like next/prev); the navigation is
-   * stable, only the auto-play click is best-effort.
+   * Play another song/video from the mini-player's search box. To keep the
+   * user's YouTube SEARCH HISTORY from being flooded, we DON'T run the query in
+   * the logged-in deck. Instead we resolve it to a video id with a COOKIELESS
+   * request from the main process (not attributed to the account → no search
+   * entry), then load the watch URL directly in the deck so it plays in place.
+   * (Playing the video still appears in watch history, as expected.) If the
+   * cookieless resolve fails, we fall back to navigating the deck to the results
+   * page and clicking the first result. ⚠️ Both the id-scrape and the result
+   * click depend on YouTube's markup, so they're best-effort.
    */
   miniSearch(query: string): void {
     const wc = this.miniWc()
     if (!wc) return
     const q = (query || '').trim()
     if (!q) return
-    const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`
-    void wc
-      .loadURL(url)
-      .then(() => {
-        // Poll briefly for the first video result, then click it to start playback.
-        const click = `(()=>{var n=0;var t=setInterval(function(){
-          var a=document.querySelector('ytd-video-renderer a#thumbnail, ytd-video-renderer a#video-title, a#video-title');
-          if(a){clearInterval(t);a.click();}
-          if(++n>40)clearInterval(t);
-        },250);})()`
-        return wc.executeJavaScript(click)
+    void this.resolveYouTubeVideoId(q)
+      .then((videoId) => {
+        const live = this.miniWc()
+        if (!live) return
+        if (videoId) {
+          void live.loadURL(`https://www.youtube.com/watch?v=${videoId}`).catch(() => {})
+          return
+        }
+        // Fallback: search in the deck and click the first result.
+        const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`
+        void live
+          .loadURL(url)
+          .then(() => {
+            const click = `(()=>{var n=0;var t=setInterval(function(){
+              var a=document.querySelector('ytd-video-renderer a#thumbnail, ytd-video-renderer a#video-title, a#video-title');
+              if(a){clearInterval(t);a.click();}
+              if(++n>40)clearInterval(t);
+            },250);})()`
+            return live.executeJavaScript(click)
+          })
+          .catch(() => {})
       })
       .catch(() => {})
+  }
+
+  /**
+   * Resolve a search query to the top YouTube video id WITHOUT the user's
+   * cookies (main-process `fetch` has no session cookie jar), so the search is
+   * not recorded to their account. Returns null on any failure.
+   */
+  private async resolveYouTubeVideoId(query: string): Promise<string | null> {
+    try {
+      const res = await fetch(
+        `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`,
+        { headers: { 'User-Agent': CHROME_UA, 'Accept-Language': 'en-US,en;q=0.9' } }
+      )
+      const html = await res.text()
+      const m = html.match(/"videoId":"([\w-]{11})"/)
+      return m ? m[1] : null
+    } catch {
+      return null
+    }
   }
 
   /**

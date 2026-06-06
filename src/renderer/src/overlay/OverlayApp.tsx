@@ -25,6 +25,7 @@ export default function OverlayApp(): JSX.Element | null {
   const [summary, setSummary] = useState<HoverSummary | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [mini, setMini] = useState<MiniPlayerMeta | null>(null)
+  const [levels, setLevels] = useState<number[] | null>(null)
 
   useEffect(() => {
     return window.decks?.onOverlayRender((e) => {
@@ -49,7 +50,12 @@ export default function OverlayApp(): JSX.Element | null {
   useEffect(() => {
     return window.decks?.onMiniPlayer((e) => {
       setMini(e.show && e.meta ? e.meta : null)
+      if (!e.show) setLevels(null)
     })
+  }, [])
+
+  useEffect(() => {
+    return window.decks?.onMiniLevels((l) => setLevels(l))
   }, [])
 
   // Menu wins: it owns the interactive window while open. (Main hides the
@@ -72,7 +78,7 @@ export default function OverlayApp(): JSX.Element | null {
   if (mini) {
     return (
       <div className="fixed inset-0">
-        <MiniPlayerBar meta={mini} />
+        <MiniPlayerBar meta={mini} levels={levels} />
       </div>
     )
   }

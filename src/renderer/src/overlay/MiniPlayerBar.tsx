@@ -15,12 +15,19 @@
  *  - search               → load YouTube results + auto-play the first (FRAGILE).
  *  - close                → EXPAND the deck back to full size (keep playing).
  */
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { MiniPlayerMeta, MiniPlayerControlEvent } from '@shared/ipc'
 
 function send(e: MiniPlayerControlEvent): void {
   window.decks?.miniPlayer.control(e)
 }
+
+/** Fixed, deterministic per-bar timing for the for-funsies equalizer (no RNG so
+ *  it stays stable across re-renders). */
+const EQ_BARS = Array.from({ length: 18 }, (_, i) => ({
+  delay: (i * 73) % 900,
+  dur: 680 + (i % 5) * 130
+}))
 
 /** Seconds → m:ss (or h:mm:ss for long videos). */
 function fmt(s: number): string {
@@ -57,13 +64,40 @@ function Ctrl({
   )
 }
 
-export default function MiniPlayerBar({ meta }: { meta: MiniPlayerMeta }): JSX.Element {
+export default function MiniPlayerBar({
+  meta,
+  levels
+}: {
+  meta: MiniPlayerMeta
+  levels: number[] | null
+}): JSX.Element {
   const { title, artist, artwork, paused, loop } = meta
+  // Real audio levels drive the bars when available; otherwise fall back to the
+  // CSS pulse animation. While paused we flatten them.
+  const hasLevels = !!levels && levels.length > 0
   const duration = meta.duration ?? 0
   const currentTime = meta.currentTime ?? 0
   const pct = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0
 
   const [query, setQuery] = useState('')
+
+  // Marquee the title back and forth when it's too long to fit. Measure the text
+  // overflow against its box; `boxRef` width is stable regardless of the span's
+  // mode, so this recomputes correctly even when a marquee is already running.
+  const titleBoxRef = useRef<HTMLDivElement>(null)
+  const titleTextRef = useRef<HTMLSpanElement>(null)
+  const [marquee, setMarquee] = useState<{ shift: number; dur: number } | null>(null)
+  useEffect(() => {
+    const box = titleBoxRef.current
+    const text = titleTextRef.current
+    if (!box || !text) return
+    const overflow = text.scrollWidth - box.clientWidth
+    if (overflow > 4) {
+      setMarquee({ shift: -(overflow + 6), dur: Math.max(6, Math.round((overflow + 60) / 22)) })
+    } else {
+      setMarquee(null)
+    }
+  }, [title])
 
   // Drag the card by grabbing the artwork/title region. Track ABSOLUTE screen
   // coords so deltas stay correct even as main repositions the window mid-drag.
@@ -114,7 +148,7 @@ export default function MiniPlayerBar({ meta }: { meta: MiniPlayerMeta }): JSX.E
   }
 
   return (
-    <div className="overlay-pop glass pointer-events-auto fixed inset-0 flex flex-col gap-2 rounded-xl2 p-2.5">
+    <div className="overlay-pop glass pointer-events-auto fixed inset-x-0 top-0 flex flex-col gap-2 rounded-xl2 p-2.5">
       {/* 1 — Artwork + title/poster (drag handle). */}
       <div
         onPointerDown={startDrag}
@@ -129,12 +163,48 @@ export default function MiniPlayerBar({ meta }: { meta: MiniPlayerMeta }): JSX.E
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-semibold text-txt-1">{title || 'Playing'}</div>
+          <div ref={titleBoxRef} className="overflow-hidden">
+            <span
+              ref={titleTextRef}
+              className={`text-xs font-semibold text-txt-1 ${marquee ? 'mp-marquee' : 'block truncate'}`}
+              style={
+                marquee
+                  ? ({ '--mp-shift': `${marquee.shift}px`, '--mp-dur': `${marquee.dur}s` } as React.CSSProperties)
+                  : undefined
+              }
+            >
+              {title || 'Playing'}
+            </span>
+          </div>
           {artist && <div className="truncate text-[10.5px] text-txt-3">{artist}</div>}
         </div>
       </div>
 
-      {/* 2 — Controls. Loop on the far left, transport centered, expand far right. */}
+      {/* 2 — Equalizer: driven by the real audio spectrum when available, else a
+          gentle CSS pulse. Bars freeze flat while paused. */}
+      {hasLevels ? (
+        <div className="flex h-3.5 items-end justify-center gap-[3px]">
+          {levels!.map((v, i) => (
+            <span
+              key={i}
+              className="w-[3px] rounded-full bg-accent/70 transition-[height] duration-75 ease-out"
+              style={{ height: `${paused ? 8 : Math.max(8, Math.round(v * 100))}%` }}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className={`flex h-3.5 items-end justify-center gap-[3px] ${paused ? 'mp-eq paused' : 'mp-eq'}`}>
+          {EQ_BARS.map((b, i) => (
+            <span
+              key={i}
+              className="mp-eq-bar h-full w-[3px] rounded-full bg-accent/70"
+              style={{ animationDelay: `${b.delay}ms`, animationDuration: `${b.dur}ms` }}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* 3 — Controls. Loop on the far left, transport centered, expand far right. */}
       <div className="flex items-center justify-between gap-1">
         <Ctrl title={loop ? 'Looping' : 'Loop'} onClick={() => send({ action: 'loop' })} active={loop}>
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

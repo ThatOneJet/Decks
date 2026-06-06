@@ -3252,6 +3252,45 @@ html.overlay-mode #root {
   animation: overlay-pop 140ms ease-out both;
   transform-origin: left center;
 }
+
+/* Mini-player: marquee a too-long song title back and forth so you can read it
+   all. `--mp-shift` is the negative overflow distance (set inline); it holds at
+   each end before reversing (alternate). */
+@keyframes mp-marquee {
+  0%,
+  14% {
+    transform: translateX(0);
+  }
+  86%,
+  100% {
+    transform: translateX(var(--mp-shift, 0));
+  }
+}
+.mp-marquee {
+  display: inline-block;
+  white-space: nowrap;
+  animation: mp-marquee var(--mp-dur, 8s) ease-in-out infinite alternate;
+}
+
+/* Mini-player: a little for-funsies equalizer above the controls. Bars pulse
+   while playing; `.mp-eq.paused` freezes them low. */
+@keyframes mp-eq {
+  0%,
+  100% {
+    transform: scaleY(0.18);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+.mp-eq-bar {
+  transform-origin: bottom;
+  animation: mp-eq 900ms ease-in-out infinite;
+}
+.mp-eq.paused .mp-eq-bar {
+  animation-play-state: paused;
+  transform: scaleY(0.18);
+}
 @keyframes overlay-fade-in {
   from {
     opacity: 0;

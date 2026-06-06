@@ -87,6 +87,8 @@ export const IPC = {
   // ── YouTube corner mini-player (overlay control bar over a corner video) ──
   /** main → the OVERLAY window: show/update/hide the mini-player control bar. */
   OverlayMiniPlayer: 'overlay:miniplayer',
+  /** main → the OVERLAY window: live audio levels for the visualizer (0..1[]). */
+  OverlayMiniLevels: 'overlay:mini-levels',
   /** overlay → main (send): a mini-player control button was pressed. */
   MiniPlayerControl: 'miniplayer:control',
   /** main → the MAIN renderer: focus/expand a panel's deck back to full size. */
@@ -450,6 +452,8 @@ export interface DecksApi {
   onOverlayMenu(cb: (e: OverlayMenuEvent) => void): () => void
   /** (Overlay window only) subscribe to mini-player render events. */
   onMiniPlayer(cb: (e: OverlayMiniPlayerEvent) => void): () => void
+  /** (Overlay window only) subscribe to live mini-player audio levels (0..1[]). */
+  onMiniLevels(cb: (levels: number[]) => void): () => void
   /** (Main renderer only) subscribe to focus-panel requests. */
   onFocusPanel(cb: (e: FocusPanelEvent) => void): () => void
 }
