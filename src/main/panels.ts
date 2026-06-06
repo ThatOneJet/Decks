@@ -257,33 +257,33 @@ const MP_INJECT_SCRIPT = `(() => {
   try { setInterval(skipAds, 500); } catch (e) {}
 
   // ── Real audio visualizer ──
-  // Tap the page's <video> with a Web Audio AnalyserNode and stream the
-  // frequency spectrum (downsampled to EQ_BARS bars, 0..1) so the mini-player's
-  // bars actually react to the music. YouTube uses MSE/blob (same-origin) media,
-  // so the analyser gets real data. Best-effort: createMediaElementSource can
-  // only run once per element, and may be blocked by autoplay/CORS — guarded.
+  // Analyze a COPY of the element's audio via captureStream() → a
+  // MediaStreamAudioSourceNode → AnalyserNode. Unlike createMediaElementSource
+  // this does NOT reroute the element's output (so audio is never silenced) and
+  // it works even when the site already taps the element with its own Web Audio
+  // graph (YouTube does) — that's why the previous approach showed nothing.
   var EQ_BARS = ${'18'};
   var eqCtx = null, eqAnalyser = null, eqData = null, eqRAF = 0, eqSrcEl = null;
+  function ensureAnalyser() {
+    if (eqAnalyser) return;
+    eqAnalyser = eqCtx.createAnalyser();
+    eqAnalyser.fftSize = 1024;
+    eqAnalyser.smoothingTimeConstant = 0.5;
+    eqData = new Uint8Array(eqAnalyser.frequencyBinCount);
+  }
   function eqConnect(v) {
     try {
-      if (eqSrcEl === v) return;
-      // createMediaElementSource reroutes audio through the context — only do it
-      // once the context is RUNNING, else playback would be silenced.
-      if (!eqCtx || eqCtx.state !== 'running') return;
-      var src = eqCtx.createMediaElementSource(v); // one source per element ever
-      if (!eqAnalyser) {
-        eqAnalyser = eqCtx.createAnalyser();
-        // Larger FFT = finer frequency resolution; low smoothing = snappy to the
-        // beat so bars track the actual sound, not just overall loudness.
-        eqAnalyser.fftSize = 1024;
-        eqAnalyser.smoothingTimeConstant = 0.5;
-        eqData = new Uint8Array(eqAnalyser.frequencyBinCount);
-        eqAnalyser.connect(eqCtx.destination);
-      }
-      src.connect(eqAnalyser);
+      if (eqSrcEl === v || !eqCtx) return;
+      var cs = v.captureStream || v.mozCaptureStream;
+      if (!cs) return;
+      var stream = cs.call(v);
+      if (!stream || !stream.getAudioTracks || stream.getAudioTracks().length === 0) return; // not ready — retry later
+      ensureAnalyser();
+      var src = eqCtx.createMediaStreamSource(stream);
+      src.connect(eqAnalyser); // analysis copy only — NOT connected to destination
       eqSrcEl = v;
       if (!eqRAF) eqLoop();
-    } catch (e) { /* already-connected / blocked — leave audio untouched */ }
+    } catch (e) { /* not ready / unsupported — leave audio untouched, retry later */ }
   }
   function setupEq(v) {
     try {
@@ -291,9 +291,9 @@ const MP_INJECT_SCRIPT = `(() => {
       var AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
       if (!eqCtx) eqCtx = new AC();
+      // The analyser only updates while the context is RUNNING; resume it (sticky
+      // user activation from pressing play lets this succeed on the hidden page).
       if (eqCtx.state === 'suspended') {
-        // Don't tap the element until we can resume — connecting a suspended
-        // context would mute the page. Retry happens on the next play/mutation.
         eqCtx.resume().then(function () { eqConnect(v); }).catch(function () {});
       } else {
         eqConnect(v);
@@ -347,6 +347,14 @@ const MP_INJECT_SCRIPT = `(() => {
   // Re-tap when the page swaps the media element on navigation.
   var eqMo = new MutationObserver(function () { setupEq(mediaEl()); });
   try { eqMo.observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
+  // captureStream only exposes audio tracks once playback has started, so keep
+  // retrying until we're connected (then stop).
+  var eqTries = 0;
+  var eqRetry = setInterval(function () {
+    if (eqSrcEl) { clearInterval(eqRetry); return; }
+    setupEq(mediaEl());
+    if (++eqTries > 60) clearInterval(eqRetry);
+  }, 700);
 
   // Refresh hook: re-arm the visualizer + re-report WITHOUT reloading the page
   // (so the song doesn't restart). Clears a stuck equalizer.
