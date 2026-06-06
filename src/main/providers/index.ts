@@ -14,6 +14,8 @@ import { MastodonClient } from './mastodon'
 import { RssClient } from './rss'
 import { FollowsWallClient } from './follows-wall'
 import { DiscoveryClient } from './discovery'
+import { NotesClient } from './notes'
+import { CalendarClient } from './calendar'
 
 /** Register all concrete provider clients. Call once on app startup. */
 export function registerAllProviders(): void {
@@ -23,6 +25,8 @@ export function registerAllProviders(): void {
   registerProvider(new BlueskyClient())
   registerProvider(new MastodonClient())
   registerProvider(new RssClient())
+  registerProvider(new NotesClient())
+  registerProvider(new CalendarClient())
   // The follows-wall aggregates the above at runtime, so it must register last.
   registerProvider(new FollowsWallClient())
   // Discover also aggregates the source providers at runtime — register last too.

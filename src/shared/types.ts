@@ -27,6 +27,8 @@ export type ProviderId =
   | 'rss'
   | 'follows-wall'
   | 'discovery'
+  | 'notes'
+  | 'calendar'
 
 /**
  * Connection status of a provider, reported by its ProviderClient (main) back

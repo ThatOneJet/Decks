@@ -129,6 +129,26 @@ const PROVIDERS: ProviderDef[] = [
     kind: 'aggregate',
     mode: 'token',
     fields: []
+  },
+  {
+    id: 'notes',
+    label: 'Notes',
+    glyph: '📝',
+    color: '#f5b342',
+    blurb: 'A fast, Notion-style workspace — pages, to-dos, and blocks. Local & private.',
+    kind: 'aggregate',
+    mode: 'token',
+    fields: []
+  },
+  {
+    id: 'calendar',
+    label: 'Calendar',
+    glyph: '📅',
+    color: '#4ade80',
+    blurb: 'Your own calendar — events, national holidays, and a Canvas classwork overlay.',
+    kind: 'aggregate',
+    mode: 'token',
+    fields: []
   }
 ]
 

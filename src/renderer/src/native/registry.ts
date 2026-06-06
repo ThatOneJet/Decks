@@ -16,6 +16,8 @@ import MastodonDeck from './mastodon/MastodonDeck'
 import RssDeck from './rss/RssDeck'
 import FollowsWallDeck from './follows-wall/FollowsWallDeck'
 import DiscoveryDeck from './discovery/DiscoveryDeck'
+import NotesDeck from './notes/NotesDeck'
+import CalendarDeck from './calendar/CalendarDeck'
 
 /** Partial map: a provider without an entry falls back to the placeholder. */
 export type NativeDeckRegistry = Partial<Record<ProviderId, ComponentType<NativeDeckProps>>>
@@ -28,5 +30,7 @@ export const nativeDeckRegistry: NativeDeckRegistry = {
   mastodon: MastodonDeck,
   rss: RssDeck,
   'follows-wall': FollowsWallDeck,
-  discovery: DiscoveryDeck
+  discovery: DiscoveryDeck,
+  notes: NotesDeck,
+  calendar: CalendarDeck
 }

@@ -61,14 +61,15 @@ const STEPS: Step[] = [
     )
   },
   {
-    target: '.tabstrip',
-    side: 'bottom',
-    title: 'Split and open beside',
+    target: '.page-card',
+    side: 'left',
+    title: 'Split the page',
     body: (
       <>
-        Open a deck and a tab strip appears on its card. Drag a dock tile into
-        the page (or use “open beside”) to view two decks at once — up to four
-        panes side by side.
+        Drag any dock tile onto the page card to view two decks at once — glowing
+        drop zones show where they’ll land. Up to four panes (side-by-side on a
+        wide screen, stacked on a tall one). Each pane has its own reload, focus,
+        and pop-out.
       </>
     )
   },
@@ -188,10 +189,11 @@ function Tour(): JSX.Element | null {
   const vh = window.innerHeight
   let cardStyle: React.CSSProperties
   if (!ring || step.side === 'center') {
+    // Center via px (NOT translate) — the card's `pop` animation ends at
+    // `transform: none`, which would otherwise wipe a centering transform.
     cardStyle = {
-      left: '50%',
-      top: '50%',
-      transform: 'translate(-50%, -50%)'
+      left: Math.round((vw - CARD_W) / 2),
+      top: Math.round(vh / 2 - 140)
     }
   } else {
     let left = ring.left
@@ -216,8 +218,13 @@ function Tour(): JSX.Element | null {
 
   return (
     <div className="tour-root">
-      {/* Dimmed scrim. A real target gets a "cut-out" ring (box-shadow halo). */}
-      <div className="tour-scrim" onClick={closeTour} />
+      {/* Dimmed scrim. When a ring is shown, the ring's own box-shadow provides
+          the dim (so it isn't doubled) — the scrim then just catches click-to-skip. */}
+      <div
+        className="tour-scrim"
+        style={ring ? { background: 'transparent', backdropFilter: 'none' } : undefined}
+        onClick={closeTour}
+      />
       {ring && (
         <div
           className="tour-ring"

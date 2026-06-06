@@ -143,6 +143,28 @@ export const NATIVE_INTEGRATIONS: NativeIntegration[] = [
     mode: 'token',
     requiresAuth: false,
     fields: []
+  },
+  {
+    kind: 'native',
+    id: 'notes',
+    label: 'Notes',
+    glyph: '📝',
+    color: '#f5b342',
+    blurb: 'A fast, Notion-style workspace — pages, to-dos, blocks. Local & private.',
+    mode: 'token',
+    requiresAuth: false,
+    fields: []
+  },
+  {
+    kind: 'native',
+    id: 'calendar',
+    label: 'Calendar',
+    glyph: '📅',
+    color: '#4ade80',
+    blurb: 'Your own calendar — events, holidays, and a Canvas classwork overlay.',
+    mode: 'token',
+    requiresAuth: false,
+    fields: []
   }
 ]
 

@@ -230,6 +230,26 @@ type View =
   | { type: 'discussion'; courseId: string; topicId: string }
   | { type: 'page'; courseId: string; pageUrl: string }
 
+/**
+ * Canvas-style sequential navigation context for a detail view: the ORDERED list
+ * of sibling items the current item belongs to (captured at the moment the user
+ * clicked it) plus the current index. Drives the ‹ Previous / Next › controls so
+ * the user can step through the same list they came from without going back.
+ *
+ * Each item carries its `courseId` because some source lists (the agenda, the
+ * Assignments tab) span multiple courses. `id` is the assignmentId / topicId /
+ * pageUrl depending on `kind`.
+ */
+interface NavItem {
+  courseId: string
+  id: string
+}
+interface NavContext {
+  kind: 'assignment' | 'discussion' | 'page'
+  items: NavItem[]
+  index: number
+}
+
 /* ── Date helpers ── */
 
 const MS_MIN = 60 * 1000
@@ -686,6 +706,75 @@ function CourseChip({
   )
 }
 
+/* ── Detail Prev/Next navigation (Canvas-style) ──
+ *
+ * Steps sequentially through the ordered list the detail item was opened from.
+ * Prev is disabled at index 0, Next at the end, with a compact "{n} of {N}".
+ */
+function DetailNav({
+  index,
+  total,
+  onPrev,
+  onNext
+}: {
+  index: number
+  total: number
+  onPrev: () => void
+  onNext: () => void
+}): JSX.Element {
+  const atStart = index <= 0
+  const atEnd = index >= total - 1
+  const btn =
+    'grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-line bg-bg-elevated text-txt-3 transition-colors enabled:hover:text-txt-1 disabled:opacity-40 disabled:cursor-default'
+  return (
+    <div className="flex shrink-0 items-center gap-1.5">
+      <button
+        type="button"
+        onClick={onPrev}
+        disabled={atStart}
+        className={btn}
+        aria-label="Previous"
+        title="Previous"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          className="h-4 w-4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
+      </button>
+      <span className="shrink-0 whitespace-nowrap text-[11px] font-medium tabular-nums text-txt-3">
+        {index + 1} of {total}
+      </span>
+      <button
+        type="button"
+        onClick={onNext}
+        disabled={atEnd}
+        className={btn}
+        aria-label="Next"
+        title="Next"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          className="h-4 w-4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M9 18l6-6-6-6" />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
 /* ── Tabs ── */
 
 const TABS: Array<{ key: TabKey; label: string }> = [
@@ -716,6 +805,9 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
   const [account, setAccount] = useState<string | undefined>(undefined)
   const [tab, setTab] = useState<TabKey>('overview')
   const [view, setView] = useState<View>({ type: 'list' })
+  // Canvas-style Prev/Next context for the active detail view (null = no list to
+  // step through, e.g. opened from a course header or a single item).
+  const [nav, setNav] = useState<NavContext | null>(null)
 
   // Overview (dashboard) data
   const [dash, setDash] = useState<CanvasDashboard | null>(null)
@@ -811,6 +903,7 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
         announcements: IDLE_TAB
       })
       setView({ type: 'list' })
+      setNav(null)
       setState('ready')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load Canvas data')
@@ -1251,26 +1344,32 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
   const openDiscussions = useCallback(
     (courseId: string): void => {
       setView({ type: 'discussions', courseId })
+      setNav(null)
       void loadDiscussions(courseId)
     },
     [loadDiscussions]
   )
 
-  /** Navigate into a single discussion thread. */
+  /**
+   * Navigate into a single discussion thread. `nextNav` (optional) captures the
+   * ordered sibling list + index so Prev/Next can step through it.
+   */
   const openDiscussion = useCallback(
-    (courseId: string, topicId?: string): void => {
+    (courseId: string, topicId?: string, nextNav?: NavContext | null): void => {
       if (!topicId) return
       setView({ type: 'discussion', courseId, topicId })
+      setNav(nextNav ?? null)
       void loadDiscussionThread(courseId, topicId)
     },
     [loadDiscussionThread]
   )
 
-  /** Navigate into a single page. */
+  /** Navigate into a single page. `nextNav` (optional) drives Prev/Next stepping. */
   const openPage = useCallback(
-    (courseId: string, pageUrl?: string): void => {
+    (courseId: string, pageUrl?: string, nextNav?: NavContext | null): void => {
       if (!pageUrl) return
       setView({ type: 'page', courseId, pageUrl })
+      setNav(nextNav ?? null)
       void loadPage(courseId, pageUrl)
     },
     [loadPage]
@@ -1281,6 +1380,7 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
     (courseId?: string): void => {
       if (!courseId) return
       setView({ type: 'course', courseId })
+      setNav(null)
       void loadCourseDetail(courseId)
       void loadDiscussions(courseId)
       void loadModules(courseId)
@@ -1299,11 +1399,15 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
     ]
   )
 
-  /** Navigate into an assignment detail. */
+  /**
+   * Navigate into an assignment detail. `nextNav` (optional) captures the ordered
+   * sibling list + index it was opened from so Prev/Next can step through it.
+   */
   const openAssignment = useCallback(
-    (courseId?: string, assignmentId?: string): void => {
+    (courseId?: string, assignmentId?: string, nextNav?: NavContext | null): void => {
       if (!courseId || !assignmentId) return
       setView({ type: 'assignment', courseId, assignmentId })
+      setNav(nextNav ?? null)
       void loadAssignmentDetail(courseId, assignmentId)
     },
     [loadAssignmentDetail]
@@ -1311,6 +1415,7 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
 
   /** Back from a detail view → its logical parent (course/discussions/list). */
   const back = useCallback((): void => {
+    setNav(null)
     setView((v) => {
       if (v.type === 'discussion') return { type: 'discussions', courseId: v.courseId }
       if (v.type === 'discussions') return { type: 'course', courseId: v.courseId }
@@ -1318,6 +1423,26 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
       return { type: 'list' }
     })
   }, [])
+
+  /**
+   * Step the active detail view to the adjacent sibling (Canvas-style Prev/Next).
+   * Reuses the existing open* handlers with the SAME nav context at the new index,
+   * so the lazy fetch + view swap happen exactly as a normal click would.
+   */
+  const stepNav = useCallback(
+    (delta: -1 | 1): void => {
+      if (!nav) return
+      const next = nav.index + delta
+      if (next < 0 || next >= nav.items.length) return
+      const target = nav.items[next]
+      if (!target) return
+      const movedNav: NavContext = { ...nav, index: next }
+      if (nav.kind === 'assignment') openAssignment(target.courseId, target.id, movedNav)
+      else if (nav.kind === 'discussion') openDiscussion(target.courseId, target.id, movedNav)
+      else if (nav.kind === 'page') openPage(target.courseId, target.id, movedNav)
+    },
+    [nav, openAssignment, openDiscussion, openPage]
+  )
 
   /** Refresh: reload current view/tab (overview reloads everything). */
   const refresh = useCallback((): void => {
@@ -1431,6 +1556,14 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
             <h2 className="truncate text-sm font-semibold text-txt-1">Canvas</h2>
             {account && <p className="truncate text-xs text-txt-3">{account}</p>}
           </div>
+          {inDetail && nav && nav.items.length > 1 && (
+            <DetailNav
+              index={nav.index}
+              total={nav.items.length}
+              onPrev={() => stepNav(-1)}
+              onNext={() => stepNav(1)}
+            />
+          )}
           <button
             onClick={refresh}
             className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-line bg-bg-elevated text-txt-3 transition-colors hover:text-txt-1"
@@ -1611,15 +1744,53 @@ function groupAgendaByDay(items: CanvasAssignment[]): { dated: DayGroup[]; undat
   return { dated, undated }
 }
 
+/**
+ * Build an assignment nav context (ordered courseId/id pairs + the clicked
+ * index) from a display-ordered list, for Canvas-style Prev/Next. Returns null
+ * when there's nothing to step through.
+ */
+function assignmentNav(ordered: CanvasAssignment[], a: CanvasAssignment): NavContext | null {
+  const items: NavItem[] = ordered
+    .filter((x) => x.courseId && x.id)
+    .map((x) => ({ courseId: x.courseId!, id: x.id! }))
+  if (items.length < 2) return null
+  const index = items.findIndex((x) => x.courseId === a.courseId && x.id === a.id)
+  if (index < 0) return null
+  return { kind: 'assignment', items, index }
+}
+
+/**
+ * Build a discussion nav context from a display-ordered topic list (all in the
+ * same course). Returns null when there's nothing to step through.
+ */
+function discussionNav(
+  ordered: CanvasDiscussion[],
+  courseId: string,
+  t: CanvasDiscussion
+): NavContext | null {
+  const items: NavItem[] = ordered.filter((x) => x.id).map((x) => ({ courseId, id: x.id! }))
+  if (items.length < 2) return null
+  const index = items.findIndex((x) => x.id === t.id)
+  if (index < 0) return null
+  return { kind: 'discussion', items, index }
+}
+
 /** An agenda assignment row (course-colored, missing-aware, → assignment detail). */
 function AgendaAssignmentRow({
   a,
   label,
+  nav,
   onOpenAssignment
 }: {
   a: CanvasAssignment
   label?: string
-  onOpenAssignment: (courseId?: string, assignmentId?: string) => void
+  /** Ordered sibling list this row belongs to, for Prev/Next stepping. */
+  nav?: NavContext | null
+  onOpenAssignment: (
+    courseId?: string,
+    assignmentId?: string,
+    nav?: NavContext | null
+  ) => void
 }): JSX.Element {
   const missing = isMissing(a)
   const u = urgency(a.dueAt)
@@ -1630,7 +1801,7 @@ function AgendaAssignmentRow({
   return (
     <button
       type="button"
-      onClick={() => onOpenAssignment(a.courseId, a.id)}
+      onClick={() => onOpenAssignment(a.courseId, a.id, nav ?? null)}
       disabled={!a.courseId || !a.id}
       className={`flex w-full items-start gap-2.5 overflow-hidden rounded-lg border border-line bg-bg-elevated py-2.5 pr-3 text-left transition-colors enabled:hover:border-accent-ring disabled:cursor-default ${
         done ? 'opacity-60' : ''
@@ -1724,11 +1895,21 @@ function OverviewTab({
   assignments: CanvasAssignment[]
   courseName: (id?: string) => string | undefined
   onOpenCourse: (courseId?: string) => void
-  onOpenAssignment: (courseId?: string, assignmentId?: string) => void
+  onOpenAssignment: (
+    courseId?: string,
+    assignmentId?: string,
+    nav?: NavContext | null
+  ) => void
 }): JSX.Element {
   const todayRef = useRef<HTMLDivElement | null>(null)
   const { dated, undated } = groupAgendaByDay(assignments)
   const todayKey = dayKey(new Date())
+  // Flattened agenda display order (dated groups oldest→newest, then undated) —
+  // the list Prev/Next steps through when an agenda item is opened.
+  const agendaOrder = useMemo(
+    () => [...dated.flatMap((g) => g.items), ...undated],
+    [dated, undated]
+  )
 
   // Scroll the Today divider into view once the agenda is ready.
   useEffect(() => {
@@ -1794,6 +1975,7 @@ function OverviewTab({
                         key={a.id ?? `${a.name ?? 'a'}-${j}`}
                         a={a}
                         label={a.courseName ?? courseName(a.courseId)}
+                        nav={assignmentNav(agendaOrder, a)}
                         onOpenAssignment={onOpenAssignment}
                       />
                     ))}
@@ -1816,6 +1998,7 @@ function OverviewTab({
                       key={a.id ?? `nd-${a.name ?? 'a'}-${j}`}
                       a={a}
                       label={a.courseName ?? courseName(a.courseId)}
+                      nav={assignmentNav(agendaOrder, a)}
                       onOpenAssignment={onOpenAssignment}
                     />
                   ))}
@@ -1881,7 +2064,11 @@ function AssignmentsTab({
   items: CanvasAssignment[]
   courseName: (id?: string) => string | undefined
   onOpenCourse: (courseId?: string) => void
-  onOpenAssignment: (courseId?: string, assignmentId?: string) => void
+  onOpenAssignment: (
+    courseId?: string,
+    assignmentId?: string,
+    nav?: NavContext | null
+  ) => void
 }): JSX.Element {
   if (meta.state === 'loading' || meta.state === 'idle')
     return <TabStatus kind="loading" message="Loading assignments…" />
@@ -1897,6 +2084,8 @@ function AssignmentsTab({
     if (arr) arr.push(a)
     else grouped.set(b, [a])
   }
+  // Flattened display order across buckets — the list Prev/Next steps through.
+  const order = DUE_BUCKETS.flatMap(({ key }) => grouped.get(key) ?? [])
 
   return (
     <div className="flex flex-col gap-5">
@@ -1914,6 +2103,7 @@ function AssignmentsTab({
                   key={a.id ?? `${a.name ?? 'a'}-${i}`}
                   a={a}
                   label={a.courseName ?? courseName(a.courseId)}
+                  nav={assignmentNav(order, a)}
                   onOpenAssignment={onOpenAssignment}
                 />
               ))}
@@ -3103,10 +3293,14 @@ function CourseDetailView({
   modules?: DetailCache<CanvasModule[]>
   quizzes?: DetailCache<CanvasQuiz[]>
   courseName: (id?: string) => string | undefined
-  onOpenAssignment: (courseId?: string, assignmentId?: string) => void
+  onOpenAssignment: (
+    courseId?: string,
+    assignmentId?: string,
+    nav?: NavContext | null
+  ) => void
   onOpenDiscussions: (courseId: string) => void
-  onOpenDiscussion: (courseId: string, topicId?: string) => void
-  onOpenPage: (courseId: string, pageUrl?: string) => void
+  onOpenDiscussion: (courseId: string, topicId?: string, nav?: NavContext | null) => void
+  onOpenPage: (courseId: string, pageUrl?: string, nav?: NavContext | null) => void
   onMarkModuleItem: (
     courseId: string,
     moduleId: string,
@@ -3131,6 +3325,10 @@ function CourseDetailView({
   const myAnnouncements = announcements.filter((a) => a.courseId === courseId)
   const label = courseName(courseId) ?? d.courseCode ?? d.name
 
+  // Flattened display order across this course's assignment sections — the list
+  // Prev/Next steps through when one of them is opened from the course view.
+  const courseAssignmentOrder = [...missing, ...upcoming, ...pastDone, ...noDate]
+
   const section = (
     title: string,
     tone: 'err' | 'accent' | 'muted' | 'ok',
@@ -3148,6 +3346,7 @@ function CourseDetailView({
               key={a.id ?? `${a.name ?? 'a'}-${i}`}
               a={a}
               label={label}
+              nav={assignmentNav(courseAssignmentOrder, a)}
               onOpenAssignment={onOpenAssignment}
             />
           ))}
@@ -3263,9 +3462,11 @@ function CourseDiscussionsSection({
   courseId: string
   list?: DetailCache<CanvasDiscussion[]>
   onOpenDiscussions: (courseId: string) => void
-  onOpenDiscussion: (courseId: string, topicId?: string) => void
+  onOpenDiscussion: (courseId: string, topicId?: string, nav?: NavContext | null) => void
 }): JSX.Element {
   const topics = (list?.data ?? []).filter((t) => !t.isAnnouncement)
+  // Only the first 5 are shown here, so Prev/Next steps through those 5.
+  const shown = topics.slice(0, 5)
   const loading = !list || list.state === 'loading' || list.state === 'idle'
   return (
     <section className="mt-5">
@@ -3289,11 +3490,12 @@ function CourseDiscussionsSection({
         <p className="text-xs text-txt-4">No discussions for this course.</p>
       ) : (
         <div className="flex flex-col gap-2">
-          {topics.slice(0, 5).map((t, i) => (
+          {shown.map((t, i) => (
             <DiscussionRow
               key={t.id ?? `${t.title ?? 'd'}-${i}`}
               t={t}
               courseId={courseId}
+              nav={discussionNav(shown, courseId, t)}
               onOpenDiscussion={onOpenDiscussion}
             />
           ))}
@@ -3315,7 +3517,7 @@ function CourseModulesSection({
   courseId: string
   modules?: DetailCache<CanvasModule[]>
   accent: string
-  onOpenPage: (courseId: string, pageUrl?: string) => void
+  onOpenPage: (courseId: string, pageUrl?: string, nav?: NavContext | null) => void
   onMarkModuleItem: (
     courseId: string,
     moduleId: string,
@@ -3325,6 +3527,9 @@ function CourseModulesSection({
 }): JSX.Element {
   const list = modules?.data ?? []
   const loading = !modules || modules.state === 'loading' || modules.state === 'idle'
+  // All readable page items across modules, in display order — the list Prev/Next
+  // steps through when a page is opened.
+  const pageOrder = list.flatMap((m) => (m.items ?? []).filter((it) => it.type === 'Page' && it.pageUrl))
   return (
     <section className="mt-5">
       <SectionHeading count={loading ? undefined : list.length}>Modules</SectionHeading>
@@ -3350,6 +3555,7 @@ function CourseModulesSection({
                       moduleId={m.id ?? ''}
                       item={it}
                       accent={accent}
+                      nav={pageNav(pageOrder, courseId, it)}
                       onOpenPage={onOpenPage}
                       onMarkModuleItem={onMarkModuleItem}
                     />
@@ -3364,12 +3570,32 @@ function CourseModulesSection({
   )
 }
 
+/**
+ * Build a page nav context from a display-ordered list of page items (same
+ * course). `id` is the pageUrl. Returns null when there's nothing to step
+ * through. Non-page module items are ignored (only pages open in-deck).
+ */
+function pageNav(
+  ordered: CanvasModuleItem[],
+  courseId: string,
+  item: CanvasModuleItem
+): NavContext | null {
+  const items: NavItem[] = ordered
+    .filter((x) => x.type === 'Page' && x.pageUrl)
+    .map((x) => ({ courseId, id: x.pageUrl! }))
+  if (items.length < 2) return null
+  const index = items.findIndex((x) => x.id === item.pageUrl)
+  if (index < 0) return null
+  return { kind: 'page', items, index }
+}
+
 /** A single module item row: page→open in deck; others→Open in Canvas; optional done toggle. */
 function ModuleItemRow({
   courseId,
   moduleId,
   item,
   accent,
+  nav,
   onOpenPage,
   onMarkModuleItem
 }: {
@@ -3377,7 +3603,9 @@ function ModuleItemRow({
   moduleId: string
   item: CanvasModuleItem
   accent: string
-  onOpenPage: (courseId: string, pageUrl?: string) => void
+  /** Ordered page-item list this row belongs to, for Prev/Next stepping. */
+  nav?: NavContext | null
+  onOpenPage: (courseId: string, pageUrl?: string, nav?: NavContext | null) => void
   onMarkModuleItem: (
     courseId: string,
     moduleId: string,
@@ -3405,7 +3633,7 @@ function ModuleItemRow({
       {isPage ? (
         <button
           type="button"
-          onClick={() => onOpenPage(courseId, item.pageUrl)}
+          onClick={() => onOpenPage(courseId, item.pageUrl, nav ?? null)}
           className="min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-xs text-txt-2 transition-colors hover:text-accent"
           style={{ borderLeft: `2px solid ${accent}`, paddingLeft: '0.5rem' }}
         >
@@ -3517,16 +3745,19 @@ function CourseQuizzesSection({
 function DiscussionRow({
   t,
   courseId,
+  nav,
   onOpenDiscussion
 }: {
   t: CanvasDiscussion
   courseId: string
-  onOpenDiscussion: (courseId: string, topicId?: string) => void
+  /** Ordered sibling list this row belongs to, for Prev/Next stepping. */
+  nav?: NavContext | null
+  onOpenDiscussion: (courseId: string, topicId?: string, nav?: NavContext | null) => void
 }): JSX.Element {
   return (
     <button
       type="button"
-      onClick={() => onOpenDiscussion(courseId, t.id)}
+      onClick={() => onOpenDiscussion(courseId, t.id, nav ?? null)}
       disabled={!t.id}
       className="flex w-full flex-col items-start gap-1 overflow-hidden rounded-lg border border-line bg-bg-elevated px-3 py-2.5 text-left transition-colors enabled:hover:border-accent-ring disabled:cursor-default"
     >
@@ -3563,7 +3794,7 @@ function DiscussionsView({
   list?: DetailCache<CanvasDiscussion[]>
   courseId: string
   courseName: (id?: string) => string | undefined
-  onOpenDiscussion: (courseId: string, topicId?: string) => void
+  onOpenDiscussion: (courseId: string, topicId?: string, nav?: NavContext | null) => void
 }): JSX.Element {
   const label = courseName(courseId)
   if (!list || list.state === 'loading' || list.state === 'idle') {
@@ -3596,6 +3827,7 @@ function DiscussionsView({
               key={t.id ?? `${t.title ?? 'd'}-${i}`}
               t={t}
               courseId={courseId}
+              nav={discussionNav(topics, courseId, t)}
               onOpenDiscussion={onOpenDiscussion}
             />
           ))}

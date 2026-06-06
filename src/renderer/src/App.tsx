@@ -51,8 +51,18 @@ function App(): JSX.Element {
   const openTour = useStore((s) => s.openTour)
   const [welcomeOpen, setWelcomeOpen] = useState(() => welcomeUnseen())
 
-  // ── Console dock: collapse to a slim rail (⌘/Ctrl+B). ──
+  // ── Console dock: collapse to a slim rail (⌘/Ctrl+B), and AUTO-collapse on
+  // narrow screens so small laptops feel as roomy as a big monitor. ──
   const [dockCollapsed, setDockCollapsed] = useState(false)
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 1080
+  )
+  useEffect(() => {
+    const onResize = (): void => setNarrow(window.innerWidth < 1080)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  const collapsed = dockCollapsed || narrow
 
   const hydrated = useRef(false)
   const createdPanels = useRef<Set<string>>(new Set())
@@ -279,7 +289,7 @@ function App(): JSX.Element {
   useEffect(() => {
     const id = setTimeout(() => window.dispatchEvent(new Event('resize')), 0)
     return () => clearTimeout(id)
-  }, [focusMode, dockCollapsed])
+  }, [focusMode, collapsed])
 
   const showSplit = view === 'workspace' && workspaces.length > 0
   const inFocus = focusMode && showSplit
@@ -313,7 +323,7 @@ function App(): JSX.Element {
 
   return (
     <div
-      className={'console' + (dockCollapsed ? ' rail' : '')}
+      className={'console' + (collapsed ? ' rail' : '')}
       // Focus mode / portrait hide the dock, so collapse its grid column to 0.
       style={inFocus || dockMode ? { gridTemplateColumns: '0 1fr' } : undefined}
     >
@@ -337,7 +347,7 @@ function App(): JSX.Element {
       ) : (
         // Landscape Console: [dock | workspace] below the header.
         <>
-          <Sidebar collapsed={dockCollapsed} onToggleCollapse={() => setDockCollapsed((v) => !v)} />
+          <Sidebar collapsed={collapsed} onToggleCollapse={() => setDockCollapsed((v) => !v)} />
           <div className="workspace relative">{surface}</div>
         </>
       )}

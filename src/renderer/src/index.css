@@ -64,7 +64,9 @@
   --r-card: 18px;
   --rail-w: 76px;
   --top-h: 52px;
-  --inset: 10px;
+  /* The floating page card hugs the dock + header (just a hairline so the card
+     edge reads). More room for the actual pages. */
+  --inset: 4px;
 
   /* Console shell geometry + motion (the grid in `.console`, dock widths,
      header height, radii, and the shared easing the panels animate with). */
@@ -1745,7 +1747,9 @@ html.overlay-mode #root {
   align-items: center;
   gap: 11px;
   width: calc(var(--dock-w) - 28px);
-  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  flex: 0 1 auto;
   -webkit-app-region: no-drag;
   transition: width 0.32s var(--ease);
 }
@@ -1770,6 +1774,7 @@ html.overlay-mode #root {
 /* command bar — the centerpiece of discoverability */
 .cmdbar {
   flex: 1 1 auto;
+  min-width: 0;
   max-width: 560px;
   margin: 0 auto;
   height: 38px;
@@ -1911,6 +1916,54 @@ html.overlay-mode #root {
   display: flex;
   gap: 2px;
   margin-left: 2px;
+  flex: none;
+}
+.hbtn,
+.mempill {
+  flex: none;
+}
+
+/* ============================================================
+   RESPONSIVE — keep everything ON-SCREEN and uncluttered on small
+   laptops so they feel as roomy as a big monitor. The header
+   sheds labels (then the brand name) before anything can fall off
+   the right edge; the window controls always stay visible.
+   ============================================================ */
+@media (max-width: 1200px) {
+  .header {
+    gap: 10px;
+    padding: 0 8px 0 12px;
+  }
+  /* Focus button → icon only; memory pill drops its sub-line. */
+  .hbtn span {
+    display: none;
+  }
+  .hbtn {
+    padding: 0 9px;
+  }
+  .mempill .mtxt s {
+    display: none;
+  }
+}
+@media (max-width: 1000px) {
+  .brand .bname {
+    display: none;
+  }
+  .mempill .mtxt {
+    display: none;
+  }
+  .mempill {
+    padding: 0 9px;
+  }
+  .cmdbar {
+    max-width: none;
+  }
+}
+/* Short windows: trim the chrome height so the page card gets the space. */
+@media (max-height: 720px) {
+  :root {
+    --head-h: 48px;
+  }
 }
 .winbtn {
   width: 30px;
