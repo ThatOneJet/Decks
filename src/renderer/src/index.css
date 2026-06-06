@@ -1864,6 +1864,14 @@ html.overlay-mode #root {
 .console.is-focus .dock {
   display: none;
 }
+/* Dock is gone, so the workspace must occupy the single column (it's normally
+   grid-column 2 — which no longer exists in focus mode, so without this it spills
+   into an implicit right-hand column and the card only fills half the screen). */
+.console.is-focus .workspace {
+  grid-column: 1;
+  /* No dock on the left in focus mode → give the card an even gap all around. */
+  padding: 2px var(--gap) var(--gap) var(--gap);
+}
 /* Portrait — header on top, workspace in the middle, dock as a bottom taskbar. */
 .console.is-portrait {
   grid-template-columns: 1fr;
