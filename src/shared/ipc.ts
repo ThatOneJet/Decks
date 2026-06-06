@@ -253,6 +253,7 @@ export interface MiniPlayerControlEvent {
     | 'prev'
     | 'loop'
     | 'close'
+    | 'reload'
     | 'seek'
     | 'search'
     | 'move-start'

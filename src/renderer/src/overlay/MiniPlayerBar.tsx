@@ -232,11 +232,21 @@ export default function MiniPlayerBar({
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M16 6h2v12h-2zM4 6l8.5 6L4 18z" /></svg>
           </Ctrl>
         </div>
-        <Ctrl title="Expand to full size" onClick={() => send({ action: 'close' })}>
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-          </svg>
-        </Ctrl>
+        <div className="flex items-center gap-1">
+          <Ctrl title="Refresh (fixes a stuck visualizer)" onClick={() => send({ action: 'reload' })}>
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+              <path d="M21 3v5h-5" />
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+              <path d="M3 21v-5h5" />
+            </svg>
+          </Ctrl>
+          <Ctrl title="Expand to full size" onClick={() => send({ action: 'close' })}>
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+            </svg>
+          </Ctrl>
+        </div>
       </div>
 
       {/* 3 — Seek bar with elapsed timer at its start. */}

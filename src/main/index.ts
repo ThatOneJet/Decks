@@ -248,6 +248,9 @@ function registerIpc(): void {
       case 'loop':
         panels.miniToggleLoop()
         break
+      case 'reload':
+        panels.miniReload()
+        break
       case 'seek':
         panels.miniSeek(p.time ?? 0)
         break

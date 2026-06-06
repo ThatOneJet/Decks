@@ -1110,6 +1110,12 @@ export class PanelManager {
       .catch(() => {})
   }
 
+  /** Reload the corner deck — re-injects the reporter + visualizer setup, which
+   *  clears a stuck/“bugged” equalizer. STABLE. */
+  miniReload(): void {
+    this.miniWc()?.reload()
+  }
+
   /** Seek the corner media. STABLE (web-standard HTMLMediaElement). */
   miniSeek(time: number): void {
     const t = Number.isFinite(time) ? Math.max(0, time) : 0
