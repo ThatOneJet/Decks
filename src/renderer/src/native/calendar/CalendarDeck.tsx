@@ -62,7 +62,7 @@ interface Classwork {
 }
 
 type ViewMode = 'day' | 'week' | 'month' | 'year'
-type LoadState = 'loading' | 'disconnected' | 'ready' | 'error'
+type LoadState = 'loading' | 'ready' | 'error'
 
 const HOLIDAY_COLOR = '#fb923c'
 const CLASSWORK_COLOR = '#a3e635'
@@ -823,16 +823,17 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
   // Range currently fetched for classwork (refetch on change).
   const classworkRange = useRef<string>('')
 
-  /* ── Load on mount ── */
+  /* ── Load on mount ──
+   * Calendar is our OWN local store with NO auth, so (like the RSS deck) we do
+   * NOT gate on provider.status().connected. The deck-creation flow only calls
+   * connect() for auth providers, so a calendar account may never have been
+   * "connected" — but the provider's `load` self-seeds + persists defaults on
+   * first read, so fetching 'load' directly always yields a usable store. We
+   * only fall into the error state if the IPC call itself throws. */
   const load = useCallback(async (): Promise<void> => {
     setState('loading')
     setError('')
     try {
-      const status = await window.decks?.provider.status(provider, accountId)
-      if (!status?.connected) {
-        setState('disconnected')
-        return
-      }
       const result = (await window.decks?.provider.fetch({
         provider,
         accountId,
@@ -840,7 +841,7 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
       })) as LoadResult | undefined
       setEvents(Array.isArray(result?.events) ? result!.events : [])
       setCalendars(Array.isArray(result?.calendars) ? result!.calendars : [])
-      setCountry(result?.country || 'US')
+      setCountry(typeof result?.country === 'string' && result.country ? result.country : 'US')
       setState('ready')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load calendar')
@@ -1215,14 +1216,6 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
       <div className="grid h-full w-full place-items-center bg-bg">
         <Spinner />
       </div>
-    )
-  }
-  if (state === 'disconnected') {
-    return (
-      <CenterMessage
-        title="Connect Calendar in Settings"
-        body="Add the Calendar deck to start tracking your events, holidays, and Canvas classwork in one place."
-      />
     )
   }
   if (state === 'error') {
