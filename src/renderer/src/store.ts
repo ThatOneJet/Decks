@@ -129,6 +129,11 @@ export interface DecksState {
   /** Per-panel reload counter — bump to remount a native deck (force refresh). */
   panelReloadNonce: Record<PanelId, number>
   bumpPanelReload: (panelId: PanelId) => void
+  /** Cross-deck request: open a specific Canvas assignment (set by the Calendar
+   *  deck when a classwork item is clicked; consumed + cleared by CanvasDeck). */
+  pendingCanvasAction: { courseId: string; assignmentId: string } | null
+  requestCanvasAssignment: (courseId: string, assignmentId: string) => void
+  clearCanvasAction: () => void
   patchPanel: (panelId: PanelId, patch: Partial<Panel>) => void
   setLayout: (workspaceId: WorkspaceId, layout: LayoutNode) => void
 
@@ -165,6 +170,7 @@ export const useStore = create<DecksState>((set, get) => ({
   dragging: false,
   draggingId: null,
   panelReloadNonce: {},
+  pendingCanvasAction: null,
 
   activeWorkspace: () => {
     const { workspaces, activeWorkspaceId } = get()
@@ -331,6 +337,9 @@ export const useStore = create<DecksState>((set, get) => ({
     set((s) => ({
       panelReloadNonce: { ...s.panelReloadNonce, [panelId]: (s.panelReloadNonce[panelId] ?? 0) + 1 }
     })),
+  requestCanvasAssignment: (courseId, assignmentId) =>
+    set({ pendingCanvasAction: { courseId, assignmentId } }),
+  clearCanvasAction: () => set({ pendingCanvasAction: null }),
   patchPanel: (panelId, patch) =>
     set((s) => ({
       workspaces: s.workspaces.map((w) => ({

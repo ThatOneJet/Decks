@@ -8,7 +8,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import * as electron from 'electron'
 import { join } from 'path'
-import { appendFileSync } from 'fs'
+import { appendFileSync, watchFile } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC } from '@shared/ipc'
 import type {
@@ -135,6 +135,24 @@ function createWindow(): void {
   // ready-to-show is missed or the renderer is slow to paint.
   mainWindow.show()
   mainWindow.focus()
+
+  // ── Dev auto-refresh ──
+  // electron-vite already HMRs the renderer and restarts on main changes, but the
+  // embedded deck web views don't reload on HMR. After finishing an update we
+  // `touch` <projectRoot>/dev-reload; this hard-reloads the window AND every deck
+  // so the running dev app shows the latest without the user closing it.
+  if (is.dev) {
+    try {
+      const sentinel = join(process.cwd(), 'dev-reload')
+      watchFile(sentinel, { interval: 600 }, () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return
+        mainWindow.webContents.reloadIgnoringCache()
+        panels.reloadAll()
+      })
+    } catch {
+      /* dev-only convenience — ignore if unavailable */
+    }
+  }
 }
 
 /** Register every IPC handler from the contract. Call once on ready. */

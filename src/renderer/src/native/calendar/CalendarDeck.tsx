@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { NativeDeckProps } from '../types'
+import { useStore } from '../../store'
 
 /* ── Shapes mirrored from the main-process CalendarClient.fetch(...) ── */
 
@@ -63,6 +64,9 @@ interface Classwork {
   title: string
   due: string
   courseName?: string
+  courseId?: string
+  /** True once submitted/graded — used to show only OPEN classwork. */
+  hasSubmitted?: boolean
 }
 
 type ViewMode = 'day' | 'week' | 'month' | 'year'
@@ -302,6 +306,8 @@ interface PositionedClass {
   laneIndex: number
   laneCount: number
   due: Date
+  assignmentId: string
+  courseId?: string
 }
 
 /**
@@ -312,7 +318,7 @@ interface PositionedClass {
  * at the same time fan out into lanes so none hide behind another.
  */
 function layoutClasswork(items: Classwork[], color: string): PositionedClass[] {
-  const BLOCK_MIN = 30 // visual height of a deadline pill, in minutes
+  const BLOCK_MIN = 60 // pill spans from 1h before the due time → the due time
   const blocks = items
     .map((c) => ({ c, due: parseISO(c.due) }))
     .filter((x) => !Number.isNaN(x.due.getTime()))
@@ -342,7 +348,9 @@ function layoutClasswork(items: Classwork[], color: string): PositionedClass[] {
     heightPct: (BLOCK_MIN / 1440) * 100,
     laneIndex: a.lane,
     laneCount,
-    due: a.b.due
+    due: a.b.due,
+    assignmentId: a.b.c.id,
+    courseId: a.b.c.courseId
   }))
 }
 
@@ -575,7 +583,8 @@ function TimeGrid({
   allDayByDay,
   now,
   onSlotClick,
-  onEventClick
+  onEventClick,
+  onOpenClasswork
 }: {
   days: Date[]
   positioned: Map<string, PositionedEvent[]>
@@ -584,6 +593,7 @@ function TimeGrid({
   now: Date
   onSlotClick: (day: Date, hour: number) => void
   onEventClick: (e: CalEvent) => void
+  onOpenClasswork: (c: PositionedClass) => void
 }): JSX.Element {
   const today = new Date()
   const nowPct = (minutesOfDay(now) / 1440) * 100
@@ -707,13 +717,17 @@ function TimeGrid({
                   )
                 })}
 
-                {/* Canvas classwork deadlines — read-only pills at the due time */}
+                {/* Canvas classwork — click to open the assignment in the Canvas deck */}
                 {(classByDay.get(dayKey(d)) ?? []).map((c) => {
                   const widthPct = 100 / c.laneCount
                   return (
-                    <div
+                    <button
                       key={c.key}
-                      className="pointer-events-none absolute overflow-hidden rounded-md border border-dashed px-1 py-0.5 text-left text-[10px] leading-tight"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onOpenClasswork(c)
+                      }}
+                      className="absolute overflow-hidden rounded-md border border-dashed px-1 py-0.5 text-left text-[10px] leading-tight transition-[filter] hover:brightness-125"
                       style={{
                         top: `${c.topPct}%`,
                         height: `${c.heightPct}%`,
@@ -721,13 +735,14 @@ function TimeGrid({
                         width: `calc(${widthPct}% - 2px)`,
                         backgroundColor: tint(c.color, 0.16),
                         borderColor: tint(c.color, 0.6),
-                        color: c.color
+                        color: c.color,
+                        cursor: c.courseId ? 'pointer' : 'default'
                       }}
-                      title={`Due ${timeLabel(c.due)} · ${c.title}`}
+                      title={`Due ${timeLabel(c.due)} · ${c.title}${c.courseId ? ' · open in Canvas' : ''}`}
                     >
                       <div className="truncate font-semibold">📌 {c.title}</div>
                       <div className="truncate opacity-80">Due {timeLabel(c.due)}</div>
-                    </div>
+                    </button>
                   )
                 })}
               </div>
@@ -1073,6 +1088,7 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
     const m = new Map<string, Classwork[]>()
     if (!schoolVisible) return m
     for (const c of classwork) {
+      if (c.hasSubmitted) continue // show only OPEN (uncompleted) classwork
       const d = parseISO(c.due)
       if (Number.isNaN(d.getTime())) continue
       const k = dayKey(d)
@@ -1293,6 +1309,17 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
     setEditor({ isNew: false, event: e })
   }, [])
 
+  /* Click a Canvas classwork pill → switch to the Canvas deck + open that
+     assignment's page (cross-deck via the store; CanvasDeck consumes it). */
+  const openClasswork = useCallback((c: PositionedClass): void => {
+    if (!c.courseId) return
+    const st = useStore.getState()
+    const canvasWs = st.workspaces.find((w) => w.panels.some((p) => p.provider === 'canvas'))
+    if (!canvasWs) return
+    st.requestCanvasAssignment(c.courseId, c.assignmentId)
+    st.activateWorkspace(canvasWs.id)
+  }, [])
+
   /* ── Navigation ── */
   const navigate = useCallback(
     (dir: -1 | 1): void => {
@@ -1477,6 +1504,7 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
             now={now}
             onSlotClick={openNewAt}
             onEventClick={openEvent}
+            onOpenClasswork={openClasswork}
           />
         ) : mode === 'month' ? (
           <MonthGrid

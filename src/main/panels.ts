@@ -945,6 +945,18 @@ export class PanelManager {
     entry.view.webContents.reload()
   }
 
+  /** Reload every live deck web view (used by the dev auto-refresh so decks pick
+   *  up the latest after a code update without closing the app). */
+  reloadAll(): void {
+    for (const entry of this.panels.values()) {
+      try {
+        if (!entry.view.webContents.isDestroyed()) entry.view.webContents.reload()
+      } catch {
+        /* destroyed mid-iterate — ignore */
+      }
+    }
+  }
+
   /**
    * Sign in to a web deck via a REAL top-level browser window (not the embedded
    * WebContentsView). Google blocks OAuth performed inside an embedded frame

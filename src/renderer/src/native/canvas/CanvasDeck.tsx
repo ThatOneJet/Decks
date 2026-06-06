@@ -1511,6 +1511,15 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
     [loadAssignmentDetail]
   )
 
+  // Cross-deck: when the Calendar deck requests an assignment, open it here.
+  const pendingCanvasAction = useStore((s) => s.pendingCanvasAction)
+  const clearCanvasAction = useStore((s) => s.clearCanvasAction)
+  useEffect(() => {
+    if (!pendingCanvasAction) return
+    openAssignment(pendingCanvasAction.courseId, pendingCanvasAction.assignmentId)
+    clearCanvasAction()
+  }, [pendingCanvasAction, openAssignment, clearCanvasAction])
+
   /** Back from a detail view → its logical parent (course/discussions/list). */
   const back = useCallback((): void => {
     setNav(null)

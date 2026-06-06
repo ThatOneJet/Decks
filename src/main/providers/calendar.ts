@@ -366,7 +366,16 @@ export class CalendarClient implements ProviderClient {
    */
   private async classwork(
     params?: Record<string, unknown>
-  ): Promise<Array<{ id: string; title: string; due: string; courseName?: string }>> {
+  ): Promise<
+    Array<{
+      id: string
+      title: string
+      due: string
+      courseName?: string
+      courseId?: string
+      hasSubmitted?: boolean
+    }>
+  > {
     const startMs = Date.parse(asStr(params?.start))
     const endMs = Date.parse(asStr(params?.end))
     if (Number.isNaN(startMs) || Number.isNaN(endMs)) return []
@@ -381,13 +390,22 @@ export class CalendarClient implements ProviderClient {
       const raw = await canvas.fetch(first.id, 'assignments')
       if (!Array.isArray(raw)) return []
 
-      const out: Array<{ id: string; title: string; due: string; courseName?: string }> = []
+      const out: Array<{
+        id: string
+        title: string
+        due: string
+        courseName?: string
+        courseId?: string
+        hasSubmitted?: boolean
+      }> = []
       for (let i = 0; i < raw.length; i++) {
         const a = raw[i] as {
           id?: unknown
           name?: unknown
           dueAt?: unknown
           courseName?: unknown
+          courseId?: unknown
+          hasSubmitted?: unknown
         }
         const due = asStr(a.dueAt)
         if (!due) continue
@@ -398,7 +416,10 @@ export class CalendarClient implements ProviderClient {
           id,
           title: typeof a.name === 'string' && a.name.trim() ? a.name : 'Assignment',
           due: new Date(t).toISOString(),
-          courseName: typeof a.courseName === 'string' ? a.courseName : undefined
+          courseName: typeof a.courseName === 'string' ? a.courseName : undefined,
+          courseId: typeof a.courseId === 'string' ? a.courseId : undefined,
+          // Pass through completion so the calendar can show only OPEN classwork.
+          hasSubmitted: a.hasSubmitted === true
         })
       }
       return out
