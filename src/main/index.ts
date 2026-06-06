@@ -242,6 +242,12 @@ function registerIpc(): void {
       case 'loop':
         panels.miniToggleLoop()
         break
+      case 'seek':
+        panels.miniSeek(p.time ?? 0)
+        break
+      case 'search':
+        panels.miniSearch(p.query ?? '')
+        break
       case 'close': {
         // "Close" = this isn't a song, let me actually watch it. Tell the MAIN
         // renderer to focus the deck; it owns workspace state and will activate

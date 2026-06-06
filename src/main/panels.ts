@@ -10,8 +10,8 @@
  * The per-workspace `partition` (always `persist:<workspaceId>`) gives each
  * workspace its own persistent Electron session, so logins survive restarts.
  */
-import { WebContentsView, shell, app } from 'electron'
-import type { BrowserWindow } from 'electron'
+import { WebContentsView, shell, app, screen } from 'electron'
+import type { BrowserWindow, Display } from 'electron'
 import { IPC } from '@shared/ipc'
 import type {
   PanelCreatePayload,
@@ -114,10 +114,13 @@ function isYouTube(url: string): boolean {
   }
 }
 
-// ── Mini-player bar geometry (just the control strip — no corner video) ──
-const BAR_WIDTH = 340
-const BAR_HEIGHT = 60
-const BAR_MARGIN = 14
+// ── Mini-player card geometry ──
+// A vertical card: thumbnail + title, a controls row, a seek bar with a timer,
+// and a search box. Positioned in SCREEN coordinates (not window-relative) so it
+// floats anywhere on the display and survives the app window being minimized.
+const CARD_WIDTH = 320
+const CARD_HEIGHT = 196
+const BAR_MARGIN = 16
 
 /**
  * Page-injected metadata/playstate sentinel prefix. The injected script (which
@@ -493,13 +496,17 @@ export class PanelManager {
           artwork?: string
           paused?: boolean
           loop?: boolean
+          currentTime?: number
+          duration?: number
         }
         const meta: MiniPlayerMeta = {
           title: data.title || '',
           artist: data.artist || '',
           artwork: data.artwork || undefined,
           paused: !!data.paused,
-          loop: !!data.loop
+          loop: !!data.loop,
+          currentTime: Number.isFinite(data.currentTime) ? data.currentTime : 0,
+          duration: Number.isFinite(data.duration) ? data.duration : 0
         }
         const e = this.panels.get(panelId)
         if (e) e.meta = meta
@@ -717,24 +724,41 @@ export class PanelManager {
     this.miniHooks?.onStart(this.barRect(), meta)
   }
 
+  /** The display the mini-player lives on — the one the app window is on (its
+   *  normal bounds when minimized), falling back to the primary display. */
+  private currentDisplay(): Display {
+    try {
+      const w = this.window
+      if (w && !w.isDestroyed()) {
+        const b = w.isMinimized() ? w.getNormalBounds() : w.getBounds()
+        return screen.getDisplayMatching(b)
+      }
+    } catch {
+      /* fall through to primary */
+    }
+    return screen.getPrimaryDisplay()
+  }
+
   /**
-   * The floating bar's rectangle. Defaults to the TOP-RIGHT corner; once the user
-   * has dragged it, uses the remembered `miniPos` (clamped on-screen). Fixed size
-   * — it never grows.
+   * The floating card's rectangle in SCREEN coordinates. Defaults to the
+   * TOP-RIGHT of the current display's work area; once the user has dragged it,
+   * uses the remembered `miniPos` (screen coords), clamped so the whole card
+   * stays on the display but can reach every edge — independent of the app
+   * window's position or size, so it works even while Decks is minimized.
    */
   private barRect(): PanelBounds {
-    const c = this.window?.getContentBounds()
-    const w = c?.width ?? BAR_WIDTH + BAR_MARGIN * 2
-    const h = c?.height ?? BAR_HEIGHT + BAR_MARGIN * 2
-    const maxX = Math.max(0, w - BAR_WIDTH - BAR_MARGIN)
-    const maxY = Math.max(0, h - BAR_HEIGHT - BAR_MARGIN)
-    let x = maxX // right
-    let y = BAR_MARGIN // top
+    const area = this.currentDisplay().workArea
+    const minX = area.x
+    const minY = area.y
+    const maxX = area.x + Math.max(0, area.width - CARD_WIDTH)
+    const maxY = area.y + Math.max(0, area.height - CARD_HEIGHT)
+    let x = area.x + Math.max(0, area.width - CARD_WIDTH - BAR_MARGIN) // right
+    let y = area.y + BAR_MARGIN // top
     if (this.miniPos) {
-      x = Math.min(Math.max(this.miniPos.x, BAR_MARGIN), maxX)
-      y = Math.min(Math.max(this.miniPos.y, BAR_MARGIN), maxY)
+      x = Math.min(Math.max(this.miniPos.x, minX), maxX)
+      y = Math.min(Math.max(this.miniPos.y, minY), maxY)
     }
-    return this.toIntBounds({ x, y, width: BAR_WIDTH, height: BAR_HEIGHT })
+    return this.toIntBounds({ x, y, width: CARD_WIDTH, height: CARD_HEIGHT })
   }
 
   /** Begin a drag: snapshot the bar's current top-left as the delta anchor. */
@@ -816,6 +840,33 @@ export class PanelManager {
     const t = Number.isFinite(time) ? Math.max(0, time) : 0
     void this.miniWc()
       ?.executeJavaScript(`(()=>{var v=document.querySelector('video');if(v)v.currentTime=${t};})()`)
+      .catch(() => {})
+  }
+
+  /**
+   * Play another song/video from the mini-player's search box: navigate the
+   * (hidden) YouTube deck to the search results, then click the first result so
+   * playback starts in place — the bar keeps controlling it. ⚠️ FRAGILE: the
+   * result-click depends on YouTube's DOM (like next/prev); the navigation is
+   * stable, only the auto-play click is best-effort.
+   */
+  miniSearch(query: string): void {
+    const wc = this.miniWc()
+    if (!wc) return
+    const q = (query || '').trim()
+    if (!q) return
+    const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`
+    void wc
+      .loadURL(url)
+      .then(() => {
+        // Poll briefly for the first video result, then click it to start playback.
+        const click = `(()=>{var n=0;var t=setInterval(function(){
+          var a=document.querySelector('ytd-video-renderer a#thumbnail, ytd-video-renderer a#video-title, a#video-title');
+          if(a){clearInterval(t);a.click();}
+          if(++n>40)clearInterval(t);
+        },250);})()`
+        return wc.executeJavaScript(click)
+      })
       .catch(() => {})
   }
 

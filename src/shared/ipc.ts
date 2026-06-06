@@ -230,6 +230,10 @@ export interface MiniPlayerMeta {
   paused: boolean
   /** True while the corner video is set to loop. */
   loop?: boolean
+  /** Current playback position (seconds), for the progress bar. */
+  currentTime?: number
+  /** Total media duration (seconds); 0/absent when unknown (e.g. live). */
+  duration?: number
 }
 
 /** event: OverlayMiniPlayer (main → the overlay window). */
@@ -240,9 +244,22 @@ export interface OverlayMiniPlayerEvent {
 
 /** payload: MiniPlayerControl (overlay → main). A control button / drag event. */
 export interface MiniPlayerControlEvent {
-  action: 'play' | 'pause' | 'next' | 'prev' | 'loop' | 'close' | 'move-start' | 'move' | 'move-end'
-  /** Optional seek target (seconds), for action === 'play'/'pause' scrubbing. */
+  action:
+    | 'play'
+    | 'pause'
+    | 'next'
+    | 'prev'
+    | 'loop'
+    | 'close'
+    | 'seek'
+    | 'search'
+    | 'move-start'
+    | 'move'
+    | 'move-end'
+  /** Seek target (seconds), for action === 'seek'. */
   time?: number
+  /** Search query, for action === 'search' (play another song/video). */
+  query?: string
   /** For action === 'move': drag delta (screen px) since 'move-start'. */
   dx?: number
   dy?: number

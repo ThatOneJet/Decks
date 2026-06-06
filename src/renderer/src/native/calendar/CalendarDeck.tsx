@@ -292,6 +292,60 @@ function layoutDay(events: CalEvent[], colorOf: (id: string) => string): Positio
   }))
 }
 
+/* ── A Canvas classwork deadline placed on the hourly grid ── */
+interface PositionedClass {
+  key: string
+  title: string
+  color: string
+  topPct: number
+  heightPct: number
+  laneIndex: number
+  laneCount: number
+  due: Date
+}
+
+/**
+ * Place each Canvas assignment as a read-only pill on the hourly grid at the
+ * exact time it's DUE (e.g. an 11:59 PM deadline sits at the bottom of that
+ * day's column). The pill's bottom edge is the deadline; it occupies a short
+ * fixed block ABOVE that time so the due moment reads as the cut-off. Deadlines
+ * at the same time fan out into lanes so none hide behind another.
+ */
+function layoutClasswork(items: Classwork[], color: string): PositionedClass[] {
+  const BLOCK_MIN = 30 // visual height of a deadline pill, in minutes
+  const blocks = items
+    .map((c) => ({ c, due: parseISO(c.due) }))
+    .filter((x) => !Number.isNaN(x.due.getTime()))
+    .map((x) => ({ ...x, dueMin: minutesOfDay(x.due) }))
+    .sort((a, b) => a.dueMin - b.dueMin)
+
+  const lanes: Array<{ end: number }> = []
+  const assigned = blocks.map((b) => {
+    const startMin = Math.max(0, b.dueMin - BLOCK_MIN)
+    const endMin = b.dueMin
+    let lane = lanes.findIndex((l) => l.end <= startMin)
+    if (lane === -1) {
+      lane = lanes.length
+      lanes.push({ end: endMin })
+    } else {
+      lanes[lane].end = endMin
+    }
+    return { b, startMin, lane }
+  })
+
+  const laneCount = Math.max(1, lanes.length)
+  return assigned.map((a) => ({
+    key: `cw_${a.b.c.id}`,
+    title: a.b.c.courseName ? `${a.b.c.title} · ${a.b.c.courseName}` : a.b.c.title,
+    color,
+    topPct: (a.startMin / 1440) * 100,
+    heightPct: (BLOCK_MIN / 1440) * 100,
+    laneIndex: a.lane,
+    laneCount,
+    due: a.b.due
+  }))
+}
+
 /* ── Event editor modal ── */
 
 interface EditorState {
@@ -517,6 +571,7 @@ function useNow(intervalMs = 60_000): Date {
 function TimeGrid({
   days,
   positioned,
+  classByDay,
   allDayByDay,
   now,
   onSlotClick,
@@ -524,6 +579,7 @@ function TimeGrid({
 }: {
   days: Date[]
   positioned: Map<string, PositionedEvent[]>
+  classByDay: Map<string, PositionedClass[]>
   allDayByDay: Map<string, AllDayItem[]>
   now: Date
   onSlotClick: (day: Date, hour: number) => void
@@ -648,6 +704,30 @@ function TimeGrid({
                       <div className="truncate font-semibold">{p.event.title}</div>
                       <div className="truncate opacity-80">{timeLabel(parseISO(p.event.start))}</div>
                     </button>
+                  )
+                })}
+
+                {/* Canvas classwork deadlines — read-only pills at the due time */}
+                {(classByDay.get(dayKey(d)) ?? []).map((c) => {
+                  const widthPct = 100 / c.laneCount
+                  return (
+                    <div
+                      key={c.key}
+                      className="pointer-events-none absolute overflow-hidden rounded-md border border-dashed px-1 py-0.5 text-left text-[10px] leading-tight"
+                      style={{
+                        top: `${c.topPct}%`,
+                        height: `${c.heightPct}%`,
+                        left: `${c.laneIndex * widthPct}%`,
+                        width: `calc(${widthPct}% - 2px)`,
+                        backgroundColor: tint(c.color, 0.16),
+                        borderColor: tint(c.color, 0.6),
+                        color: c.color
+                      }}
+                      title={`Due ${timeLabel(c.due)} · ${c.title}`}
+                    >
+                      <div className="truncate font-semibold">📌 {c.title}</div>
+                      <div className="truncate opacity-80">Due {timeLabel(c.due)}</div>
+                    </div>
                   )
                 })}
               </div>
@@ -1000,9 +1080,14 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
     return m
   }, [classwork, schoolVisible])
 
-  /** All-day-row items for one day (all-day events + holidays + classwork). */
+  /**
+   * All-day-row items for one day (all-day events + holidays + classwork).
+   * `includeClasswork` is true for the month/year chip views; the hourly
+   * (day/week) grid passes false because there Canvas classwork is placed at
+   * its exact due time on the time grid instead of in the all-day row.
+   */
   const allDayItemsFor = useCallback(
-    (day: Date): AllDayItem[] => {
+    (day: Date, includeClasswork = true): AllDayItem[] => {
       const k = dayKey(day)
       const items: AllDayItem[] = []
       for (const e of visibleEvents) {
@@ -1021,13 +1106,15 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
       }
       // Canvas classwork: visually part of the School calendar (its color), but
       // tagged kind:'classwork' and given no `event` so it stays read-only.
-      for (const c of classworkByDay.get(k) ?? []) {
-        items.push({
-          key: `c_${c.id}`,
-          title: c.courseName ? `${c.title} · ${c.courseName}` : c.title,
-          color: schoolColor,
-          kind: 'classwork'
-        })
+      if (includeClasswork) {
+        for (const c of classworkByDay.get(k) ?? []) {
+          items.push({
+            key: `c_${c.id}`,
+            title: c.courseName ? `${c.title} · ${c.courseName}` : c.title,
+            color: schoolColor,
+            kind: 'classwork'
+          })
+        }
       }
       return items
     },
@@ -1066,9 +1153,20 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
 
   const allDayByDay = useMemo(() => {
     const m = new Map<string, AllDayItem[]>()
-    for (const d of viewDays) m.set(dayKey(d), allDayItemsFor(d))
+    // Hourly (day/week) all-day row excludes classwork — it's placed on the grid.
+    for (const d of viewDays) m.set(dayKey(d), allDayItemsFor(d, false))
     return m
   }, [viewDays, allDayItemsFor])
+
+  /* Canvas classwork placed on the hourly grid at its exact due time. */
+  const classByDay = useMemo(() => {
+    const m = new Map<string, PositionedClass[]>()
+    for (const d of viewDays) {
+      const items = classworkByDay.get(dayKey(d)) ?? []
+      if (items.length) m.set(dayKey(d), layoutClasswork(items, schoolColor))
+    }
+    return m
+  }, [viewDays, classworkByDay, schoolColor])
 
   const monthChipsByDay = useMemo(() => {
     const m = new Map<string, AllDayItem[]>()
@@ -1371,6 +1469,7 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
           <TimeGrid
             days={viewDays}
             positioned={positionedByDay}
+            classByDay={classByDay}
             allDayByDay={allDayByDay}
             now={now}
             onSlotClick={openNewAt}

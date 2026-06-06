@@ -119,18 +119,20 @@ export function createOverlay(parent: BrowserWindow): OverlayController {
   }
 
   /**
-   * Position+size the window to the mini-player BAR rect (main computes it —
-   * top-right by default, or wherever the user dragged it). `miniRect` IS the bar
-   * rect (window-relative); convert to screen coords like showHover does and set
-   * the window bounds exactly. Fixed size — never grows. Interactive but never
-   * steals focus.
+   * Position+size the window to the mini-player CARD rect. `miniRect` is already
+   * in absolute SCREEN coordinates (main computes it against the display work
+   * area — top-right by default, or wherever the user dragged it), so it floats
+   * anywhere on screen and stays put even when the app window is minimized. Set
+   * the window bounds exactly. Interactive but never steals focus.
    */
   const showMiniBar = (): void => {
-    if (!alive() || parent.isDestroyed() || !miniRect || !miniMeta) return
-    const content = parent.getContentBounds()
-    const screenX = Math.round(content.x + Math.max(0, miniRect.x))
-    const screenY = Math.round(content.y + Math.max(0, miniRect.y))
-    win.setBounds({ x: screenX, y: screenY, width: miniRect.width, height: miniRect.height })
+    if (!alive() || !miniRect || !miniMeta) return
+    win.setBounds({
+      x: Math.round(miniRect.x),
+      y: Math.round(miniRect.y),
+      width: miniRect.width,
+      height: miniRect.height
+    })
     sendMini({ show: true, meta: miniMeta })
     win.setIgnoreMouseEvents(false)
     win.showInactive()
