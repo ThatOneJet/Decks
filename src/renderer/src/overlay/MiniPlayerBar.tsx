@@ -188,7 +188,7 @@ export default function MiniPlayerBar({
             <span
               key={i}
               className="w-[3px] rounded-full bg-accent/70 transition-[height] duration-75 ease-out"
-              style={{ height: `${paused ? 8 : Math.max(8, Math.round(v * 100))}%` }}
+              style={{ height: `${paused ? 6 : Math.max(5, Math.round(v * 100))}%` }}
             />
           ))}
         </div>

@@ -276,7 +276,7 @@ const MP_INJECT_SCRIPT = `(() => {
         // Larger FFT = finer frequency resolution; low smoothing = snappy to the
         // beat so bars track the actual sound, not just overall loudness.
         eqAnalyser.fftSize = 1024;
-        eqAnalyser.smoothingTimeConstant = 0.6;
+        eqAnalyser.smoothingTimeConstant = 0.5;
         eqData = new Uint8Array(eqAnalyser.frequencyBinCount);
         eqAnalyser.connect(eqCtx.destination);
       }
@@ -305,7 +305,7 @@ const MP_INJECT_SCRIPT = `(() => {
     eqRAF = requestAnimationFrame(eqLoop);
     try {
       var now = Date.now();
-      if (now - eqLastSend < 66) return; // ~15fps
+      if (now - eqLastSend < 45) return; // ~22fps, snappy enough for drum hits
       eqLastSend = now;
       if (!eqAnalyser || !eqData) return;
       eqAnalyser.getByteFrequencyData(eqData);
@@ -323,11 +323,21 @@ const MP_INJECT_SCRIPT = `(() => {
         if (hi <= lo) hi = lo + 1;
         var peak = 0;
         for (var k = lo; k < hi && k < bins; k++) if (eqData[k] > peak) peak = eqData[k];
-        var v = peak / 255; // 0..1
+        var raw = peak / 255; // 0..1
         // Tilt up the higher bands so treble is visible next to bass.
-        v *= 1 + (b / EQ_BARS) * 0.9;
-        // Gentle curve so quiet detail still shows; clamp to 1.
-        v = Math.min(1, Math.pow(v, 0.78));
+        raw *= 1 + (b / EQ_BARS) * 0.9;
+        if (raw > 1) raw = 1;
+        // Expand dynamics: drop a ~12% noise floor and rescale, then a slight
+        // power curve so LOUD content (drum hits) shoots up while quiet content
+        // stays low — the opposite of compressing everything toward the top.
+        var v = (raw - 0.12) / 0.88;
+        if (v < 0) v = 0;
+        v = Math.pow(v, 1.35);
+        // ...but keep a little life proportional to the actual signal so a quiet
+        // singer still wiggles (and true silence reads as flat, not a fake idle).
+        var floor = raw * 0.18;
+        if (v < floor) v = floor;
+        if (v > 1) v = 1;
         out.push(Math.round(v * 100) / 100);
       }
       console.log(${JSON.stringify(EQ_SENTINEL)} + JSON.stringify(out));
