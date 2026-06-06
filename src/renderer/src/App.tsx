@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from './store'
 import Titlebar from './components/Titlebar'
 import Sidebar from './components/Sidebar'
-import Home from './components/Home'
+import DashboardHome from './components/DashboardHome'
 import SplitView from './components/SplitView'
 import SettingsDeck from './components/Settings/SettingsDeck'
 import CommandPalette from './components/CommandPalette'
@@ -343,7 +343,7 @@ function App(): JSX.Element {
     view === 'settings' ? (
       <SettingsDeck />
     ) : view === 'home' || workspaces.length === 0 ? (
-      <Home />
+      <DashboardHome />
     ) : (
       <SplitView />
     )

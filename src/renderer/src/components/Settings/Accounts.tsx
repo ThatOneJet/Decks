@@ -122,10 +122,10 @@ const PROVIDERS: ProviderDef[] = [
   },
   {
     id: 'discovery',
-    label: 'Discover',
-    glyph: '🧭',
+    label: 'Dashboard',
+    glyph: '📊',
     color: '#22d3ee',
-    blurb: "What's new and notable across all your connected services, in one board.",
+    blurb: "Your home dashboard — what's new across all your connected decks.",
     kind: 'aggregate',
     mode: 'token',
     fields: []

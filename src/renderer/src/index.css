@@ -831,6 +831,50 @@ html.overlay-mode #root {
 .mono {
   font-family: var(--font-mono);
 }
+
+/* ── Horizontal scroller with faint hover-brighten arrows (HScroll) ── */
+.hscroll-wrap {
+  position: relative;
+}
+.hscroll {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 4px;
+}
+.hscroll::-webkit-scrollbar {
+  height: 0;
+}
+.hscroll-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  color: var(--txt-3);
+  opacity: 0.4;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+.hscroll-arrow:hover {
+  opacity: 1;
+  color: var(--txt-1);
+  border-color: var(--accent-ring);
+}
+.hscroll-arrow.left {
+  left: -8px;
+}
+.hscroll-arrow.right {
+  right: -8px;
+}
+
 @keyframes pop-up {
   from {
     opacity: 0;

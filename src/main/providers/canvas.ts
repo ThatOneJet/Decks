@@ -106,6 +106,87 @@ function stripHtml(html: unknown, max = 200): string | undefined {
   return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text
 }
 
+/**
+ * A sanitized, viewable file attachment surfaced to the renderer. `url` is a
+ * directly-fetchable Canvas URL (it carries a `verifier` token when fetched via
+ * the API, so it's viewable without the Bearer token). Never includes secrets.
+ */
+interface CanvasAttachment {
+  id?: string
+  displayName?: string
+  fileName?: string
+  contentType?: string
+  url?: string
+  previewUrl?: string
+  sizeBytes?: number
+  mimeClass?: string
+}
+
+/** Map a Canvas file object (from /files endpoints or an `attachments[]` entry). */
+function mapAttachment(raw: unknown, instanceUrl: string): CanvasAttachment | null {
+  if (!raw || typeof raw !== 'object') return null
+  const f = raw as {
+    id?: unknown
+    display_name?: unknown
+    filename?: unknown
+    'content-type'?: unknown
+    content_type?: unknown
+    mime_class?: unknown
+    url?: unknown
+    preview_url?: unknown
+    size?: unknown
+  }
+  const id = asId(f.id)
+  const url = typeof f.url === 'string' && f.url ? f.url : undefined
+  const displayName =
+    typeof f.display_name === 'string'
+      ? f.display_name
+      : typeof f.filename === 'string'
+        ? f.filename
+        : undefined
+  // Nothing usable without at least a url or an id we can resolve later.
+  if (!url && !id) return null
+  const previewUrlRaw = typeof f.preview_url === 'string' ? f.preview_url : undefined
+  const previewUrl = previewUrlRaw
+    ? previewUrlRaw.startsWith('http')
+      ? previewUrlRaw
+      : `${instanceUrl}${previewUrlRaw.startsWith('/') ? '' : '/'}${previewUrlRaw}`
+    : undefined
+  return {
+    id,
+    displayName,
+    fileName: typeof f.filename === 'string' ? f.filename : undefined,
+    contentType:
+      typeof f['content-type'] === 'string'
+        ? (f['content-type'] as string)
+        : typeof f.content_type === 'string'
+          ? (f.content_type as string)
+          : undefined,
+    url,
+    previewUrl,
+    sizeBytes: asNum(f.size),
+    mimeClass: typeof f.mime_class === 'string' ? f.mime_class : undefined
+  }
+}
+
+/**
+ * Scrape embedded Canvas file references out of a body/description HTML string.
+ * Canvas renders attachments as `<a class="instructure_file_link" href=".../files/{id}...">`,
+ * `<img src=".../files/{id}/preview...">`, and `<iframe src=".../files/{id}/...">`.
+ * Returns the unique file ids referenced (best-effort; tolerant of any HTML).
+ */
+function fileIdsFromHtml(html: unknown): string[] {
+  if (typeof html !== 'string' || !html) return []
+  const ids = new Set<string>()
+  // Match /files/{id} or /courses/{c}/files/{id} anywhere in the markup.
+  const re = /\/files\/(\d+)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html)) !== null) {
+    if (m[1]) ids.add(m[1])
+  }
+  return [...ids]
+}
+
 /** One threaded discussion entry (recursive: replies are the same shape). */
 interface DiscussionEntry {
   id?: string
@@ -288,6 +369,86 @@ export class CanvasClient implements ProviderClient {
     }
   }
 
+  /**
+   * Resolve viewable attachments for a piece of content. Combines:
+   *  - any explicit `attachments[]` already on the payload (mapped directly), and
+   *  - file ids scraped from the content HTML (description/body), each resolved
+   *    via GET /api/v1/courses/{courseId}/files/{id} so the returned `url` carries
+   *    a `verifier` token (directly fetchable/viewable without the Bearer token).
+   * Best-effort and de-duplicated by file id (then url). Tolerates failures.
+   */
+  private async resolveAttachments(
+    creds: CanvasCreds,
+    courseId: string | undefined,
+    html: unknown,
+    explicit: unknown
+  ): Promise<CanvasAttachment[]> {
+    const out: CanvasAttachment[] = []
+    const seenIds = new Set<string>()
+    const seenUrls = new Set<string>()
+
+    const push = (att: CanvasAttachment | null): void => {
+      if (!att) return
+      if (att.id && seenIds.has(att.id)) return
+      if (att.url && seenUrls.has(att.url)) return
+      if (att.id) seenIds.add(att.id)
+      if (att.url) seenUrls.add(att.url)
+      out.push(att)
+    }
+
+    // 1) Explicit attachments array, if present (Canvas sends these as file objects).
+    if (Array.isArray(explicit)) {
+      for (const a of explicit) push(mapAttachment(a, creds.instanceUrl))
+    }
+
+    // 2) File ids embedded in the HTML → resolve each to get a verifier url.
+    if (courseId) {
+      const ids = fileIdsFromHtml(html).filter((id) => !seenIds.has(id))
+      if (ids.length > 0) {
+        const resolved = await Promise.allSettled(
+          ids.slice(0, 30).map((id) =>
+            this.apiGetSafe(creds, `/api/v1/courses/${courseId}/files/${id}`)
+          )
+        )
+        for (const r of resolved) {
+          if (r.status === 'fulfilled' && r.value) push(mapAttachment(r.value, creds.instanceUrl))
+        }
+      }
+    }
+
+    return out
+  }
+
+  /** One file's sanitized, directly-viewable metadata (verifier url included). */
+  private async fetchFile(
+    creds: CanvasCreds,
+    params?: Record<string, unknown>
+  ): Promise<{
+    id?: string
+    displayName?: string
+    fileName?: string
+    contentType?: string
+    url?: string
+    mimeClass?: string
+  }> {
+    const courseId = asId(params?.courseId)
+    const fileId = asId(params?.fileId)
+    if (!courseId || !fileId) throw new Error('Missing course or file id')
+    const data = (await this.apiGet(
+      creds,
+      `/api/v1/courses/${courseId}/files/${fileId}`
+    )) as unknown
+    const att = mapAttachment(data, creds.instanceUrl) ?? {}
+    return {
+      id: att.id ?? fileId,
+      displayName: att.displayName,
+      fileName: att.fileName,
+      contentType: att.contentType,
+      url: att.url,
+      mimeClass: att.mimeClass
+    }
+  }
+
   /** Resolve the user's active courses as id/name/code triples (best-effort). */
   private async activeCourses(creds: CanvasCreds): Promise<ActiveCourse[]> {
     const data = (await this.apiGetSafe(
@@ -393,6 +554,8 @@ export class CanvasClient implements ProviderClient {
         return this.fetchPages(creds, _params)
       case 'page':
         return this.fetchPage(creds, _params)
+      case 'file':
+        return this.fetchFile(creds, _params)
       case 'modules':
         return this.fetchModules(creds, _params)
       case 'quizzes':
@@ -679,6 +842,7 @@ export class CanvasClient implements ProviderClient {
     quizType?: string
     timeLimit?: number
     comments?: Array<{ authorName?: string; comment?: string; createdAt?: string }>
+    attachments?: CanvasAttachment[]
   }> {
     const courseId = asId(params?.courseId)
     const assignmentId = asId(params?.assignmentId)
@@ -699,6 +863,7 @@ export class CanvasClient implements ProviderClient {
       submission_types?: unknown
       allowed_attempts?: unknown
       quiz_id?: unknown
+      attachments?: unknown
       submission?: {
         workflow_state?: unknown
         score?: unknown
@@ -748,6 +913,15 @@ export class CanvasClient implements ProviderClient {
       }
     }
 
+    // Viewable file attachments: any explicit attachments[] + files embedded in
+    // the description HTML, each resolved to a verifier url. Best-effort.
+    const attachments = await this.resolveAttachments(
+      creds,
+      courseId,
+      item.description,
+      item.attachments
+    )
+
     return {
       id: asId(item.id) ?? assignmentId,
       name: typeof item.name === 'string' ? item.name : undefined,
@@ -768,7 +942,8 @@ export class CanvasClient implements ProviderClient {
       quizId,
       quizType,
       timeLimit,
-      comments
+      comments,
+      attachments
     }
   }
 
@@ -1124,7 +1299,7 @@ export class CanvasClient implements ProviderClient {
   private async fetchPage(
     creds: CanvasCreds,
     params?: Record<string, unknown>
-  ): Promise<{ title?: string; body?: string; updatedAt?: string }> {
+  ): Promise<{ title?: string; body?: string; updatedAt?: string; attachments?: CanvasAttachment[] }> {
     const courseId = asId(params?.courseId)
     const pageUrl = typeof params?.pageUrl === 'string' ? params.pageUrl : asId(params?.pageUrl)
     if (!courseId || !pageUrl) throw new Error('Missing course or page id')
@@ -1133,11 +1308,14 @@ export class CanvasClient implements ProviderClient {
       `/api/v1/courses/${courseId}/pages/${encodeURIComponent(pageUrl)}`
     )) as unknown
     const page = (data ?? {}) as { title?: unknown; body?: unknown; updated_at?: unknown }
+    // Files embedded in the page body, resolved to verifier urls. Best-effort.
+    const attachments = await this.resolveAttachments(creds, courseId, page.body, undefined)
     return {
       title: typeof page.title === 'string' ? page.title : undefined,
       // Raw HTML body; renderer is responsible for safe rendering.
       body: typeof page.body === 'string' ? page.body : undefined,
-      updatedAt: typeof page.updated_at === 'string' ? page.updated_at : undefined
+      updatedAt: typeof page.updated_at === 'string' ? page.updated_at : undefined,
+      attachments
     }
   }
 

@@ -136,10 +136,10 @@ export const NATIVE_INTEGRATIONS: NativeIntegration[] = [
   {
     kind: 'native',
     id: 'discovery',
-    label: 'Discover',
-    glyph: '🧭',
+    label: 'Dashboard',
+    glyph: '📊',
     color: '#22d3ee',
-    blurb: "What's new and notable across all your connected services. No login.",
+    blurb: "Your home dashboard — what's new across your connected decks. No login.",
     mode: 'token',
     requiresAuth: false,
     fields: []

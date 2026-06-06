@@ -23,6 +23,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { NativeDeckProps } from '../types'
+import { useStore } from '../../store'
+import type { Workspace } from '@shared/types'
 
 /* ── Shapes mirrored from the main-process CanvasClient.fetch(...) ── */
 
@@ -93,6 +95,21 @@ interface CanvasComment {
   createdAt?: string
 }
 
+/**
+ * A viewable file attachment / embedded file (from the `assignment` and `page`
+ * resources). `url` is a directly-fetchable Canvas URL carrying a verifier token.
+ */
+interface CanvasAttachment {
+  id?: string
+  displayName?: string
+  fileName?: string
+  contentType?: string
+  url?: string
+  previewUrl?: string
+  sizeBytes?: number
+  mimeClass?: string
+}
+
 /** Full assignment detail (from the `assignment` resource). */
 interface CanvasAssignmentDetail {
   id?: string
@@ -111,6 +128,7 @@ interface CanvasAssignmentDetail {
   quizType?: string
   timeLimit?: number
   comments?: CanvasComment[]
+  attachments?: CanvasAttachment[]
 }
 
 /** One question of an in-progress classic-quiz submission. */
@@ -173,6 +191,7 @@ interface CanvasPage {
   title?: string
   body?: string
   updatedAt?: string
+  attachments?: CanvasAttachment[]
 }
 
 /** A module item (from the `modules` resource). */
@@ -322,6 +341,81 @@ function dayKey(d: Date): string {
 function openExternal(url?: string): void {
   if (!url) return
   window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+/**
+ * Open `url` in a NEW embedded WEB deck (its own workspace with a single web
+ * panel), mirroring AddDeckModal's addWebDeck pattern. Used to view files Decks
+ * can't render inline (Office docs, etc.) without leaving the app.
+ */
+function addWebDeck(url: string, label: string): void {
+  if (!url) return
+  const { addWorkspace, activateWorkspace } = useStore.getState()
+  const id = `ws_${crypto.randomUUID().slice(0, 8)}`
+  const pid = crypto.randomUUID()
+  const name = label.trim() || 'File'
+  const ws: Workspace = {
+    id,
+    name,
+    subtitle: '1 deck',
+    color: '#35e3ff',
+    glyph: name.charAt(0).toUpperCase() || 'F',
+    partition: `persist:${id}`,
+    live: { status: 'idle' },
+    panels: [{ id: pid, title: name, url }],
+    layout: { type: 'leaf', panelId: pid }
+  }
+  addWorkspace(ws)
+  activateWorkspace(id)
+}
+
+/* ── Attachment / embedded-file viewing ── */
+
+/** A coarse viewer category derived from an attachment's content type / name. */
+type FileKind = 'image' | 'pdf' | 'video' | 'audio' | 'office' | 'other'
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|heic|avif)$/i
+const VIDEO_EXT = /\.(mp4|webm|ogv|mov|m4v)$/i
+const AUDIO_EXT = /\.(mp3|wav|ogg|m4a|aac|flac)$/i
+const OFFICE_EXT = /\.(docx?|xlsx?|pptx?|odt|ods|odp)$/i
+
+/** Classify an attachment into a viewer category (content type first, name fallback). */
+function fileKind(att: CanvasAttachment): FileKind {
+  const ct = (att.contentType ?? '').toLowerCase()
+  const mc = (att.mimeClass ?? '').toLowerCase()
+  const name = (att.fileName ?? att.displayName ?? '').toLowerCase()
+  if (ct.startsWith('image/') || mc === 'image' || IMAGE_EXT.test(name)) return 'image'
+  if (ct === 'application/pdf' || mc === 'pdf' || /\.pdf$/i.test(name)) return 'pdf'
+  if (ct.startsWith('video/') || mc === 'video' || VIDEO_EXT.test(name)) return 'video'
+  if (ct.startsWith('audio/') || mc === 'audio' || AUDIO_EXT.test(name)) return 'audio'
+  if (
+    mc === 'doc' ||
+    mc === 'ppt' ||
+    mc === 'xls' ||
+    /(msword|officedocument|ms-excel|ms-powerpoint|opendocument)/.test(ct) ||
+    OFFICE_EXT.test(name)
+  ) {
+    return 'office'
+  }
+  return 'other'
+}
+
+/** Microsoft Office Online embed URL for a publicly-reachable office file. */
+function officeViewerUrl(url: string): string {
+  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`
+}
+
+/** Human-readable file size, e.g. "1.4 MB". */
+function formatSize(bytes?: number): string {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) return ''
+  const units = ['B', 'KB', 'MB', 'GB']
+  let n = bytes
+  let i = 0
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024
+    i++
+  }
+  return `${i === 0 ? n : n.toFixed(1)} ${units[i]}`
 }
 
 /**
@@ -2281,6 +2375,156 @@ function OpenInCanvasLink({ url }: { url?: string }): JSX.Element | null {
   )
 }
 
+/* ── Attachments / embedded files section ──
+ *
+ * Lists each file with a type icon + name, and a primary "View" action whose
+ * behavior depends on the file type:
+ *  - image  → expands inline (<img>); also "Open" in a web deck.
+ *  - pdf    → expands inline (<iframe> of the file url); also "Open".
+ *  - video  → expands inline (<video>); also "Open".
+ *  - audio  → expands inline (<audio>); also "Open".
+ *  - office → opens in a new embedded WEB deck via the Microsoft Office Online
+ *             viewer (Canvas verifier urls are publicly reachable).
+ *  - other  → opens the raw Canvas url in a new embedded WEB deck (view/download).
+ */
+
+/** A small type glyph for an attachment (image/pdf/video/audio/office/file). */
+function FileIcon({ kind }: { kind: FileKind }): JSX.Element {
+  if (kind === 'image') {
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <circle cx="8.5" cy="8.5" r="1.5" />
+        <path d="m21 15-5-5L5 21" />
+      </svg>
+    )
+  }
+  if (kind === 'video') {
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="5" width="14" height="14" rx="2" />
+        <path d="m16 9 6-3v12l-6-3z" />
+      </svg>
+    )
+  }
+  if (kind === 'audio') {
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 18V5l12-2v13" />
+        <circle cx="6" cy="18" r="3" />
+        <circle cx="18" cy="16" r="3" />
+      </svg>
+    )
+  }
+  // pdf / office / other → a document glyph (office gets a tint via text color).
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+    </svg>
+  )
+}
+
+/** One attachment row with a type icon, name/size, and View / Open actions. */
+function AttachmentRow({ att }: { att: CanvasAttachment }): JSX.Element {
+  const kind = fileKind(att)
+  const name = att.displayName ?? att.fileName ?? 'File'
+  const url = att.url
+  const size = formatSize(att.sizeBytes)
+  const [open, setOpen] = useState(false)
+  // Inline-previewable types expand within the deck; others open a web deck.
+  const canInline = kind === 'image' || kind === 'pdf' || kind === 'video' || kind === 'audio'
+
+  const openInWebDeck = useCallback((): void => {
+    if (!url) return
+    if (kind === 'office') addWebDeck(officeViewerUrl(url), name)
+    else addWebDeck(url, name)
+  }, [url, kind, name])
+
+  const onView = useCallback((): void => {
+    if (!url) return
+    if (canInline) setOpen((o) => !o)
+    else openInWebDeck()
+  }, [url, canInline, openInWebDeck])
+
+  return (
+    <div className="rounded-lg border border-line bg-bg-elevated">
+      <div className="flex items-center gap-2.5 px-3 py-2.5">
+        <span className={`shrink-0 ${kind === 'office' ? 'text-accent' : 'text-txt-3'}`}>
+          <FileIcon kind={kind} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-medium text-txt-1">{name}</div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-txt-4">
+            <span className="uppercase">{kind === 'other' ? 'File' : kind}</span>
+            {size && <span>· {size}</span>}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onView}
+          disabled={!url}
+          className="shrink-0 rounded-md border border-accent-ring px-2.5 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-50"
+        >
+          {canInline ? (open ? 'Hide' : 'View') : kind === 'office' ? 'View' : 'Open'}
+        </button>
+        {canInline && url && (
+          <button
+            type="button"
+            onClick={openInWebDeck}
+            title="Open in a new deck"
+            className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-txt-3 transition-colors hover:text-txt-1"
+          >
+            Open
+          </button>
+        )}
+      </div>
+
+      {/* Inline preview (lazy: only mounted once expanded) */}
+      {open && canInline && url && (
+        <div className="border-t border-line p-2">
+          {kind === 'image' && (
+            <img src={url} alt={name} className="max-h-[60vh] w-full rounded-md object-contain" />
+          )}
+          {kind === 'pdf' && (
+            <iframe src={url} title={name} className="h-[60vh] w-full rounded-md border-0 bg-white" />
+          )}
+          {kind === 'video' && (
+            // eslint-disable-next-line jsx-a11y/media-has-caption
+            <video src={url} controls className="max-h-[60vh] w-full rounded-md bg-black" />
+          )}
+          {kind === 'audio' && (
+            // eslint-disable-next-line jsx-a11y/media-has-caption
+            <audio src={url} controls className="w-full" />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** "Attachments" / "Files" section listing every viewable attachment. */
+function AttachmentsSection({
+  attachments,
+  title = 'Attachments'
+}: {
+  attachments?: CanvasAttachment[]
+  title?: string
+}): JSX.Element | null {
+  const list = (attachments ?? []).filter((a) => a.url || a.id)
+  if (list.length === 0) return null
+  return (
+    <div className="mt-5">
+      <SectionHeading count={list.length}>{title}</SectionHeading>
+      <div className="flex flex-col gap-2">
+        {list.map((a, i) => (
+          <AttachmentRow key={a.id ?? a.url ?? `att-${i}`} att={a} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /** Quiz-taking callbacks threaded down to the in-app classic-quiz take flow. */
 interface QuizActions {
   onQuizStart: (courseId: string, quizId: string) => Promise<CanvasQuizStart>
@@ -2425,6 +2669,9 @@ function AssignmentDetailView({
           <p className="text-xs text-txt-4">No description.</p>
         )}
       </div>
+
+      {/* Attachments / embedded files */}
+      <AttachmentsSection attachments={a.attachments} />
 
       {/* Submit section (driven by submissionTypes) */}
       <div className="mt-5">
@@ -4134,6 +4381,9 @@ function PageView({
           <p className="text-xs text-txt-4">This page has no content.</p>
         )}
       </div>
+
+      {/* Files embedded in the page */}
+      <AttachmentsSection attachments={p.attachments} title="Files" />
     </div>
   )
 }
