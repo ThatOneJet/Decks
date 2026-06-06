@@ -429,6 +429,8 @@ export class PanelManager {
   private miniByMinimize = false
   /** True when the mini-player is collapsed to its slim side "pull tab". */
   private miniCollapsed = false
+  /** TEMP: counts EQ sentinel messages for diagnostics. */
+  private eqDbgCount = 0
   /** Glue hooks for driving the overlay control bar (installed by index.ts). */
   private miniHooks: MiniPlayerHooks | null = null
   /**
@@ -812,6 +814,17 @@ export class PanelManager {
       }
       // Live audio levels for the visualizer (high-frequency, separate channel).
       if (message.startsWith(EQ_SENTINEL)) {
+        this.eqDbgCount = (this.eqDbgCount ?? 0) + 1
+        if (this.eqDbgCount % 40 === 1) {
+          try {
+            appendFileSync(
+              join(app.getPath('temp'), 'decks-mp-debug.log'),
+              `${new Date().toISOString()} EQ recv n=${this.eqDbgCount} match=${this.miniPanelId === panelId} hook=${!!this.miniHooks} body=${message.slice(EQ_SENTINEL.length, EQ_SENTINEL.length + 60)}\n`
+            )
+          } catch {
+            /* ignore */
+          }
+        }
         if (this.miniPanelId !== panelId) return
         try {
           const levels = JSON.parse(message.slice(EQ_SENTINEL.length)) as number[]
@@ -1380,16 +1393,22 @@ export class PanelManager {
     })
   }
 
-  /** Skip to the previous track — clicks the player's Previous button, falling
-   *  back to YouTube's Shift+P shortcut. */
+  /** "Back": like a normal media player — if we're more than 3s in, restart the
+   *  current track; otherwise go to the previous track. This always does
+   *  something (a standalone video has no "previous", so restart is the sane
+   *  default), instead of relying on a Prev button that's disabled off-playlist. */
   miniPrevious(): void {
+    const wc = this.miniWc()
+    if (!wc) return
+    const t = this.miniPanelId ? this.panels.get(this.miniPanelId)?.meta?.currentTime ?? 0 : 0
+    if (t > 3) {
+      this.miniSeek(0)
+      return
+    }
     void this.clickTransport('prev').then((ok) => {
       if (ok) return
-      const wc = this.miniWc()
-      if (!wc) return
-      wc.sendInputEvent({ type: 'keyDown', keyCode: 'P', modifiers: ['shift'] })
-      wc.sendInputEvent({ type: 'char', keyCode: 'P', modifiers: ['shift'] })
-      wc.sendInputEvent({ type: 'keyUp', keyCode: 'P', modifiers: ['shift'] })
+      // No previous available → restart the current track.
+      this.miniSeek(0)
     })
   }
 

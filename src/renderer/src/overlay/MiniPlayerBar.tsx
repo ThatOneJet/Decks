@@ -130,12 +130,27 @@ export default function MiniPlayerBar({
     window.addEventListener('pointerup', endDrag)
   }
 
-  // Click anywhere on the seek track to scrub there.
-  const onSeek = (e: React.MouseEvent<HTMLDivElement>): void => {
-    if (duration <= 0) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+  // Click OR drag along the seek track to scrub. We track the bar's rect at
+  // pointer-down and seek continuously while dragging.
+  const seekRect = useRef<DOMRect | null>(null)
+  const seekAt = (clientX: number): void => {
+    const rect = seekRect.current
+    if (!rect || duration <= 0) return
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
     send({ action: 'seek', time: frac * duration })
+  }
+  const onSeekMove = (e: PointerEvent): void => seekAt(e.clientX)
+  const onSeekUp = (): void => {
+    window.removeEventListener('pointermove', onSeekMove)
+    window.removeEventListener('pointerup', onSeekUp)
+    seekRect.current = null
+  }
+  const onSeekDown = (e: React.PointerEvent<HTMLDivElement>): void => {
+    if (duration <= 0) return
+    seekRect.current = e.currentTarget.getBoundingClientRect()
+    seekAt(e.clientX) // jump immediately on press
+    window.addEventListener('pointermove', onSeekMove)
+    window.addEventListener('pointerup', onSeekUp)
   }
 
   const submitSearch = (e: React.FormEvent): void => {
@@ -263,18 +278,21 @@ export default function MiniPlayerBar({
       <div className="flex items-center gap-2">
         <span className="w-9 shrink-0 text-right text-[10px] tabular-nums text-txt-3">{fmt(currentTime)}</span>
         <div
-          onClick={onSeek}
+          onPointerDown={onSeekDown}
           title={duration > 0 ? `${fmt(currentTime)} / ${fmt(duration)}` : 'No duration'}
-          className={`group relative h-1.5 flex-1 rounded-full bg-bg ${duration > 0 ? 'cursor-pointer' : ''}`}
+          className={`group relative flex-1 py-2 ${duration > 0 ? 'cursor-pointer' : ''}`}
         >
-          <div
-            className="absolute inset-y-0 left-0 rounded-full bg-accent"
-            style={{ width: `${pct}%` }}
-          />
-          <div
-            className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 transition-opacity group-hover:opacity-100"
-            style={{ left: `${pct}%` }}
-          />
+          {/* taller invisible hit area (the py-2 above) makes the thin bar easy to grab */}
+          <div className="relative h-1.5 rounded-full bg-bg">
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-accent"
+              style={{ width: `${pct}%` }}
+            />
+            <div
+              className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 shadow transition-opacity group-hover:opacity-100"
+              style={{ left: `${pct}%` }}
+            />
+          </div>
         </div>
         <span className="w-9 shrink-0 text-[10px] tabular-nums text-txt-4">{duration > 0 ? fmt(duration) : '--:--'}</span>
       </div>
