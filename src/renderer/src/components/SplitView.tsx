@@ -319,6 +319,36 @@ function SplitView(): JSX.Element {
     const ids = Object.keys(bounds)
     if (ids.length) window.decks?.panel.showOnly({ panelIds: ids, bounds })
     else window.decks?.panel.hideAll()
+
+    // TEMP DIAGNOSTIC: log the layout rects so we can see what's mispositioned on
+    // collapse. Captured to a file by the main process. Remove once fixed.
+    try {
+      const cont = containerRef.current
+      const card = cont?.closest('.page-card') as HTMLElement | null
+      const area = cont?.closest('.page-area') as HTMLElement | null
+      const pane = cont?.querySelector('.deck-pane') as HTMLElement | null
+      const body = cont?.querySelector('.deck-body') as HTMLElement | null
+      const r = (el: Element | null): unknown => {
+        if (!el) return null
+        const b = el.getBoundingClientRect()
+        return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) }
+      }
+      console.log(
+        'DECKS_LAYOUT::' +
+          JSON.stringify({
+            win: { w: window.innerWidth, h: window.innerHeight },
+            railClass: document.querySelector('.console')?.className,
+            area: r(area),
+            card: r(card),
+            container: r(cont),
+            pane: r(pane),
+            body: r(body),
+            bounds
+          })
+      )
+    } catch {
+      /* ignore */
+    }
   }, [panelIds, overlayOpen])
 
   useLayoutEffect(() => {

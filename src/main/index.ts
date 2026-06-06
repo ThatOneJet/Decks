@@ -8,6 +8,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import * as electron from 'electron'
 import { join } from 'path'
+import { appendFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC } from '@shared/ipc'
 import type {
@@ -85,6 +86,21 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+
+  // TEMP DIAGNOSTIC: capture layout rects the renderer logs on collapse, to a
+  // file we can inspect. Removed once the collapse bug is fixed.
+  mainWindow.webContents.on('console-message', (_e, _level, message) => {
+    if (typeof message === 'string' && message.startsWith('DECKS_LAYOUT::')) {
+      try {
+        appendFileSync(
+          join(app.getPath('temp'), 'decks-layout-debug.log'),
+          `${new Date().toISOString()} ${message.slice(14)}\n`
+        )
+      } catch {
+        /* ignore */
+      }
+    }
+  })
 
   // Keep the floating mini-player up when Decks is minimized with music playing.
   mainWindow.on('minimize', () => panels.onWindowMinimized())
