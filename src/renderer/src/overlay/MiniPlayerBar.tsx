@@ -48,8 +48,8 @@ function Ctrl({
     <button
       onClick={onClick}
       title={title}
-      className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg transition-colors hover:bg-accent-soft hover:text-accent ${
-        active ? 'text-accent' : 'text-txt-2'
+      className={`mp-ctrl grid h-7 w-7 shrink-0 place-items-center rounded-lg transition-colors ${
+        active ? 'is-active' : 'text-txt-2'
       }`}
     >
       {children}
@@ -276,7 +276,7 @@ export default function MiniPlayerBar({ meta }: { meta: MiniPlayerMeta }): JSX.E
         <button
           type="submit"
           title="Search & play"
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-txt-2 transition-colors hover:bg-accent-soft hover:text-accent"
+          className="mp-ctrl grid h-7 w-7 shrink-0 place-items-center rounded-lg text-txt-2 transition-colors"
         >
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
         </button>

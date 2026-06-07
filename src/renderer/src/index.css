@@ -2392,16 +2392,21 @@ html.overlay-mode #root {
 }
 .drow .ico-wrap .corner {
   position: absolute;
-  top: -5px;
-  right: -5px;
+  top: -6px;
+  right: -6px;
   z-index: 3;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
-  border: 2.5px solid var(--bg-chrome);
-  font-size: 9.5px;
+  /* A true CIRCLE: equal width/height, border included in the box, no horizontal
+     padding (padding is what stretched 2-digit counts into ovals). */
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--bg-chrome);
+  font-size: 9px;
   font-weight: 700;
+  line-height: 1;
   display: grid;
   place-items: center;
   font-variant-numeric: tabular-nums;
@@ -2412,8 +2417,11 @@ html.overlay-mode #root {
 }
 .drow .ico-wrap .corner.play {
   background: var(--live);
-  width: 16px;
   box-shadow: 0 0 8px var(--live);
+}
+/* The play triangle is visually right-heavy — nudge it so it sits centered. */
+.drow .ico-wrap .corner.play svg {
+  margin-left: 1px;
 }
 .drow .openbeside {
   flex: none;
@@ -3361,24 +3369,15 @@ html.overlay-mode #root {
   animation: mp-marquee var(--mp-dur, 8s) ease-in-out infinite alternate;
 }
 
-/* Mini-player: a little for-funsies equalizer above the controls. Bars pulse
-   while playing; `.mp-eq.paused` freezes them low. */
-@keyframes mp-eq {
-  0%,
-  100% {
-    transform: scaleY(0.18);
-  }
-  50% {
-    transform: scaleY(1);
-  }
+/* Mini-player control buttons. Hover/active use the LIVE --accent (the Tailwind
+   `accent` color is a fixed hex, so hover:text-accent would ignore the user's
+   chosen theme — these rules track the variable instead). */
+.mp-ctrl:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
-.mp-eq-bar {
-  transform-origin: bottom;
-  animation: mp-eq 900ms ease-in-out infinite;
-}
-.mp-eq.paused .mp-eq-bar {
-  animation-play-state: paused;
-  transform: scaleY(0.18);
+.mp-ctrl.is-active {
+  color: var(--accent);
 }
 @keyframes overlay-fade-in {
   from {

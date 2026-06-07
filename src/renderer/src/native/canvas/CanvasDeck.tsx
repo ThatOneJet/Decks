@@ -1512,13 +1512,17 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
   )
 
   // Cross-deck: when the Calendar deck requests an assignment, open it here.
+  // IMPORTANT: wait until the initial load() has finished (state === 'ready').
+  // load() resets the view to 'list' when it completes, so consuming the request
+  // earlier would open the assignment and then immediately get clobbered back to
+  // the home list — which is exactly the "took me to the Canvas home page" bug.
   const pendingCanvasAction = useStore((s) => s.pendingCanvasAction)
   const clearCanvasAction = useStore((s) => s.clearCanvasAction)
   useEffect(() => {
-    if (!pendingCanvasAction) return
+    if (!pendingCanvasAction || state !== 'ready') return
     openAssignment(pendingCanvasAction.courseId, pendingCanvasAction.assignmentId)
     clearCanvasAction()
-  }, [pendingCanvasAction, openAssignment, clearCanvasAction])
+  }, [pendingCanvasAction, state, openAssignment, clearCanvasAction])
 
   /** Back from a detail view → its logical parent (course/discussions/list). */
   const back = useCallback((): void => {
@@ -3617,18 +3621,20 @@ function CourseDetailView({
     })
   }
   const moduleList = modules?.data ?? []
+  // Modules form their own COLLAPSIBLE group in the TOC (starts collapsed).
+  const [tocModulesOpen, setTocModulesOpen] = useState(false)
+  const moduleToc = moduleList.map((m, i) => ({
+    id: 'toc-module-' + (m.id ?? i),
+    label: m.name ?? `Module ${i + 1}`
+  }))
+  // Flat (non-module) TOC entries shown above the Modules group.
   const toc: Array<{ id: string; label: string }> = [
     ...(missing.length ? [{ id: tocSlug('Missing'), label: 'Missing' }] : []),
     ...(upcoming.length ? [{ id: tocSlug('Upcoming'), label: 'Upcoming' }] : []),
     ...(pastDone.length ? [{ id: tocSlug('Past'), label: 'Past' }] : []),
     ...(noDate.length ? [{ id: tocSlug('No due date'), label: 'No due date' }] : []),
     { id: tocSlug('Announcements'), label: 'Announcements' },
-    { id: tocSlug('Discussions'), label: 'Discussions' },
-    ...moduleList.map((m, i) => ({
-      id: 'toc-module-' + (m.id ?? i),
-      label: m.name ?? `Module ${i + 1}`
-    })),
-    { id: tocSlug('Quizzes'), label: 'Quizzes' }
+    { id: tocSlug('Discussions'), label: 'Discussions' }
   ]
 
   const section = (
@@ -3675,6 +3681,49 @@ function CourseDetailView({
             {t.label}
           </button>
         ))}
+
+        {/* Modules — a COLLAPSIBLE group in the contents (starts collapsed). */}
+        {moduleToc.length > 0 && (
+          <>
+            <button
+              onClick={() => setTocModulesOpen((v) => !v)}
+              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs font-medium text-txt-2 transition-colors hover:bg-bg-elevated hover:text-txt-1"
+              aria-expanded={tocModulesOpen}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className={`h-3 w-3 shrink-0 text-txt-3 transition-transform ${tocModulesOpen ? 'rotate-90' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+              <span className="min-w-0 flex-1 truncate">Modules</span>
+              <span className="shrink-0 text-[10px] tabular-nums text-txt-4">{moduleToc.length}</span>
+            </button>
+            {tocModulesOpen &&
+              moduleToc.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => scrollToToc(t.id)}
+                  className="block w-full truncate rounded-md py-1.5 pl-7 pr-2 text-left text-xs text-txt-3 transition-colors hover:bg-bg-elevated hover:text-txt-1"
+                  title={t.label}
+                >
+                  {t.label}
+                </button>
+              ))}
+          </>
+        )}
+
+        <button
+          onClick={() => scrollToToc(tocSlug('Quizzes'))}
+          className="block w-full truncate rounded-md px-2 py-1.5 text-left text-xs text-txt-2 transition-colors hover:bg-bg-elevated hover:text-txt-1"
+        >
+          Quizzes
+        </button>
       </aside>
 
       <div ref={scrollRef} className="flex-1 overflow-auto px-4 py-4">
@@ -3899,9 +3948,9 @@ function CourseModulesSection({
 }
 
 /**
- * A single collapsible module. Starts COLLAPSED — click the header to expand and
- * reveal its items. The header shows the item count and, when the module holds
- * any MISSING assignments, a red "N missing" badge so it's visible even closed.
+ * A single module on the page (NOT collapsible — items are always shown). The
+ * header shows the item count and, when the module holds any MISSING assignments,
+ * a red "N missing" badge, with the missing items flagged in place below.
  */
 function ModuleCard({
   tocId,
@@ -3929,31 +3978,14 @@ function ModuleCard({
     done: boolean
   ) => Promise<void>
 }): JSX.Element {
-  const [open, setOpen] = useState(false)
   const items = m.items ?? []
   const missingCount = items.reduce(
     (n, it) => n + (it.type === 'Assignment' && it.contentId && missingById.has(it.contentId) ? 1 : 0),
     0
   )
   return (
-    <div data-toc={tocId} className="scroll-mt-2 overflow-hidden rounded-lg border border-line bg-bg-elevated">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-bg/40"
-        aria-expanded={open}
-      >
-        <svg
-          viewBox="0 0 24 24"
-          className={`h-3.5 w-3.5 shrink-0 text-txt-3 transition-transform ${open ? 'rotate-90' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M9 6l6 6-6 6" />
-        </svg>
+    <div data-toc={tocId} className="scroll-mt-2 rounded-lg border border-line bg-bg-elevated p-3">
+      <div className="mb-2 flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-xs font-semibold text-txt-1">
           {m.name ?? 'Module'}
         </span>
@@ -3962,36 +3994,29 @@ function ModuleCard({
             {missingCount} missing
           </span>
         )}
-        <span className="shrink-0 text-[10px] tabular-nums text-txt-4">
-          {items.length} item{items.length === 1 ? '' : 's'}
-        </span>
-      </button>
-      {open && (
-        <div className="border-t border-line px-3 py-2">
-          {items.length === 0 ? (
-            <p className="text-[11px] text-txt-4">No items.</p>
-          ) : (
-            <div className="flex flex-col gap-1">
-              {items.map((it, j) => (
-                <ModuleItemRow
-                  key={it.id ?? `mi-${j}`}
-                  courseId={courseId}
-                  moduleId={m.id ?? ''}
-                  item={it}
-                  accent={accent}
-                  missing={
-                    it.type === 'Assignment' && it.contentId
-                      ? missingById.get(it.contentId)
-                      : undefined
-                  }
-                  nav={pageNav(pageOrder, courseId, it)}
-                  onOpenPage={onOpenPage}
-                  onOpenAssignment={onOpenAssignment}
-                  onMarkModuleItem={onMarkModuleItem}
-                />
-              ))}
-            </div>
-          )}
+      </div>
+      {items.length === 0 ? (
+        <p className="text-[11px] text-txt-4">No items.</p>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {items.map((it, j) => (
+            <ModuleItemRow
+              key={it.id ?? `mi-${j}`}
+              courseId={courseId}
+              moduleId={m.id ?? ''}
+              item={it}
+              accent={accent}
+              missing={
+                it.type === 'Assignment' && it.contentId
+                  ? missingById.get(it.contentId)
+                  : undefined
+              }
+              nav={pageNav(pageOrder, courseId, it)}
+              onOpenPage={onOpenPage}
+              onOpenAssignment={onOpenAssignment}
+              onMarkModuleItem={onMarkModuleItem}
+            />
+          ))}
         </div>
       )}
     </div>

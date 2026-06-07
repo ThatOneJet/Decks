@@ -55,19 +55,32 @@ function buildRail(workspaces: Workspace[]): RailEntry[] {
   return entries
 }
 
+/** Clean a page title for the "now playing" line: drop the "(3) " unread prefix
+ *  and a trailing site suffix ("… - YouTube", "… • Spotify", "… | SoundCloud"). */
+function cleanPlayingTitle(raw?: string): string {
+  if (!raw) return ''
+  let t = raw.replace(/^\(\d+\)\s*/, '').trim()
+  t = t.replace(/\s*[-–—|•]\s*(YouTube|YouTube Music|Spotify|SoundCloud|Twitch|Netflix|Apple Music)\s*$/i, '')
+  return t.trim()
+}
+
 /** Aggregate the live signals a dock row needs from a workspace's panels. */
 function signals(ws: Workspace): {
   unread: number
   playing: boolean
+  /** Title of whatever is currently playing (the playing panel's page title). */
+  playingTitle: string
   discarded: boolean
   isNative: boolean
 } {
   const unread = ws.panels.reduce((sum, p) => sum + (p.badge || 0), 0)
-  const playing = ws.panels.some((p) => p.playing)
+  const playingPanel = ws.panels.find((p) => p.playing)
+  const playing = !!playingPanel
+  const playingTitle = cleanPlayingTitle(playingPanel?.title)
   const live = ws.panels.filter((p) => p.kind !== 'native')
   const discarded = live.length > 0 && live.every((p) => p.discarded)
   const isNative = ws.panels[0]?.kind === 'native'
-  return { unread, playing, discarded, isNative }
+  return { unread, playing, playingTitle, discarded, isNative }
 }
 
 /** Service-specific noun for an unread count (GitHub → notifications, Discord →
@@ -87,8 +100,8 @@ function unreadLabel(ws: Workspace, n: number): string {
 
 /** The status line, in words, derived from real signals. */
 function statusText(ws: Workspace): { text: string; cls: '' | 'playing' | 'unread' | 'idle' } {
-  const { unread, playing, discarded } = signals(ws)
-  if (playing) return { text: 'Playing', cls: 'playing' }
+  const { unread, playing, playingTitle, discarded } = signals(ws)
+  if (playing) return { text: playingTitle ? `♪ ${playingTitle}` : 'Playing', cls: 'playing' }
   if (unread > 0) return { text: unreadLabel(ws, unread), cls: 'unread' }
   if (discarded) return { text: 'Discarded', cls: 'idle' }
   if (ws.keepAlive) return { text: 'Kept alive', cls: '' }
