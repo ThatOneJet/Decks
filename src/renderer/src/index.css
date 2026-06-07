@@ -1904,59 +1904,20 @@ html.overlay-mode #root {
   mask-image: radial-gradient(130% 100% at 20% 0%, #000 35%, transparent 78%);
 }
 
-/* ── App-switcher stages (Decks ⇄ Operations crossfade) ──
-   Both stages occupy the whole area BELOW the titlebar (grid row 2, all columns)
-   so the mode swap fades over the same region. The Decks stage re-creates the
-   dock + workspace grid inside itself (the children carry their own
-   grid-column 1/2). The Operations stage is a single full-bleed slot. */
-.decks-stage,
-.ops-stage {
-  grid-row: 2;
-  grid-column: 1 / -1;
-  position: relative;
-  z-index: 1;
-  min-width: 0;
-  min-height: 0;
-  display: grid;
-}
-.decks-stage {
-  grid-template-columns: var(--dock-w) 1fr;
-  grid-template-rows: minmax(0, 1fr);
-}
-.console.rail .decks-stage {
-  grid-template-columns: var(--dock-w-rail) 1fr;
-}
-.console.is-focus .decks-stage {
+/* Operations mode — same mechanism as focus mode: hide the dock and let the
+   workspace span the single full-width column, so the native JetCore Operations
+   view fills the whole area below the titlebar (no nested-grid wrapper). The dock
+   stays MOUNTED (CSS only) so switching back to Decks is instant + stateful. */
+.console.is-operations {
   grid-template-columns: 1fr;
 }
-/* Re-home the dock + workspace into the stage's single-row grid (they normally
-   sit at grid-row 2 of the OUTER grid, which doesn't exist in here). */
-.decks-stage > .dock,
-.decks-stage > aside,
-.decks-stage > .workspace {
-  grid-row: 1;
+.console.is-operations .dock {
+  display: none;
 }
-.console.is-focus .decks-stage > .workspace {
+.console.is-operations .workspace {
   grid-column: 1;
-}
-/* Portrait: stack workspace over the bottom-dock taskbar inside the stage. */
-.console.is-portrait .decks-stage {
-  grid-template-columns: 1fr;
-  grid-template-rows: minmax(0, 1fr) auto;
-}
-.console.is-portrait .decks-stage > .workspace {
-  grid-row: 1;
-  grid-column: 1;
-}
-.console.is-portrait .decks-stage > aside {
-  grid-row: 2;
-  grid-column: 1;
-}
-
-/* Operations: native JetCore view overlays this full-bleed slot. */
-.ops-stage {
-  grid-template-columns: 1fr;
-  grid-template-rows: minmax(0, 1fr);
+  /* Edge-to-edge: the native view fills the slot with no page-card gap. */
+  padding: 0;
 }
 .ops-slot {
   position: relative;

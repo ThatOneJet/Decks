@@ -479,6 +479,16 @@ function Sidebar({
     }
   }, [swOpen])
 
+  // Native deck views paint ABOVE the DOM, so while the switcher popover is open
+  // hide them (otherwise the active deck covers it); restore via a re-measure on close.
+  useEffect(() => {
+    if (!swOpen) return
+    window.decks?.panel.hideAll()
+    return () => {
+      window.dispatchEvent(new Event('resize'))
+    }
+  }, [swOpen])
+
   const rail_ = useMemo(() => buildRail(workspaces), [workspaces])
 
   const toggleGroup = (name: string): void => setOpenGroups((s) => ({ ...s, [name]: !s[name] }))

@@ -10,7 +10,6 @@
  *   4. persistence — debounced save of the full PersistedState on any change.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AnimatePresence } from 'framer-motion'
 import { useStore } from './store'
 import Titlebar from './components/Titlebar'
 import Sidebar from './components/Sidebar'
@@ -19,7 +18,6 @@ import SplitView from './components/SplitView'
 import OperationsView from './components/OperationsView'
 import SettingsDeck from './components/Settings/SettingsDeck'
 import CommandPalette from './components/CommandPalette'
-import AnimatedContent from './bits/AnimatedContent'
 import FeedbackModal from './components/FeedbackModal'
 import Tour from './components/Tour'
 import { Welcome, HelpPanel, MemoryPanel, welcomeUnseen } from './components/ConsolePanels'
@@ -386,14 +384,15 @@ function App(): JSX.Element {
   const dockMode = portrait && !inFocus
 
   // The active surface — each renders its own floating page card (.page-area).
-  const surface =
-    view === 'settings' ? (
-      <SettingsDeck />
-    ) : view === 'home' || workspaces.length === 0 ? (
-      <DashboardHome />
-    ) : (
-      <SplitView />
-    )
+  const surface = inOperations ? (
+    <OperationsView />
+  ) : view === 'settings' ? (
+    <SettingsDeck />
+  ) : view === 'home' || workspaces.length === 0 ? (
+    <DashboardHome />
+  ) : (
+    <SplitView />
+  )
 
   // Exit focus is the topbar "Focus" button (a left-edge handle would be covered
   // by the deck's native view, which always paints above the DOM).
@@ -421,23 +420,17 @@ function App(): JSX.Element {
           Always visible, including in Operations mode (window controls). */}
       <Titlebar />
 
-      {/* Top-level mode crossfade: Decks (dock + workspace) ⇄ Operations.
-          AnimatePresence + a per-mode key gives a smooth scale/fade swap. */}
-      <AnimatePresence mode="wait" initial={false}>
-        {inOperations ? (
-          <AnimatedContent key="operations" className="ops-stage">
-            <OperationsView />
-          </AnimatedContent>
-        ) : (
-          <AnimatedContent key="decks" className="decks-stage">
-            {/* DOCK — vertical rail (landscape) or bottom taskbar (portrait). */}
-            <Sidebar collapsed={collapsed} orientation={dockMode ? 'horizontal' : 'vertical'} />
+      {/* STABLE grid children (direct children of .console so the CSS grid
+          positions them): the dock + the workspace. Operations mode hides the
+          dock and full-bleeds the workspace (via .console.is-operations, same
+          mechanism as focus mode) so the native JetCore view fills the area
+          below the titlebar — no nested-grid wrapper (that broke the layout). */}
+      {/* DOCK — vertical rail (landscape) or bottom taskbar (portrait). */}
+      <Sidebar collapsed={collapsed} orientation={dockMode ? 'horizontal' : 'vertical'} />
 
-            {/* WORKSPACE — the active surface (its own floating page card). */}
-            <div className="workspace relative">{surface}</div>
-          </AnimatedContent>
-        )}
-      </AnimatePresence>
+      {/* WORKSPACE — the active surface (Decks deck, home, settings, or the
+          Operations slot the native JetCore view overlays). */}
+      <div className="workspace relative">{surface}</div>
 
       <CommandPalette />
 

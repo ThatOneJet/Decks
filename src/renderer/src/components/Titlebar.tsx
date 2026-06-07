@@ -103,10 +103,10 @@ function Header(): JSX.Element {
 
   return (
     <header className="header drag">
-      {/* Brand */}
+      {/* Brand — reflects the active app: blue "Decks" vs orange "Operations". */}
       <div className="brand no-drag">
-        <Logo size={28} />
-        <span className="bname">Decks</span>
+        <Logo size={28} tint={view === 'operations' ? '#ff6a1a' : '#5b8cff'} />
+        <span className="bname">{view === 'operations' ? 'Operations' : 'Decks'}</span>
       </div>
 
       {/* Left: collapse the sidebar + nav arrows for the active deck */}
