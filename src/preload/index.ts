@@ -13,6 +13,7 @@ import type {
   PanelCreatePayload,
   PanelNavigatePayload,
   PanelSetBoundsPayload,
+  PanelTearOffPayload,
   PanelShowOnlyPayload,
   PanelUpdateEvent,
   PanelDiscardStateEvent,
@@ -46,7 +47,8 @@ const api: DecksApi = {
     showOnly: (p: PanelShowOnlyPayload) => ipcRenderer.invoke(IPC.PanelShowOnly, p),
     hideAll: () => ipcRenderer.invoke(IPC.PanelHideAll),
     setKeepAlive: (panelId: PanelId, keepAlive: boolean) =>
-      ipcRenderer.invoke(IPC.PanelSetKeepAlive, panelId, keepAlive)
+      ipcRenderer.invoke(IPC.PanelSetKeepAlive, panelId, keepAlive),
+    tearOff: (p: PanelTearOffPayload) => ipcRenderer.invoke(IPC.PanelTearOff, p)
   },
   provider: {
     connect: (p: ProviderConnectPayload) => ipcRenderer.invoke(IPC.ProviderConnect, p),

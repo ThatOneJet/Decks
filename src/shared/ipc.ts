@@ -37,6 +37,8 @@ export const IPC = {
   PanelHideAll: 'panel:hide-all',
   /** Pin/unpin a panel as keep-alive (never auto-discarded). */
   PanelSetKeepAlive: 'panel:set-keep-alive',
+  /** Pop a deck out into its own standalone window (drag a deck out of the app). */
+  PanelTearOff: 'panel:tear-off',
 
   // ── Native deck providers — renderer → main (invoke) ──
   /** Connect a provider (paste a token, or run the OAuth helper). */
@@ -182,6 +184,14 @@ export interface PanelShowOnlyPayload {
   panelIds: PanelId[]
   /** Bounds keyed by panelId for the panels being shown. */
   bounds: Record<PanelId, PanelBounds>
+}
+
+/** payload: PanelTearOff — pop a web deck into its own standalone window. */
+export interface PanelTearOffPayload {
+  url: string
+  /** The deck's session partition, so the new window is logged-in too. */
+  partition: string
+  title?: string
 }
 
 /** event: WorkspaceMenuAction (main → renderer) */
@@ -412,6 +422,8 @@ export interface DecksApi {
     hideAll(): Promise<void>
     /** Pin/unpin a panel as keep-alive (never auto-discarded/evicted). */
     setKeepAlive(panelId: PanelId, keepAlive: boolean): Promise<void>
+    /** Pop a web deck out into its own standalone window (drag it out of the app). */
+    tearOff(payload: PanelTearOffPayload): Promise<void>
   }
   /**
    * Native deck providers. The renderer never holds tokens or talks to a service

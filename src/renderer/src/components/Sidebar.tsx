@@ -243,11 +243,31 @@ function DockRow({
         useStore.getState().setDraggingId(ws.id)
         window.decks?.panel.hideAll()
       }}
-      onDragEnd={() => {
+      onDragEnd={(e) => {
         setDragging(false)
         setGlobalDragging(false)
         useStore.getState().setDraggingId(null)
         window.dispatchEvent(new Event('resize'))
+        // Dropped OUTSIDE the app window → pop this web deck into its own
+        // standalone window (tear-off). Native decks render in-app only.
+        const sx = e.screenX
+        const sy = e.screenY
+        const outside =
+          (sx !== 0 || sy !== 0) &&
+          (sx < window.screenX ||
+            sx > window.screenX + window.outerWidth ||
+            sy < window.screenY ||
+            sy > window.screenY + window.outerHeight)
+        if (outside) {
+          const p = ws.panels[0]
+          if (p && p.kind !== 'native' && p.url) {
+            window.decks?.panel.tearOff({
+              url: p.url,
+              partition: ws.partition ?? `persist:${ws.id}`,
+              title: ws.name
+            })
+          }
+        }
       }}
       onDragOver={(e) => {
         if (!onReorder) return

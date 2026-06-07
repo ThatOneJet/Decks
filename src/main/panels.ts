@@ -20,6 +20,7 @@ import type {
   PanelNavigatePayload,
   PanelSetBoundsPayload,
   PanelShowOnlyPayload,
+  PanelTearOffPayload,
   PanelUpdateEvent,
   PanelDiscardStateEvent,
   MiniPlayerMeta
@@ -983,6 +984,35 @@ export class PanelManager {
       return { action: 'deny' }
     })
     void win.loadURL(target)
+  }
+
+  /**
+   * Pop a web deck out into its own standalone, resizable BrowserWindow (the user
+   * dragged the deck out of the app). It SHARES the deck's session partition, so
+   * the new window is already logged-in, and presents as Chrome so embedded sites
+   * behave. This is a fresh top-level window — independent of the main app.
+   */
+  tearOff(payload: PanelTearOffPayload): void {
+    const { url, partition, title } = payload
+    if (!url || !/^https?:\/\//i.test(url)) return
+    const win = new BrowserWindow({
+      width: 1100,
+      height: 800,
+      title: title || 'Decks',
+      autoHideMenuBar: true,
+      backgroundColor: '#14161b',
+      webPreferences: { partition, contextIsolation: true, sandbox: true }
+    })
+    win.webContents.setUserAgent(CHROME_UA)
+    this.applyUaOverride(win.webContents)
+    this.patchSessionUa(win.webContents.session, partition)
+    // Auth popups from the torn-off deck get the same Chrome treatment.
+    win.webContents.setWindowOpenHandler(({ url: target }) => {
+      if (target && /^https?:\/\//i.test(target)) this.openAuthPopup(target, partition)
+      else if (target) void shell.openExternal(target)
+      return { action: 'deny' }
+    })
+    void win.loadURL(url)
   }
 
   openSignIn(panelId: PanelId): void {

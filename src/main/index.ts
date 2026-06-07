@@ -16,6 +16,7 @@ import type {
   PanelNavigatePayload,
   PanelSetBoundsPayload,
   PanelShowOnlyPayload,
+  PanelTearOffPayload,
   MetricsResult,
   FeedbackPayload
 } from '@shared/ipc'
@@ -199,6 +200,9 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.PanelSetKeepAlive, (_e, panelId: PanelId, keepAlive: boolean) => {
     panels.setKeepAlive(panelId, keepAlive)
+  })
+  ipcMain.handle(IPC.PanelTearOff, (_e, p: PanelTearOffPayload) => {
+    panels.tearOff(p)
   })
 
   // ── Native deck providers (renderer → main, invoke) ──
