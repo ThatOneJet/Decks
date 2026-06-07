@@ -210,7 +210,8 @@ const MP_INJECT_SCRIPT = `(() => {
         paused: v ? !!v.paused : true,
         loop: v ? !!v.loop : false,
         currentTime: v ? (v.currentTime || 0) : 0,
-        duration: v && isFinite(v.duration) ? v.duration : 0
+        duration: v && isFinite(v.duration) ? v.duration : 0,
+        adShowing: !!document.querySelector('.html5-video-player.ad-showing')
       };
       var s = JSON.stringify(payload);
       if (s === last) return;
@@ -844,6 +845,7 @@ export class PanelManager {
           loop?: boolean
           currentTime?: number
           duration?: number
+          adShowing?: boolean
         }
         const meta: MiniPlayerMeta = {
           title: data.title || '',
@@ -852,7 +854,8 @@ export class PanelManager {
           paused: !!data.paused,
           loop: !!data.loop,
           currentTime: Number.isFinite(data.currentTime) ? data.currentTime : 0,
-          duration: Number.isFinite(data.duration) ? data.duration : 0
+          duration: Number.isFinite(data.duration) ? data.duration : 0,
+          adShowing: !!data.adShowing
         }
         const e = this.panels.get(panelId)
         if (e) e.meta = meta

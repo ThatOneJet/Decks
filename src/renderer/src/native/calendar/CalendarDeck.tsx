@@ -650,11 +650,12 @@ function TimeGrid({
       {/* Scrollable hourly grid */}
       <div className="flex-1 overflow-y-auto">
         <div className="flex" style={{ minHeight: '60rem' }}>
-          {/* Hour gutter */}
+          {/* Hour gutter — each label is centered exactly on its hour gridline
+              (the cell's TOP edge), so the times line up with the column rows. */}
           <div className="w-12 shrink-0">
             {HOURS.map((h) => (
               <div key={h} className="relative h-10 border-b border-line/40">
-                <span className="absolute -top-1.5 right-1 text-[9px] text-txt-4">
+                <span className="absolute right-1 top-0 -translate-y-1/2 text-[9px] text-txt-4">
                   {h === 0 ? '' : hourLabel(h)}
                 </span>
               </div>
@@ -913,6 +914,9 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
   // Filters (calendars + overlays + mini-month) live in a header popover now — the
   // sidebar was removed so the calendar itself gets the full width.
   const [filtersOpen, setFiltersOpen] = useState(false)
+  // A top "Assignments" panel: all uncompleted classwork STACKED (so you don't
+  // have to scroll the grid or squint at cluttered day cells to find a due item).
+  const [assignmentsOpen, setAssignmentsOpen] = useState(false)
 
   // Holidays overlay (Canvas classwork is folded into the School calendar below).
   const [showHolidays, setShowHolidays] = useState(true)
@@ -1097,6 +1101,15 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
       m.set(k, arr)
     }
     return m
+  }, [classwork, schoolVisible])
+
+  /* All uncompleted classwork in range, stacked + sorted by due date — powers the
+     top "Assignments" panel so you can see everything at a glance. */
+  const upcomingAssignments = useMemo(() => {
+    if (!schoolVisible) return [] as Classwork[]
+    return classwork
+      .filter((c) => !c.hasSubmitted && !Number.isNaN(parseISO(c.due).getTime()))
+      .sort((a, b) => parseISO(a.due).getTime() - parseISO(b.due).getTime())
   }, [classwork, schoolVisible])
 
   /**
@@ -1309,16 +1322,20 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
     setEditor({ isNew: false, event: e })
   }, [])
 
-  /* Click a Canvas classwork pill → switch to the Canvas deck + open that
-     assignment's page (cross-deck via the store; CanvasDeck consumes it). */
-  const openClasswork = useCallback((c: PositionedClass): void => {
-    if (!c.courseId) return
+  /* Switch to the Canvas deck + open a specific assignment (cross-deck via the
+     store; CanvasDeck consumes the request). */
+  const openAssignmentInCanvas = useCallback((courseId?: string, assignmentId?: string): void => {
+    if (!courseId || !assignmentId) return
     const st = useStore.getState()
     const canvasWs = st.workspaces.find((w) => w.panels.some((p) => p.provider === 'canvas'))
     if (!canvasWs) return
-    st.requestCanvasAssignment(c.courseId, c.assignmentId)
+    st.requestCanvasAssignment(courseId, assignmentId)
     st.activateWorkspace(canvasWs.id)
   }, [])
+  const openClasswork = useCallback(
+    (c: PositionedClass): void => openAssignmentInCanvas(c.courseId, c.assignmentId),
+    [openAssignmentInCanvas]
+  )
 
   /* ── Navigation ── */
   const navigate = useCallback(
@@ -1404,6 +1421,67 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
           </div>
           <div className="min-w-0 flex-1 truncate text-sm font-semibold text-txt-1">
             {periodLabel}
+          </div>
+
+          {/* Assignments popover — all uncompleted classwork stacked at the top */}
+          <div className="relative shrink-0">
+            <button
+              onClick={() => setAssignmentsOpen((o) => !o)}
+              className={`flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium transition-colors ${
+                assignmentsOpen ? 'bg-accent text-black' : 'bg-bg-elevated text-txt-2 hover:text-txt-1'
+              }`}
+            >
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 11l3 3L22 4" />
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+              </svg>
+              Assignments
+              {upcomingAssignments.length > 0 && (
+                <span className={`rounded-full px-1.5 text-[10px] font-bold tabular-nums ${assignmentsOpen ? 'bg-black/20' : 'bg-accent text-black'}`}>
+                  {upcomingAssignments.length}
+                </span>
+              )}
+            </button>
+            {assignmentsOpen && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setAssignmentsOpen(false)} />
+                <div className="absolute right-0 top-full z-30 mt-1.5 max-h-[70vh] w-80 overflow-y-auto rounded-xl border border-line bg-bg-elevated p-2 shadow-2xl">
+                  <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-txt-4">
+                    Uncompleted assignments ({upcomingAssignments.length})
+                  </div>
+                  {upcomingAssignments.length === 0 ? (
+                    <div className="px-2 py-6 text-center text-xs text-txt-4">Nothing due — all caught up 🎉</div>
+                  ) : (
+                    <div className="space-y-1">
+                      {upcomingAssignments.map((a) => {
+                        const d = parseISO(a.due)
+                        return (
+                          <button
+                            key={a.id}
+                            onClick={() => {
+                              setAssignmentsOpen(false)
+                              openAssignmentInCanvas(a.courseId, a.id)
+                            }}
+                            disabled={!a.courseId}
+                            className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-bg disabled:cursor-default"
+                            title={a.courseId ? 'Open in Canvas' : undefined}
+                          >
+                            <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: schoolColor }} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-semibold text-txt-1">{a.title}</span>
+                              <span className="block truncate text-[11px] text-txt-3">
+                                {a.courseName ? `${a.courseName} · ` : ''}
+                                {d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · {timeLabel(d)}
+                              </span>
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Filters popover (calendars + overlays + quick mini-month nav) */}

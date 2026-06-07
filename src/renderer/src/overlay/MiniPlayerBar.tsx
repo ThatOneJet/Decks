@@ -202,8 +202,12 @@ export default function MiniPlayerBar({
           {levels!.map((v, i) => (
             <span
               key={i}
-              className="w-[3px] rounded-full bg-accent/70 transition-[height] duration-75 ease-out"
-              style={{ height: `${paused ? 6 : Math.max(5, Math.round(v * 100))}%` }}
+              className="w-[3px] rounded-full transition-[height] duration-75 ease-out"
+              style={{
+                height: `${paused ? 6 : Math.max(5, Math.round(v * 100))}%`,
+                backgroundColor: 'var(--accent)',
+                opacity: 0.75
+              }}
             />
           ))}
         </div>
@@ -212,8 +216,13 @@ export default function MiniPlayerBar({
           {EQ_BARS.map((b, i) => (
             <span
               key={i}
-              className="mp-eq-bar h-full w-[3px] rounded-full bg-accent/70"
-              style={{ animationDelay: `${b.delay}ms`, animationDuration: `${b.dur}ms` }}
+              className="mp-eq-bar h-full w-[3px] rounded-full"
+              style={{
+                animationDelay: `${b.delay}ms`,
+                animationDuration: `${b.dur}ms`,
+                backgroundColor: 'var(--accent)',
+                opacity: 0.75
+              }}
             />
           ))}
         </div>
@@ -282,15 +291,17 @@ export default function MiniPlayerBar({
           title={duration > 0 ? `${fmt(currentTime)} / ${fmt(duration)}` : 'No duration'}
           className={`group relative flex-1 py-2 ${duration > 0 ? 'cursor-pointer' : ''}`}
         >
-          {/* taller invisible hit area (the py-2 above) makes the thin bar easy to grab */}
+          {/* taller invisible hit area (the py-2 above) makes the thin bar easy to grab.
+              Fill uses the app's theme accent (var --accent); turns yellow during a
+              YouTube ad so you can tell it's an ad, not the song. */}
           <div className="relative h-1.5 rounded-full bg-bg">
             <div
-              className="absolute inset-y-0 left-0 rounded-full bg-accent"
-              style={{ width: `${pct}%` }}
+              className="absolute inset-y-0 left-0 rounded-full"
+              style={{ width: `${pct}%`, backgroundColor: meta.adShowing ? 'var(--warn)' : 'var(--accent)' }}
             />
             <div
-              className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 shadow transition-opacity group-hover:opacity-100"
-              style={{ left: `${pct}%` }}
+              className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 shadow transition-opacity group-hover:opacity-100"
+              style={{ left: `${pct}%`, backgroundColor: meta.adShowing ? 'var(--warn)' : 'var(--accent)' }}
             />
           </div>
         </div>

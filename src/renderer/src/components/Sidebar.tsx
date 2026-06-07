@@ -17,7 +17,6 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
-import type { MetricsResult } from '@shared/ipc'
 import RailTile, { DECKS_WS_DND } from './sidebar/WorkspaceItem'
 import RailFolder from './sidebar/RailFolder'
 import TileIcon from './sidebar/TileIcon'
@@ -281,49 +280,6 @@ function SectionHead({
   )
 }
 
-/** RAM/process readout. Vertical → redesign `.ram`; horizontal → compact chip. */
-function RamMeter({ compact = false }: { compact?: boolean } = {}): JSX.Element | null {
-  const [m, setM] = useState<MetricsResult | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    const poll = async (): Promise<void> => {
-      const next = await window.decks?.metrics.get().catch(() => null)
-      if (alive && next) setM(next)
-    }
-    void poll()
-    const id = setInterval(poll, 3000)
-    return () => {
-      alive = false
-      clearInterval(id)
-    }
-  }, [])
-
-  if (!m) return null
-  if (compact) {
-    return (
-      <div
-        title={`${m.ramMB} MB · ${m.liveRenderers} live / ${m.discarded} discarded`}
-        className="flex shrink-0 items-center gap-1 rounded-lg bg-bg-elevated px-2 py-1 leading-none"
-      >
-        <span className="font-mono text-[10px] font-medium tabular-nums text-txt-2">{m.ramMB} MB</span>
-        <span className="font-mono text-[9px] tabular-nums text-txt-4">{m.liveRenderers}/{m.discarded}</span>
-      </div>
-    )
-  }
-  return (
-    <div className="ram" title={`${m.ramMB} MB · ${m.liveRenderers} live / ${m.discarded} discarded`}>
-      <div className="mb">
-        {m.ramMB}
-        <span style={{ fontSize: 8, color: 'var(--txt-4)' }}> MB</span>
-      </div>
-      <div className="rp">
-        {m.liveRenderers} live · {m.discarded} idle
-      </div>
-    </div>
-  )
-}
-
 const ICON = {
   add: (
     <svg viewBox="0 0 24 24" width={17} height={17} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
@@ -515,7 +471,6 @@ function Sidebar({
         <button className="rail-btn add" onClick={openAddDeck} title={`Add a deck (${MOD === '⌘' ? '⌘N' : 'Ctrl+N'})`}>{ICON.add}</button>
         <button className={`rail-btn ${view === 'home' ? 'on' : ''}`} onClick={goHome} title="Home">{ICON.home}</button>
         <button className={`rail-btn ${view === 'settings' ? 'on' : ''}`} onClick={openSettings} title="Settings">{ICON.settings}</button>
-        <RamMeter compact />
         {modals}
       </aside>
     )
@@ -675,11 +630,6 @@ function Sidebar({
           <span className="fi">{ICON.settings}</span>
           <span className="ftx">Settings</span>
         </button>
-        {!rail && (
-          <div className="dock-ram">
-            <RamMeter />
-          </div>
-        )}
       </div>
       {modals}
     </aside>

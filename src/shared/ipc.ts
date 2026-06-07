@@ -259,6 +259,8 @@ export interface MiniPlayerMeta {
   currentTime?: number
   /** Total media duration (seconds); 0/absent when unknown (e.g. live). */
   duration?: number
+  /** True while a YouTube ad is playing — the progress bar turns yellow. */
+  adShowing?: boolean
 }
 
 /** event: OverlayMiniPlayer (main → the overlay window). */
