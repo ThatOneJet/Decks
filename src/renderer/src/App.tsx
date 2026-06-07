@@ -116,6 +116,19 @@ function App(): JSX.Element {
     }
   }, [setWorkspaces, activateWorkspace, setSettings])
 
+  // ── Apply the active theme to <html> so the [data-theme="light"] token set in
+  // index.css actually flips. (Dark is the default — no attribute.) ──
+  useEffect(() => {
+    const root = document.documentElement
+    if (theme === 'light') root.setAttribute('data-theme', 'light')
+    else root.removeAttribute('data-theme')
+  }, [theme])
+
+  // Keep the live accent variable in sync when the user changes it in Settings.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--accent', settings.accent)
+  }, [settings.accent])
+
   // ── First-run: auto-start the guided tour once (persisted "seen" flag). ──
   // Slightly delayed so the shell has painted and targets can be measured.
   useEffect(() => {

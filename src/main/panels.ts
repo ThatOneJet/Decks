@@ -694,38 +694,22 @@ export class PanelManager {
     // (JS-visible) also presents as Chrome — required for Google OAuth.
     this.applyUaOverride(wc)
 
-    // OAuth (Google, GitHub, …) opens a popup via window.open/_blank. ALLOW it
-    // IN-APP, sharing this deck's session partition, so: (1) the login persists
-    // into the deck, and (2) the opener page can track window.closed / receive
-    // postMessage to finish the flow. Opening it in the OS browser (the old
-    // behavior) broke OAuth because the embedded page can't observe an external
-    // window. Non-http(s) schemes (mailto:, custom protocols) still go external.
+    // OAuth (Google, GitHub, …) opens a popup via window.open/_blank. We DENY the
+    // auto-created popup and open our OWN window for it instead — that lets us set
+    // the Chrome UA + UA-metadata override BEFORE the first byte loads. With the
+    // old `action:'allow'` path the override could only be applied in
+    // `did-create-window`, which fires AFTER the popup's document has already
+    // started — too late for Google's `navigator.userAgentData` "is this a secure
+    // browser" check, which is exactly why sign-in kept failing. The window shares
+    // the deck's partition so the login still lands in the deck.
+    // Non-http(s) schemes (mailto:, custom protocols) go to the OS handler.
     wc.setWindowOpenHandler(({ url: target }) => {
       if (target && /^https?:\/\//i.test(target)) {
-        return {
-          action: 'allow',
-          overrideBrowserWindowOptions: {
-            webPreferences: {
-              partition,
-              contextIsolation: true,
-              sandbox: true
-            },
-            autoHideMenuBar: true,
-            width: 520,
-            height: 640
-          }
-        }
+        this.openAuthPopup(target, partition)
+        return { action: 'deny' }
       }
       if (target) void shell.openExternal(target)
       return { action: 'deny' }
-    })
-
-    // The popup is a fresh WebContents — give it the Chrome UA + UA-metadata
-    // override too (it shares this partition's header-rewritten session), so the
-    // OAuth provider (Google etc.) treats it like a normal Chrome window.
-    wc.on('did-create-window', (win) => {
-      win.webContents.setUserAgent(CHROME_UA)
-      this.applyUaOverride(win.webContents)
     })
 
     void wc.loadURL(url).catch((err: NodeJS.ErrnoException) => {
@@ -970,6 +954,37 @@ export class PanelManager {
    * (off accounts.google.com) we close it and reload the deck — now authenticated,
    * and the persisted partition keeps it logged in across restarts.
    */
+  /**
+   * Open an OAuth/login popup that a deck requested via window.open, in our OWN
+   * top-level window that shares the deck's partition. Crucially the Chrome UA +
+   * client-hint metadata override is applied BEFORE `loadURL`, so the provider's
+   * very first request AND first script see real Chrome (the embedded-popup path
+   * couldn't guarantee that). Nested popups (Google sometimes chains one) inherit
+   * the same treatment.
+   */
+  private openAuthPopup(target: string, partition: string): void {
+    const win = new BrowserWindow({
+      width: 520,
+      height: 680,
+      title: 'Sign in',
+      autoHideMenuBar: true,
+      backgroundColor: '#0e0e13',
+      webPreferences: { partition, contextIsolation: true, sandbox: true }
+    })
+    win.webContents.setUserAgent(CHROME_UA)
+    this.applyUaOverride(win.webContents)
+    this.patchSessionUa(win.webContents.session, partition)
+    win.webContents.setWindowOpenHandler(({ url: nested }) => {
+      if (nested && /^https?:\/\//i.test(nested)) {
+        this.openAuthPopup(nested, partition)
+      } else if (nested) {
+        void shell.openExternal(nested)
+      }
+      return { action: 'deny' }
+    })
+    void win.loadURL(target)
+  }
+
   openSignIn(panelId: PanelId): void {
     const entry = this.ensureLive(panelId)
     if (!entry) return

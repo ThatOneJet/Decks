@@ -245,6 +245,9 @@ interface AllDayItem {
   color: string
   kind: 'event' | 'holiday' | 'classwork'
   event?: CalEvent
+  /** For classwork chips: lets the month view open the assignment in Canvas. */
+  courseId?: string
+  assignmentId?: string
 }
 
 /* ── A positioned timed event block ── */
@@ -707,12 +710,14 @@ function MonthGrid({
   cursor,
   chipsByDay,
   onDayClick,
-  onEventClick
+  onEventClick,
+  onOpenAssignment
 }: {
   cursor: Date
   chipsByDay: Map<string, AllDayItem[]>
   onDayClick: (d: Date) => void
   onEventClick: (e: CalEvent) => void
+  onOpenAssignment: (courseId?: string, assignmentId?: string) => void
 }): JSX.Element {
   const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
   const gridStart = startOfWeek(first)
@@ -757,11 +762,15 @@ function MonthGrid({
                     key={c.key}
                     onClick={(e) => {
                       e.stopPropagation()
-                      if (c.event) onEventClick(c.event)
+                      if (c.kind === 'classwork' && c.assignmentId) {
+                        onOpenAssignment(c.courseId, c.assignmentId)
+                      } else if (c.event) {
+                        onEventClick(c.event)
+                      }
                     }}
                     className="block w-full truncate rounded px-1 text-left text-[9px] font-medium"
                     style={{ backgroundColor: tint(c.color, 0.2), color: c.color }}
-                    title={c.title}
+                    title={c.kind === 'classwork' ? `${c.title} — open in Canvas` : c.title}
                   >
                     {c.title}
                   </button>
@@ -1090,7 +1099,9 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
             key: `c_${c.id}`,
             title: c.courseName ? `${c.title} · ${c.courseName}` : c.title,
             color: schoolColor,
-            kind: 'classwork'
+            kind: 'classwork',
+            courseId: c.courseId,
+            assignmentId: c.id
           })
         }
       }
@@ -1527,6 +1538,7 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
               openNewAllDay(d)
             }}
             onEventClick={openEvent}
+            onOpenAssignment={openAssignmentInCanvas}
           />
         ) : (
           <YearGrid

@@ -37,6 +37,8 @@ interface ProviderDef {
   tokenField?: { label: string; placeholder?: string }
   /** Extra connect fields passed in `fields`. */
   fields: FieldDef[]
+  /** Step-by-step guide for obtaining the credential(s) above. */
+  setup?: { url?: string; urlLabel?: string; steps: string[] }
 }
 
 const PROVIDERS: ProviderDef[] = [
@@ -49,7 +51,17 @@ const PROVIDERS: ProviderDef[] = [
     kind: 'login',
     mode: 'token',
     tokenField: { label: 'Access token', placeholder: 'Account → Settings → New access token' },
-    fields: [{ key: 'instanceUrl', label: 'Canvas URL', placeholder: 'https://school.instructure.com' }]
+    fields: [{ key: 'instanceUrl', label: 'Canvas URL', placeholder: 'https://school.instructure.com' }],
+    setup: {
+      urlLabel: 'Open Canvas settings',
+      steps: [
+        'Sign in to Canvas in your browser, then go to Account → Settings.',
+        'Scroll to "Approved Integrations" and click "+ New Access Token".',
+        'Give it a purpose (e.g. "Decks") and leave the expiry blank, then Generate Token.',
+        'Copy the token shown (you only see it once) and paste it above.',
+        'Canvas URL is your school’s address, e.g. https://yourschool.instructure.com'
+      ]
+    }
   },
   {
     id: 'github',
@@ -60,7 +72,18 @@ const PROVIDERS: ProviderDef[] = [
     kind: 'login',
     mode: 'token',
     tokenField: { label: 'Personal access token', placeholder: 'ghp_… (repo, notifications, read:user)' },
-    fields: []
+    fields: [],
+    setup: {
+      url: 'https://github.com/settings/tokens/new',
+      urlLabel: 'Create a GitHub token',
+      steps: [
+        'Go to GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic).',
+        'Click "Generate new token (classic)".',
+        'Note: "Decks". Expiration: your choice (or no expiration).',
+        'Tick the scopes: repo, notifications, and read:user.',
+        'Click "Generate token", then copy the ghp_… value and paste it above.'
+      ]
+    }
   },
   {
     id: 'spotify',
@@ -74,7 +97,19 @@ const PROVIDERS: ProviderDef[] = [
       { key: 'clientId', label: 'Client ID', placeholder: 'from your Spotify app' },
       { key: 'clientSecret', label: 'Client secret', placeholder: 'from your Spotify app', secret: true },
       { key: 'redirectUri', label: 'Redirect URI', placeholder: 'http://127.0.0.1:8888/callback' }
-    ]
+    ],
+    setup: {
+      url: 'https://developer.spotify.com/dashboard',
+      urlLabel: 'Open Spotify Developer Dashboard',
+      steps: [
+        'Go to the Spotify Developer Dashboard and log in.',
+        'Click "Create app". Name/description can be anything.',
+        'For Redirect URI, enter exactly: http://127.0.0.1:8888/callback (must match the field above).',
+        'Tick "Web API", agree to the terms, and Save.',
+        'Open the app → Settings: copy the Client ID and click "View client secret".',
+        'Paste the Client ID and Client secret above. Playback control needs Spotify Premium.'
+      ]
+    }
   },
   {
     id: 'bluesky',
@@ -87,7 +122,17 @@ const PROVIDERS: ProviderDef[] = [
     fields: [
       { key: 'handle', label: 'Handle', placeholder: 'you.bsky.social' },
       { key: 'appPassword', label: 'App password', placeholder: 'Settings → App passwords', secret: true }
-    ]
+    ],
+    setup: {
+      url: 'https://bsky.app/settings/app-passwords',
+      urlLabel: 'Open Bluesky app passwords',
+      steps: [
+        'In Bluesky, go to Settings → Privacy and security → App passwords.',
+        'Tap "Add App Password", name it "Decks", and create it.',
+        'Copy the generated password (format xxxx-xxxx-xxxx-xxxx) and paste it above.',
+        'Handle is your full username, e.g. you.bsky.social. Never use your real account password.'
+      ]
+    }
   },
   {
     id: 'mastodon',
@@ -98,7 +143,17 @@ const PROVIDERS: ProviderDef[] = [
     kind: 'login',
     mode: 'token',
     tokenField: { label: 'Access token', placeholder: 'Preferences → Development → New application' },
-    fields: [{ key: 'instanceUrl', label: 'Instance URL', placeholder: 'https://mastodon.social' }]
+    fields: [{ key: 'instanceUrl', label: 'Instance URL', placeholder: 'https://mastodon.social' }],
+    setup: {
+      urlLabel: 'Open Mastodon settings',
+      steps: [
+        'On your Mastodon instance, go to Preferences → Development.',
+        'Click "New application". Name it "Decks".',
+        'Leave scopes at the default read (read is enough for the timeline) and Submit.',
+        'Open the application and copy "Your access token", then paste it above.',
+        'Instance URL is your server, e.g. https://mastodon.social'
+      ]
+    }
   },
   {
     id: 'rss',
@@ -295,6 +350,27 @@ function ProviderCard({ def }: { def: ProviderDef }): JSX.Element {
       {/* Connect / add-collection form. */}
       {open && def.kind !== 'aggregate' && (
         <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
+          {def.setup && (
+            <details className="rounded-lg border border-line bg-bg-panel/60 px-3 py-2">
+              <summary className="cursor-pointer select-none text-[11px] font-semibold text-txt-2 marker:text-txt-4">
+                How do I get these?
+              </summary>
+              <ol className="mt-2 list-decimal space-y-1 pl-4 text-[11px] leading-relaxed text-txt-3">
+                {def.setup.steps.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ol>
+              {def.setup.url && (
+                <button
+                  type="button"
+                  onClick={() => window.open(def.setup!.url!, '_blank', 'noopener,noreferrer')}
+                  className="mt-2 text-[11px] font-medium text-accent transition-opacity hover:opacity-80"
+                >
+                  {def.setup.urlLabel ?? 'Open provider'} ↗
+                </button>
+              )}
+            </details>
+          )}
           {def.fields.map((f) => (
             <label key={f.key} className="flex flex-col gap-1">
               <span className="text-[11px] font-medium text-txt-2">{f.label}</span>

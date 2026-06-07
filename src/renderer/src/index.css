@@ -949,11 +949,13 @@ html.overlay-mode #root {
 @keyframes modal-pop {
   from {
     opacity: 0;
-    transform: translate(-50%, calc(-50% + 8px)) scale(0.97);
+    transform: translateY(8px) scale(0.97);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
+    /* Rest at no transform so the composited backdrop-filter layer is gone and
+       the text renders crisp (see .modal centering note). */
+    transform: none;
   }
 }
 @keyframes slidein {
@@ -1126,9 +1128,13 @@ html.overlay-mode #root {
 /* add-deck modal */
 .modal {
   position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  /* Center via inset:0 + margin:auto (NOT translate(-50%,-50%)): a backdrop-filter
+     layer offset by a fractional pixel — which translate(-50%,-50%) produces for
+     odd widths — gets rasterized blurry by Chromium, text and all. margin:auto
+     snaps to the pixel grid, so the resting modal is crisp. */
+  inset: 0;
+  margin: auto;
+  height: max-content;
   z-index: 101;
   width: min(440px, 90vw);
   /* Never taller than the viewport — the header stays put and the body scrolls,

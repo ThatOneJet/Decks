@@ -2183,6 +2183,19 @@ function AssignmentsTab({
   if (items.length === 0)
     return <TabStatus kind="empty" message="No assignments found." />
 
+  return <AssignmentsTabBody items={items} courseName={courseName} onOpenAssignment={onOpenAssignment} />
+}
+
+/** Body of the Assignments tab: due-bucket sections + a jump-to TOC side rail. */
+function AssignmentsTabBody({
+  items,
+  courseName,
+  onOpenAssignment
+}: {
+  items: CanvasAssignment[]
+  courseName: (id?: string) => string | undefined
+  onOpenAssignment: (courseId?: string, assignmentId?: string, nav?: NavContext | null) => void
+}): JSX.Element {
   // Group into due buckets (items arrive pre-sorted by due date from main).
   const grouped = new Map<DueBucket, CanvasAssignment[]>()
   for (const a of items) {
@@ -2194,30 +2207,59 @@ function AssignmentsTab({
   // Flattened display order across buckets — the list Prev/Next steps through.
   const order = DUE_BUCKETS.flatMap(({ key }) => grouped.get(key) ?? [])
 
+  // Jump-to TOC — only the buckets that actually have items.
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const present = DUE_BUCKETS.filter(({ key }) => (grouped.get(key)?.length ?? 0) > 0)
+  const scrollToToc = (key: string): void => {
+    rootRef.current
+      ?.querySelector(`[data-toc="bucket-${key}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   return (
-    <div className="flex flex-col gap-5">
-      {DUE_BUCKETS.map(({ key, label, tone }) => {
-        const group = grouped.get(key)
-        if (!group || group.length === 0) return null
-        return (
-          <section key={key}>
-            <SectionHeading count={group.length} tone={tone}>
-              {label}
-            </SectionHeading>
-            <div className="flex flex-col gap-2">
-              {group.map((a, i) => (
-                <AgendaAssignmentRow
-                  key={a.id ?? `${a.name ?? 'a'}-${i}`}
-                  a={a}
-                  label={a.courseName ?? courseName(a.courseId)}
-                  nav={assignmentNav(order, a)}
-                  onOpenAssignment={onOpenAssignment}
-                />
-              ))}
-            </div>
-          </section>
-        )
-      })}
+    <div className="flex gap-3">
+      <aside className="sticky top-0 hidden w-40 shrink-0 self-start md:block">
+        <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-txt-4">
+          Jump to
+        </div>
+        {present.map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => scrollToToc(key)}
+            className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-txt-2 transition-colors hover:bg-bg-elevated hover:text-txt-1"
+          >
+            <span className="truncate">{label}</span>
+            <span className="shrink-0 text-[10px] tabular-nums text-txt-4">
+              {grouped.get(key)?.length}
+            </span>
+          </button>
+        ))}
+      </aside>
+
+      <div ref={rootRef} className="flex min-w-0 flex-1 flex-col gap-5">
+        {DUE_BUCKETS.map(({ key, label, tone }) => {
+          const group = grouped.get(key)
+          if (!group || group.length === 0) return null
+          return (
+            <section key={key} data-toc={`bucket-${key}`} className="scroll-mt-2">
+              <SectionHeading count={group.length} tone={tone}>
+                {label}
+              </SectionHeading>
+              <div className="flex flex-col gap-2">
+                {group.map((a, i) => (
+                  <AgendaAssignmentRow
+                    key={a.id ?? `${a.name ?? 'a'}-${i}`}
+                    a={a}
+                    label={a.courseName ?? courseName(a.courseId)}
+                    nav={assignmentNav(order, a)}
+                    onOpenAssignment={onOpenAssignment}
+                  />
+                ))}
+              </div>
+            </section>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -3722,7 +3764,9 @@ function CourseDetailView({
         courseId={courseId}
         modules={modules}
         accent={c.hue}
+        missingAssignments={missing}
         onOpenPage={onOpenPage}
+        onOpenAssignment={onOpenAssignment}
         onMarkModuleItem={onMarkModuleItem}
       />
 
@@ -3795,13 +3839,18 @@ function CourseModulesSection({
   courseId,
   modules,
   accent,
+  missingAssignments,
   onOpenPage,
+  onOpenAssignment,
   onMarkModuleItem
 }: {
   courseId: string
   modules?: DetailCache<CanvasModule[]>
   accent: string
+  /** This course's MISSING assignments — surfaced inside the modules that hold them. */
+  missingAssignments: CanvasAssignment[]
   onOpenPage: (courseId: string, pageUrl?: string, nav?: NavContext | null) => void
+  onOpenAssignment: (courseId?: string, assignmentId?: string, nav?: NavContext | null) => void
   onMarkModuleItem: (
     courseId: string,
     moduleId: string,
@@ -3814,6 +3863,10 @@ function CourseModulesSection({
   // All readable page items across modules, in display order — the list Prev/Next
   // steps through when a page is opened.
   const pageOrder = list.flatMap((m) => (m.items ?? []).filter((it) => it.type === 'Page' && it.pageUrl))
+  // Index missing assignments by their id so a module's Assignment items (whose
+  // `contentId` is the assignment id) can be flagged as Missing in place.
+  const missingById = new Map<string, CanvasAssignment>()
+  for (const a of missingAssignments) if (a.id) missingById.set(a.id, a)
   return (
     <section className="mt-5">
       <SectionHeading count={loading ? undefined : list.length}>Modules</SectionHeading>
@@ -3826,35 +3879,122 @@ function CourseModulesSection({
       ) : (
         <div className="flex flex-col gap-3">
           {list.map((m, i) => (
-            <div
+            <ModuleCard
               key={m.id ?? `m-${i}`}
-              data-toc={'toc-module-' + (m.id ?? i)}
-              className="scroll-mt-2 rounded-lg border border-line bg-bg-elevated p-3"
-            >
-              <div className="mb-2 text-xs font-semibold text-txt-1">{m.name ?? 'Module'}</div>
-              {(m.items ?? []).length === 0 ? (
-                <p className="text-[11px] text-txt-4">No items.</p>
-              ) : (
-                <div className="flex flex-col gap-1">
-                  {(m.items ?? []).map((it, j) => (
-                    <ModuleItemRow
-                      key={it.id ?? `mi-${j}`}
-                      courseId={courseId}
-                      moduleId={m.id ?? ''}
-                      item={it}
-                      accent={accent}
-                      nav={pageNav(pageOrder, courseId, it)}
-                      onOpenPage={onOpenPage}
-                      onMarkModuleItem={onMarkModuleItem}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
+              tocId={'toc-module-' + (m.id ?? i)}
+              module={m}
+              courseId={courseId}
+              accent={accent}
+              pageOrder={pageOrder}
+              missingById={missingById}
+              onOpenPage={onOpenPage}
+              onOpenAssignment={onOpenAssignment}
+              onMarkModuleItem={onMarkModuleItem}
+            />
           ))}
         </div>
       )}
     </section>
+  )
+}
+
+/**
+ * A single collapsible module. Starts COLLAPSED — click the header to expand and
+ * reveal its items. The header shows the item count and, when the module holds
+ * any MISSING assignments, a red "N missing" badge so it's visible even closed.
+ */
+function ModuleCard({
+  tocId,
+  module: m,
+  courseId,
+  accent,
+  pageOrder,
+  missingById,
+  onOpenPage,
+  onOpenAssignment,
+  onMarkModuleItem
+}: {
+  tocId: string
+  module: CanvasModule
+  courseId: string
+  accent: string
+  pageOrder: CanvasModuleItem[]
+  missingById: Map<string, CanvasAssignment>
+  onOpenPage: (courseId: string, pageUrl?: string, nav?: NavContext | null) => void
+  onOpenAssignment: (courseId?: string, assignmentId?: string, nav?: NavContext | null) => void
+  onMarkModuleItem: (
+    courseId: string,
+    moduleId: string,
+    itemId: string,
+    done: boolean
+  ) => Promise<void>
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const items = m.items ?? []
+  const missingCount = items.reduce(
+    (n, it) => n + (it.type === 'Assignment' && it.contentId && missingById.has(it.contentId) ? 1 : 0),
+    0
+  )
+  return (
+    <div data-toc={tocId} className="scroll-mt-2 overflow-hidden rounded-lg border border-line bg-bg-elevated">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-bg/40"
+        aria-expanded={open}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          className={`h-3.5 w-3.5 shrink-0 text-txt-3 transition-transform ${open ? 'rotate-90' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M9 6l6 6-6 6" />
+        </svg>
+        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-txt-1">
+          {m.name ?? 'Module'}
+        </span>
+        {missingCount > 0 && (
+          <span className="shrink-0 rounded bg-err/15 px-1.5 py-0.5 text-[10px] font-semibold text-err">
+            {missingCount} missing
+          </span>
+        )}
+        <span className="shrink-0 text-[10px] tabular-nums text-txt-4">
+          {items.length} item{items.length === 1 ? '' : 's'}
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-line px-3 py-2">
+          {items.length === 0 ? (
+            <p className="text-[11px] text-txt-4">No items.</p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {items.map((it, j) => (
+                <ModuleItemRow
+                  key={it.id ?? `mi-${j}`}
+                  courseId={courseId}
+                  moduleId={m.id ?? ''}
+                  item={it}
+                  accent={accent}
+                  missing={
+                    it.type === 'Assignment' && it.contentId
+                      ? missingById.get(it.contentId)
+                      : undefined
+                  }
+                  nav={pageNav(pageOrder, courseId, it)}
+                  onOpenPage={onOpenPage}
+                  onOpenAssignment={onOpenAssignment}
+                  onMarkModuleItem={onMarkModuleItem}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -3883,17 +4023,22 @@ function ModuleItemRow({
   moduleId,
   item,
   accent,
+  missing,
   nav,
   onOpenPage,
+  onOpenAssignment,
   onMarkModuleItem
 }: {
   courseId: string
   moduleId: string
   item: CanvasModuleItem
   accent: string
+  /** Set when this item is an Assignment that is currently MISSING. */
+  missing?: CanvasAssignment
   /** Ordered page-item list this row belongs to, for Prev/Next stepping. */
   nav?: NavContext | null
   onOpenPage: (courseId: string, pageUrl?: string, nav?: NavContext | null) => void
+  onOpenAssignment: (courseId?: string, assignmentId?: string, nav?: NavContext | null) => void
   onMarkModuleItem: (
     courseId: string,
     moduleId: string,
@@ -3903,6 +4048,7 @@ function ModuleItemRow({
 }): JSX.Element {
   const [busy, setBusy] = useState(false)
   const isPage = item.type === 'Page' && !!item.pageUrl
+  const isAssignment = item.type === 'Assignment' && !!item.contentId
   const hasRequirement = !!item.requirementType
   const completed = !!item.completed
 
@@ -3926,6 +4072,21 @@ function ModuleItemRow({
           style={{ borderLeft: `2px solid ${accent}`, paddingLeft: '0.5rem' }}
         >
           {item.title ?? 'Page'}
+        </button>
+      ) : isAssignment ? (
+        <button
+          type="button"
+          onClick={() => onOpenAssignment(courseId, item.contentId, null)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 truncate rounded px-1.5 py-1 text-left text-xs text-txt-2 transition-colors hover:text-accent"
+          style={{ borderLeft: `2px solid ${missing ? 'var(--err)' : accent}`, paddingLeft: '0.5rem' }}
+          title={missing ? 'Missing assignment — open' : item.type}
+        >
+          <span className="min-w-0 flex-1 truncate">{item.title ?? 'Assignment'}</span>
+          {missing && (
+            <span className="shrink-0 rounded bg-err/15 px-1.5 py-0.5 text-[10px] font-semibold text-err">
+              Missing
+            </span>
+          )}
         </button>
       ) : (
         <button

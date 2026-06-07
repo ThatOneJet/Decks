@@ -22,13 +22,6 @@ function send(e: MiniPlayerControlEvent): void {
   window.decks?.miniPlayer.control(e)
 }
 
-/** Fixed, deterministic per-bar timing for the for-funsies equalizer (no RNG so
- *  it stays stable across re-renders). */
-const EQ_BARS = Array.from({ length: 18 }, (_, i) => ({
-  delay: (i * 73) % 900,
-  dur: 680 + (i % 5) * 130
-}))
-
 /** Seconds → m:ss (or h:mm:ss for long videos). */
 function fmt(s: number): string {
   if (!Number.isFinite(s) || s < 0) s = 0
@@ -64,17 +57,8 @@ function Ctrl({
   )
 }
 
-export default function MiniPlayerBar({
-  meta,
-  levels
-}: {
-  meta: MiniPlayerMeta
-  levels: number[] | null
-}): JSX.Element {
+export default function MiniPlayerBar({ meta }: { meta: MiniPlayerMeta }): JSX.Element {
   const { title, artist, artwork, paused, loop } = meta
-  // Real audio levels drive the bars when available; otherwise fall back to the
-  // CSS pulse animation. While paused we flatten them.
-  const hasLevels = !!levels && levels.length > 0
   const duration = meta.duration ?? 0
   const currentTime = meta.currentTime ?? 0
   const pct = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0
@@ -195,40 +179,7 @@ export default function MiniPlayerBar({
         </div>
       </div>
 
-      {/* 2 — Equalizer: driven by the real audio spectrum when available, else a
-          gentle CSS pulse. Bars freeze flat while paused. */}
-      {hasLevels ? (
-        <div className="flex h-3.5 items-end justify-center gap-[3px]">
-          {levels!.map((v, i) => (
-            <span
-              key={i}
-              className="w-[3px] rounded-full transition-[height] duration-75 ease-out"
-              style={{
-                height: `${paused ? 6 : Math.max(5, Math.round(v * 100))}%`,
-                backgroundColor: 'var(--accent)',
-                opacity: 0.75
-              }}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className={`flex h-3.5 items-end justify-center gap-[3px] ${paused ? 'mp-eq paused' : 'mp-eq'}`}>
-          {EQ_BARS.map((b, i) => (
-            <span
-              key={i}
-              className="mp-eq-bar h-full w-[3px] rounded-full"
-              style={{
-                animationDelay: `${b.delay}ms`,
-                animationDuration: `${b.dur}ms`,
-                backgroundColor: 'var(--accent)',
-                opacity: 0.75
-              }}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* 3 — Controls. Minimize + loop on the left, transport centered, refresh +
+      {/* 2 — Controls. Minimize + loop on the left, transport centered, refresh +
           expand on the right. */}
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1">
@@ -267,7 +218,7 @@ export default function MiniPlayerBar({
           </Ctrl>
         </div>
         <div className="flex items-center gap-1">
-          <Ctrl title="Refresh (fixes a stuck visualizer)" onClick={() => send({ action: 'reload' })}>
+          <Ctrl title="Refresh" onClick={() => send({ action: 'reload' })}>
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
               <path d="M21 3v5h-5" />
