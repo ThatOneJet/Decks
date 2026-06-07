@@ -2177,6 +2177,29 @@ html.overlay-mode #root {
      No seam on the right; the page card's own left border draws the only edge. */
   background: var(--chrome);
 }
+/* JetCore brand square at the top of the dock — the app switcher. Always PURPLE
+   (the JetCore brand color), independent of the user's accent. */
+.dock-brand {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  margin: 10px auto 6px;
+  border: none;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  background: linear-gradient(135deg, #7c5cff 0%, #9d7bff 100%);
+  box-shadow: 0 0 16px rgba(124, 92, 255, 0.45);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.dock-brand:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 22px rgba(124, 92, 255, 0.62);
+}
+.dock-brand:active {
+  transform: translateY(0) scale(0.96);
+}
 .dock-scroll {
   flex: 1 1 auto;
   min-height: 0;

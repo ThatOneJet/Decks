@@ -605,6 +605,19 @@ function Sidebar({
 
   return (
     <aside className={`dock ${rail ? 'rail' : ''} ${focusMode ? 'focusdim' : ''}`}>
+      {/* JetCore brand — a purple square + lightning bolt (unified JetCore look).
+          This is the app switcher entry point: clicking it will let you choose
+          between JetCore Decks and JetCore Operations. */}
+      <button
+        type="button"
+        className="dock-brand"
+        title="JetCore — switch app (Decks · Operations)"
+        aria-label="JetCore — switch app"
+      >
+        <svg viewBox="0 0 24 24" width={20} height={20} fill="#fff" aria-hidden="true">
+          <polygon points="13,3 7.5,13 12,13 10.5,21 17,10.5 12.5,10.5 14.5,3" />
+        </svg>
+      </button>
       {/* Collapse toggle moved to the topbar (Titlebar). */}
       <div className="dock-scroll">
         {nativeWs.length > 0 && (

@@ -166,7 +166,8 @@ export const useStore = create<DecksState>((set, get) => ({
   addDeckOpen: false,
   feedbackOpen: false,
   focusMode: false,
-  sidebarCollapsed: false,
+  // Start collapsed (icon rail) to match JetCore's compact rail for the merge.
+  sidebarCollapsed: true,
   dragging: false,
   draggingId: null,
   panelReloadNonce: {},
