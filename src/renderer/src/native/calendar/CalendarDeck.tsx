@@ -545,21 +545,26 @@ function TimeGrid({
 }): JSX.Element {
   const today = new Date()
   const nowPct = (minutesOfDay(now) / 1440) * 100
+  // ONE shared grid template (a fixed 3rem time-gutter + N equal day columns) is
+  // applied to the header, all-day, assignments, AND hour rows so every vertical
+  // column line lines up EXACTLY — no flex rounding drift between the rows. The
+  // single scroll container means a scrollbar shrinks them all identically too.
+  const cols: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: `3rem repeat(${days.length}, minmax(0, 1fr))`
+  }
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      {/* ONE scroll container holds the header + all-day + assignments rows (pinned
-          via sticky) AND the hour grid — so they share the same content width and
-          the vertical column lines stay aligned even when a scrollbar appears. */}
       <div className="flex-1 overflow-y-auto">
         {/* Pinned top rows */}
         <div className="sticky top-0 z-20 bg-bg">
           {/* Column headers */}
-          <div className="flex border-b border-line">
-            <div className="w-12 shrink-0" />
+          <div style={cols} className="border-b border-line">
+            <div />
             {days.map((d) => {
               const isToday = sameDay(d, today)
               return (
-                <div key={dayKey(d)} className="flex-1 border-l border-line px-1 py-1.5 text-center">
+                <div key={dayKey(d)} className="border-l border-line px-1 py-1.5 text-center">
                   <div className="text-[10px] font-medium uppercase tracking-wide text-txt-4">
                     {WEEKDAYS[d.getDay()]}
                   </div>
@@ -576,12 +581,12 @@ function TimeGrid({
           </div>
 
           {/* All-day row (events + holidays) */}
-          <div className="flex border-b border-line bg-bg-elevated/40">
-            <div className="grid w-12 shrink-0 place-items-center text-[9px] text-txt-4">all-day</div>
+          <div style={cols} className="border-b border-line bg-bg-elevated/40">
+            <div className="grid place-items-center text-[9px] text-txt-4">all-day</div>
             {days.map((d) => {
               const items = allDayByDay.get(dayKey(d)) ?? []
               return (
-                <div key={dayKey(d)} className="min-h-[1.75rem] flex-1 space-y-0.5 border-l border-line p-0.5">
+                <div key={dayKey(d)} className="min-h-[1.75rem] space-y-0.5 border-l border-line p-0.5">
                   {items.map((it) => (
                     <button
                       key={it.key}
@@ -600,14 +605,14 @@ function TimeGrid({
 
           {/* Assignments row — Canvas classwork gets its OWN top section (like
               all-day), per day, instead of being crammed at its due-time slot. */}
-          <div className="flex border-b border-line bg-bg-elevated/20">
-            <div className="grid w-12 shrink-0 place-items-center text-center text-[9px] leading-tight text-txt-4">
+          <div style={cols} className="border-b border-line bg-bg-elevated/20">
+            <div className="grid place-items-center text-center text-[9px] leading-tight text-txt-4">
               due
             </div>
             {days.map((d) => {
               const items = classworkByDay.get(dayKey(d)) ?? []
               return (
-                <div key={dayKey(d)} className="min-h-[1.75rem] flex-1 space-y-0.5 border-l border-line p-0.5">
+                <div key={dayKey(d)} className="min-h-[1.75rem] space-y-0.5 border-l border-line p-0.5">
                   {items.map((c) => (
                     <button
                       key={c.id}
@@ -626,11 +631,11 @@ function TimeGrid({
           </div>
         </div>
 
-        {/* Scrollable hourly grid */}
-        <div className="flex" style={{ minHeight: '60rem' }}>
+        {/* Scrollable hourly grid — SAME column template as the rows above. */}
+        <div style={{ ...cols, minHeight: '60rem' }}>
           {/* Hour gutter — each label is centered exactly on its hour gridline
               (the cell's TOP edge), so the times line up with the column rows. */}
-          <div className="w-12 shrink-0">
+          <div>
             {HOURS.map((h) => (
               <div key={h} className="relative h-10 border-b border-line/40">
                 <span className="absolute right-1 top-0 -translate-y-1/2 text-[9px] text-txt-4">
@@ -645,7 +650,7 @@ function TimeGrid({
             const evs = positioned.get(dayKey(d)) ?? []
             const isToday = sameDay(d, today)
             return (
-              <div key={dayKey(d)} className="relative flex-1 border-l border-line">
+              <div key={dayKey(d)} className="relative border-l border-line">
                 {/* Hour cells (click to create) */}
                 {HOURS.map((h) => (
                   <div
@@ -1125,6 +1130,9 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
           })
         }
       }
+      // Classwork chips first so a Canvas assignment is always among the visible
+      // (slice(0,3)) chips and stays clickable — never buried in "+N more".
+      base.sort((a, b) => (a.kind === 'classwork' ? -1 : 0) - (b.kind === 'classwork' ? -1 : 0))
       return base
     },
     [allDayItemsFor, visibleEvents, colorOf]

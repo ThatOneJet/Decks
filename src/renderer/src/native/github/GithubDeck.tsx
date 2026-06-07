@@ -199,7 +199,7 @@ export default function GithubDeck({ provider, accountId }: NativeDeckProps): JS
   const [account, setAccount] = useState<string | undefined>(undefined)
   const [data, setData] = useState<GithubDashboard | null>(null)
   const [error, setError] = useState<string>('')
-  const [tab, setTab] = useState<Tab>('notifications')
+  const [tab, setTab] = useState<Tab>('repos')
 
   const load = useCallback(async (): Promise<void> => {
     setState('loading')
