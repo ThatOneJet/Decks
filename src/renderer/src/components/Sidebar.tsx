@@ -16,7 +16,10 @@
  * drop-to-group, show native/web kind + unread/playing badges.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { AnimatePresence } from 'framer-motion'
 import { useStore } from '../store'
+import PopIn from '../bits/PopIn'
 import RailTile, { DECKS_WS_DND } from './sidebar/WorkspaceItem'
 import RailFolder from './sidebar/RailFolder'
 import TileIcon from './sidebar/TileIcon'
@@ -417,6 +420,9 @@ function Sidebar({
   const toggleFocusMode = useStore((s) => s.toggleFocusMode)
   const activate = useStore((s) => s.activateWorkspace)
   const goHome = useStore((s) => s.goHome)
+  const setView = useStore((s) => s.setView)
+  const openOperations = useStore((s) => s.openOperations)
+  const activeWorkspaceId = useStore((s) => s.activeWorkspaceId)
   const openSettings = useStore((s) => s.openSettings)
   const openMemory = useStore((s) => s.openMemory)
   const removeWorkspace = useStore((s) => s.removeWorkspace)
@@ -430,6 +436,48 @@ function Sidebar({
   const [edit, setEdit] = useState<{ ws: Workspace; mode: 'rename' | 'note' } | null>(null)
   const [renameFolder, setRenameFolder] = useState<string | null>(null)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
+  // App-switcher popover (anchored to the dock brand square).
+  const brandRef = useRef<HTMLButtonElement>(null)
+  const [swOpen, setSwOpen] = useState(false)
+  const [swPos, setSwPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+
+  // The current top-level mode, for highlighting the active switcher row.
+  const inOperations = view === 'operations'
+
+  const openSwitcher = (): void => {
+    const r = brandRef.current?.getBoundingClientRect()
+    if (r) setSwPos({ x: r.right + 10, y: r.top })
+    setSwOpen((o) => !o)
+  }
+  const chooseDecks = (): void => {
+    setSwOpen(false)
+    // Return to the last Decks surface (a workspace if one's active, else home).
+    setView(activeWorkspaceId ? 'workspace' : 'home')
+  }
+  const chooseOperations = (): void => {
+    setSwOpen(false)
+    openOperations()
+  }
+
+  // Close the switcher on Escape / outside click.
+  useEffect(() => {
+    if (!swOpen) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setSwOpen(false)
+    }
+    const onDown = (e: MouseEvent): void => {
+      const t = e.target as Node
+      if (brandRef.current?.contains(t)) return
+      if ((t as HTMLElement).closest?.('.appsw-pop')) return
+      setSwOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('mousedown', onDown)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('mousedown', onDown)
+    }
+  }, [swOpen])
 
   const rail_ = useMemo(() => buildRail(workspaces), [workspaces])
 
@@ -522,6 +570,57 @@ function Sidebar({
     </>
   )
 
+  // App-switcher popover — two rows (Decks / Operations). Rendered in a portal so
+  // it floats above the dock's overflow clipping; spring-scales in via React Bits.
+  const switcher = createPortal(
+    <AnimatePresence>
+      {swOpen && (
+        <PopIn className="appsw-pop" style={{ left: swPos.x, top: swPos.y }} origin="top left">
+          <div className="appsw-head">JetCore — switch app</div>
+          <button
+            className={`appsw-row ${!inOperations ? 'active' : ''}`}
+            onClick={chooseDecks}
+          >
+            <span className="appsw-ico decks">
+              <svg viewBox="0 0 24 24" width={16} height={16} fill="#fff" aria-hidden="true">
+                <polygon points="13,3 7.5,13 12,13 10.5,21 17,10.5 12.5,10.5 14.5,3" />
+              </svg>
+            </span>
+            <span className="appsw-txt">
+              <span className="appsw-nm">JetCore Decks</span>
+              <span className="appsw-sub">Your workspace browser</span>
+            </span>
+            {!inOperations && (
+              <svg className="appsw-check" viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+            )}
+          </button>
+          <button
+            className={`appsw-row ${inOperations ? 'active' : ''}`}
+            onClick={chooseOperations}
+          >
+            <span className="appsw-ico ops">
+              <svg viewBox="0 0 24 24" width={16} height={16} fill="#fff" aria-hidden="true">
+                <polygon points="13,3 7.5,13 12,13 10.5,21 17,10.5 12.5,10.5 14.5,3" />
+              </svg>
+            </span>
+            <span className="appsw-txt">
+              <span className="appsw-nm">JetCore Operations</span>
+              <span className="appsw-sub">Run your business</span>
+            </span>
+            {inOperations && (
+              <svg className="appsw-check" viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+            )}
+          </button>
+        </PopIn>
+      )}
+    </AnimatePresence>,
+    document.body
+  )
+
   // ──────────────────────────────────────────────────────────────────────────
   // Portrait: horizontal taskbar dock (icon tiles, unchanged behavior).
   // ──────────────────────────────────────────────────────────────────────────
@@ -570,6 +669,7 @@ function Sidebar({
         <button className={`rail-btn ${view === 'home' ? 'on' : ''}`} onClick={goHome} title="Home">{ICON.home}</button>
         <button className={`rail-btn ${view === 'settings' ? 'on' : ''}`} onClick={openSettings} title="Settings">{ICON.settings}</button>
         {modals}
+        {switcher}
       </aside>
     )
   }
@@ -609,10 +709,14 @@ function Sidebar({
           This is the app switcher entry point: clicking it will let you choose
           between JetCore Decks and JetCore Operations. */}
       <button
+        ref={brandRef}
         type="button"
-        className="dock-brand"
+        className={`dock-brand ${swOpen ? 'is-open' : ''}`}
         title="JetCore — switch app (Decks · Operations)"
         aria-label="JetCore — switch app"
+        aria-haspopup="menu"
+        aria-expanded={swOpen}
+        onClick={openSwitcher}
       >
         <svg viewBox="0 0 24 24" width={20} height={20} fill="#fff" aria-hidden="true">
           <polygon points="13,3 7.5,13 12,13 10.5,21 17,10.5 12.5,10.5 14.5,3" />
@@ -743,6 +847,7 @@ function Sidebar({
         </button>
       </div>
       {modals}
+      {switcher}
     </aside>
   )
 }

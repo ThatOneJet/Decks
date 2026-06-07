@@ -39,7 +39,15 @@ import { createOverlay, type OverlayController } from './overlay'
 import { registerProviderIpc } from './providers/registry'
 import { registerAllProviders } from './providers'
 import { startCodeServer, stopCodeServer } from './codeserver'
-import type { CodeServerResult } from '@shared/ipc'
+import {
+  setOperationsWindow,
+  startOperations,
+  showOperations,
+  hideOperations,
+  stopOperations,
+  forwardOperationsExit
+} from './jetcore'
+import type { CodeServerResult, OperationsBoundsPayload } from '@shared/ipc'
 
 /**
  * Cap the number of Chromium renderer processes. NOTE this counts ALL renderers,
@@ -79,6 +87,7 @@ function createWindow(): void {
   })
 
   panels.setWindow(mainWindow)
+  setOperationsWindow(mainWindow)
   overlay = createOverlay(mainWindow)
 
   // Bridge the corner mini-player (owned by PanelManager) to the overlay window's
@@ -230,6 +239,14 @@ function registerIpc(): void {
   ipcMain.handle(IPC.CodeServerStop, () => {
     stopCodeServer()
   })
+
+  // ── JetCore Operations (embedded Flask app, full-area WebContentsView) ──
+  ipcMain.handle(IPC.OperationsStart, () => startOperations())
+  ipcMain.handle(IPC.OperationsShow, (_e, p: OperationsBoundsPayload) => showOperations(p))
+  ipcMain.handle(IPC.OperationsHide, () => hideOperations())
+  ipcMain.handle(IPC.OperationsStop, () => stopOperations())
+  // The Operations view's preload asks to return to Decks → flip the main renderer.
+  ipcMain.on(IPC.OperationsRequestDecks, () => forwardOperationsExit())
 
   // ── Persistence (renderer → main, invoke) ──
   ipcMain.handle(IPC.StateLoad, (): Promise<PersistedState | null> => loadState())
@@ -430,6 +447,11 @@ function cleanup(): void {
   }
   try {
     stopCodeServer()
+  } catch {
+    /* ignore */
+  }
+  try {
+    stopOperations()
   } catch {
     /* ignore */
   }

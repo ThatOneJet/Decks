@@ -1904,6 +1904,151 @@ html.overlay-mode #root {
   mask-image: radial-gradient(130% 100% at 20% 0%, #000 35%, transparent 78%);
 }
 
+/* ── App-switcher stages (Decks ⇄ Operations crossfade) ──
+   Both stages occupy the whole area BELOW the titlebar (grid row 2, all columns)
+   so the mode swap fades over the same region. The Decks stage re-creates the
+   dock + workspace grid inside itself (the children carry their own
+   grid-column 1/2). The Operations stage is a single full-bleed slot. */
+.decks-stage,
+.ops-stage {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+}
+.decks-stage {
+  grid-template-columns: var(--dock-w) 1fr;
+  grid-template-rows: minmax(0, 1fr);
+}
+.console.rail .decks-stage {
+  grid-template-columns: var(--dock-w-rail) 1fr;
+}
+.console.is-focus .decks-stage {
+  grid-template-columns: 1fr;
+}
+/* Re-home the dock + workspace into the stage's single-row grid (they normally
+   sit at grid-row 2 of the OUTER grid, which doesn't exist in here). */
+.decks-stage > .dock,
+.decks-stage > aside,
+.decks-stage > .workspace {
+  grid-row: 1;
+}
+.console.is-focus .decks-stage > .workspace {
+  grid-column: 1;
+}
+/* Portrait: stack workspace over the bottom-dock taskbar inside the stage. */
+.console.is-portrait .decks-stage {
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+.console.is-portrait .decks-stage > .workspace {
+  grid-row: 1;
+  grid-column: 1;
+}
+.console.is-portrait .decks-stage > aside {
+  grid-row: 2;
+  grid-column: 1;
+}
+
+/* Operations: native JetCore view overlays this full-bleed slot. */
+.ops-stage {
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(0, 1fr);
+}
+.ops-slot {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(900px 500px at 12% -10%, rgba(255, 106, 26, 0.06), transparent 60%),
+    var(--bg-void);
+}
+.ops-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  z-index: 1;
+}
+.ops-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  color: var(--txt-3, #9aa3b2);
+}
+.ops-spark {
+  color: #ff6a1a;
+  filter: drop-shadow(0 0 14px rgba(255, 106, 26, 0.55));
+  animation: ops-pulse 1.4s ease-in-out infinite;
+}
+.ops-loader-txt {
+  font-size: 13px;
+  letter-spacing: 0.2px;
+}
+.ops-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 106, 26, 0.18);
+  border-top-color: #ff6a1a;
+  animation: ops-spin 0.8s linear infinite;
+}
+@keyframes ops-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes ops-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+.ops-error-card {
+  max-width: 420px;
+  text-align: center;
+  padding: 26px 28px;
+  border-radius: 16px;
+  background: var(--panel, rgba(20, 24, 33, 0.9));
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+.ops-error-ico {
+  color: #ff8a4a;
+  margin-bottom: 10px;
+}
+.ops-error-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--txt-1, #eef1f6);
+  margin-bottom: 8px;
+}
+.ops-error-msg {
+  font-size: 12.5px;
+  color: var(--txt-2, #c2c9d6);
+  line-height: 1.5;
+  word-break: break-word;
+  margin-bottom: 12px;
+}
+.ops-error-hint {
+  font-size: 11.5px;
+  color: var(--txt-4, #79818f);
+  line-height: 1.5;
+}
+
 /* ── HEADER — brand + always-visible command bar + controls ── */
 .header {
   grid-column: 1 / -1;
@@ -2177,8 +2322,9 @@ html.overlay-mode #root {
      No seam on the right; the page card's own left border draws the only edge. */
   background: var(--chrome);
 }
-/* JetCore brand square at the top of the dock — the app switcher. Always PURPLE
-   (the JetCore brand color), independent of the user's accent. */
+/* JetCore brand square at the top of the dock — the app switcher. Always BLUE
+   (the "JetCore Decks" brand color, distinct from Operations' orange),
+   independent of the user's accent. */
 .dock-brand {
   flex: none;
   width: 40px;
@@ -2189,16 +2335,96 @@ html.overlay-mode #root {
   display: grid;
   place-items: center;
   cursor: pointer;
-  background: linear-gradient(135deg, #7c5cff 0%, #9d7bff 100%);
-  box-shadow: 0 0 16px rgba(124, 92, 255, 0.45);
+  background: linear-gradient(135deg, #5b8cff 0%, #84aaff 100%);
+  box-shadow: 0 0 16px rgba(91, 140, 255, 0.5);
   transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 .dock-brand:hover {
   transform: translateY(-1px);
-  box-shadow: 0 0 22px rgba(124, 92, 255, 0.62);
+  box-shadow: 0 0 22px rgba(91, 140, 255, 0.68);
 }
 .dock-brand:active {
   transform: translateY(0) scale(0.96);
+}
+.dock-brand.is-open {
+  box-shadow: 0 0 24px rgba(91, 140, 255, 0.75);
+}
+
+/* ── App-switcher popover (anchored to the dock brand square) ── */
+.appsw-pop {
+  position: fixed;
+  z-index: 80;
+  width: 232px;
+  padding: 7px;
+  border-radius: 14px;
+  background: var(--panel, rgba(18, 22, 30, 0.96));
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.09));
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+  backdrop-filter: blur(14px) saturate(140%);
+}
+.appsw-head {
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--txt-4, #79818f);
+  padding: 5px 8px 7px;
+}
+.appsw-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 9px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: var(--txt-1, #eef1f6);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.appsw-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.appsw-row.active {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.appsw-ico {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+}
+.appsw-ico.decks {
+  background: linear-gradient(135deg, #5b8cff 0%, #84aaff 100%);
+  box-shadow: 0 0 12px rgba(91, 140, 255, 0.5);
+}
+.appsw-ico.ops {
+  background: linear-gradient(135deg, #ff6a1a 0%, #ff9554 100%);
+  box-shadow: 0 0 12px rgba(255, 106, 26, 0.5);
+}
+.appsw-txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.appsw-nm {
+  font-size: 13px;
+  font-weight: 600;
+}
+.appsw-sub {
+  font-size: 11px;
+  color: var(--txt-4, #79818f);
+}
+.appsw-check {
+  margin-left: auto;
+  color: var(--accent, #5b8cff);
+  flex: none;
 }
 .dock-scroll {
   flex: 1 1 auto;

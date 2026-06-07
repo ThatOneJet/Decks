@@ -31,7 +31,8 @@ import type {
   ProviderConnectPayload,
   ProviderFetchPayload,
   FeedbackPayload,
-  FileSavePayload
+  FileSavePayload,
+  OperationsBoundsPayload
 } from '@shared/ipc'
 import type { PanelId, PersistedState, ProviderId } from '@shared/types'
 
@@ -63,6 +64,12 @@ const api: DecksApi = {
   codeserver: {
     start: () => ipcRenderer.invoke(IPC.CodeServerStart),
     stop: () => ipcRenderer.invoke(IPC.CodeServerStop)
+  },
+  operations: {
+    start: () => ipcRenderer.invoke(IPC.OperationsStart),
+    show: (p: OperationsBoundsPayload) => ipcRenderer.invoke(IPC.OperationsShow, p),
+    hide: () => ipcRenderer.invoke(IPC.OperationsHide),
+    stop: () => ipcRenderer.invoke(IPC.OperationsStop)
   },
   state: {
     load: () => ipcRenderer.invoke(IPC.StateLoad),
@@ -142,6 +149,11 @@ const api: DecksApi = {
     const listener = (_: unknown, e: FocusPanelEvent): void => cb(e)
     ipcRenderer.on(IPC.FocusPanel, listener)
     return () => ipcRenderer.removeListener(IPC.FocusPanel, listener)
+  },
+  onOperationsExit: (cb: () => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on(IPC.OperationsExit, listener)
+    return () => ipcRenderer.removeListener(IPC.OperationsExit, listener)
   }
 }
 

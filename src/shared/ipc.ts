@@ -58,6 +58,20 @@ export const IPC = {
   /** Stop the running code-server (also torn down on quit). */
   CodeServerStop: 'codeserver:stop',
 
+  // ── JetCore Operations (embedded Flask app in a full-area WebContentsView) ──
+  /** Spawn (or reuse) the JetCore backend; resolves its loopback URL. */
+  OperationsStart: 'operations:start',
+  /** Attach + position the Operations view over the given bounds. */
+  OperationsShow: 'operations:show',
+  /** Detach/hide the Operations view (Decks UI shows through underneath). */
+  OperationsHide: 'operations:hide',
+  /** Kill the JetCore backend + destroy its view (also torn down on quit). */
+  OperationsStop: 'operations:stop',
+  /** operations-view preload → main (send): the JetCore page asked to go back to Decks. */
+  OperationsRequestDecks: 'operations:request-decks',
+  /** main → the MAIN renderer (event): flip the UI back from Operations to Decks. */
+  OperationsExit: 'operations:exit',
+
   // ── Persistence — renderer → main (invoke) ──
   StateLoad: 'state:load',
   StateSave: 'state:save',
@@ -427,6 +441,19 @@ export interface CodeServerResult {
   cancelled?: boolean
 }
 
+/** result: OperationsStart — outcome of trying to launch the JetCore backend. */
+export interface OperationsStartResult {
+  /** The loopback URL of the live JetCore app, when it started. */
+  url?: string
+  /** A human-readable error when it didn't (e.g. exe missing, never became ready). */
+  error?: string
+}
+
+/** payload: OperationsShow — where to position the full-area Operations view. */
+export interface OperationsBoundsPayload {
+  bounds: PanelBounds
+}
+
 /**
  * The full API surface exposed on `window.decks` by the preload.
  * Renderer code depends ONLY on this interface.
@@ -469,6 +496,22 @@ export interface DecksApi {
     /** Pick a folder + spawn code-server; resolves a result with the URL. */
     start(): Promise<CodeServerResult>
     /** Stop the running code-server. */
+    stop(): Promise<void>
+  }
+  /**
+   * JetCore Operations — the embedded Flask app shown full-area in its own
+   * WebContentsView. start() spawns/reuses the backend; show/hide toggle the view
+   * over the renderer; stop() kills it. The view runs its own preload that can
+   * ask to return to Decks (see onOperationsExit).
+   */
+  operations: {
+    /** Spawn (or reuse) the JetCore backend; resolves a result with the URL. */
+    start(): Promise<OperationsStartResult>
+    /** Attach + position the Operations view over the given bounds. */
+    show(payload: OperationsBoundsPayload): Promise<void>
+    /** Detach/hide the Operations view. */
+    hide(): Promise<void>
+    /** Kill the backend + destroy the view. */
     stop(): Promise<void>
   }
   state: {
@@ -534,4 +577,9 @@ export interface DecksApi {
   onMiniLevels(cb: (levels: number[]) => void): () => void
   /** (Main renderer only) subscribe to focus-panel requests. */
   onFocusPanel(cb: (e: FocusPanelEvent) => void): () => void
+  /**
+   * (Main renderer only) subscribe to "return to Decks" requests fired from the
+   * Operations view (the JetCore page's shell bridge). Returns an unsubscribe fn.
+   */
+  onOperationsExit(cb: () => void): () => void
 }

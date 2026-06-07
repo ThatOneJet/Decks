@@ -42,8 +42,9 @@ function markTourSeen(): void {
 const EMPTY_LAYOUT: LayoutNode = { type: 'leaf', panelId: '' }
 const isEmptyLayout = (l: LayoutNode): boolean => l.type === 'leaf' && l.panelId === ''
 
-/** Which surface the right-hand region is showing. */
-export type View = 'home' | 'workspace' | 'settings'
+/** Which surface the right-hand region is showing. `operations` swaps the whole
+ *  Decks UI for the native JetCore Operations WebContentsView (app switcher). */
+export type View = 'home' | 'workspace' | 'settings' | 'operations'
 
 /** App-level settings (persisted). Minimal and typed. */
 export interface Settings {
@@ -53,7 +54,7 @@ export interface Settings {
   accent: string
 }
 
-export const DEFAULT_SETTINGS: Settings = { discardMinutes: 8, accent: '#7c5cff' }
+export const DEFAULT_SETTINGS: Settings = { discardMinutes: 8, accent: '#5b8cff' }
 
 export interface DecksState {
   // ── data ──
@@ -89,6 +90,10 @@ export interface DecksState {
   goHome: () => void
   /** Open the dedicated settings surface. */
   openSettings: () => void
+  /** Switch the top-level surface directly (used by the app switcher). */
+  setView: (view: View) => void
+  /** Show the native JetCore Operations app full-area. */
+  openOperations: () => void
   /** Which Console slide-over panel is open (memory / help / none). */
   consolePanel: 'none' | 'help' | 'memory'
   openHelp: () => void
@@ -200,6 +205,8 @@ export const useStore = create<DecksState>((set, get) => ({
   activateWorkspace: (id) => set({ activeWorkspaceId: id, view: 'workspace' }),
   goHome: () => set({ view: 'home' }),
   openSettings: () => set({ view: 'settings' }),
+  setView: (view) => set({ view }),
+  openOperations: () => set({ view: 'operations' }),
   consolePanel: 'none',
   openHelp: () => set({ consolePanel: 'help' }),
   openMemory: () => set({ consolePanel: 'memory' }),

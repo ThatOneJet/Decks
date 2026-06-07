@@ -10,13 +10,16 @@
  *   4. persistence — debounced save of the full PersistedState on any change.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { AnimatePresence } from 'framer-motion'
 import { useStore } from './store'
 import Titlebar from './components/Titlebar'
 import Sidebar from './components/Sidebar'
 import DashboardHome from './components/DashboardHome'
 import SplitView from './components/SplitView'
+import OperationsView from './components/OperationsView'
 import SettingsDeck from './components/Settings/SettingsDeck'
 import CommandPalette from './components/CommandPalette'
+import AnimatedContent from './bits/AnimatedContent'
 import FeedbackModal from './components/FeedbackModal'
 import Tour from './components/Tour'
 import { Welcome, HelpPanel, MemoryPanel, welcomeUnseen } from './components/ConsolePanels'
@@ -46,6 +49,7 @@ function App(): JSX.Element {
   const focusMode = useStore((s) => s.focusMode)
   const toggleFocusMode = useStore((s) => s.toggleFocusMode)
   const goHome = useStore((s) => s.goHome)
+  const setView = useStore((s) => s.setView)
   const openPalette = useStore((s) => s.openPalette)
   const consolePanel = useStore((s) => s.consolePanel)
   const openHelp = useStore((s) => s.openHelp)
@@ -197,6 +201,27 @@ function App(): JSX.Element {
       }
     }
   }, [keepAliveKey])
+
+  // ── Operations mode: hide every Decks web view so the native JetCore
+  // Operations view (positioned by OperationsView) owns the area below the
+  // titlebar. Restore the deck views (re-measure) when leaving. ──
+  useEffect(() => {
+    if (view !== 'operations') return
+    window.decks?.panel.hideAll()
+    return () => {
+      window.dispatchEvent(new Event('resize'))
+    }
+  }, [view])
+
+  // ── In-Operations "switch back" button → return to Decks. ──
+  useEffect(() => {
+    const off = window.decks?.onOperationsExit?.(() => {
+      // Go back to the last meaningful Decks surface.
+      const s = useStore.getState()
+      setView(s.activeWorkspaceId ? 'workspace' : 'home')
+    })
+    return () => off?.()
+  }, [setView])
 
   // ── 3. Live panel updates from main → store. ──
   useEffect(() => {
@@ -354,6 +379,7 @@ function App(): JSX.Element {
 
   const showSplit = view === 'workspace' && workspaces.length > 0
   const inFocus = focusMode && showSplit
+  const inOperations = view === 'operations'
 
   // Portrait: dock at the BOTTOM → stack [main | dock] vertically.
   // Landscape: rail on the LEFT → [rail | main] horizontally.
@@ -383,21 +409,35 @@ function App(): JSX.Element {
         // In focus mode the dock is hidden, so `rail` is meaningless there —
         // dropping it makes collapsed+focus and expanded+focus render IDENTICALLY
         // (full-bleed), instead of leaving the card at the smaller rail size.
-        (collapsed && !inFocus ? ' rail' : '') +
+        (collapsed && !inFocus && !inOperations ? ' rail' : '') +
         (inFocus ? ' is-focus' : '') +
-        (dockMode ? ' is-portrait' : '')
+        // Operations mode: hide the dock + workspace; OperationsView spans the
+        // whole single column below the titlebar (titlebar stays visible).
+        (inOperations ? ' is-operations' : '') +
+        (dockMode && !inOperations ? ' is-portrait' : '')
       }
     >
-      {/* HEADER — full-width Console chrome (brand + command bar + controls). */}
+      {/* HEADER — full-width Console chrome (brand + command bar + controls).
+          Always visible, including in Operations mode (window controls). */}
       <Titlebar />
 
-      {/* DOCK — vertical rail (landscape) or bottom taskbar (portrait). */}
-      <Sidebar collapsed={collapsed} orientation={dockMode ? 'horizontal' : 'vertical'} />
+      {/* Top-level mode crossfade: Decks (dock + workspace) ⇄ Operations.
+          AnimatePresence + a per-mode key gives a smooth scale/fade swap. */}
+      <AnimatePresence mode="wait" initial={false}>
+        {inOperations ? (
+          <AnimatedContent key="operations" className="ops-stage">
+            <OperationsView />
+          </AnimatedContent>
+        ) : (
+          <AnimatedContent key="decks" className="decks-stage">
+            {/* DOCK — vertical rail (landscape) or bottom taskbar (portrait). */}
+            <Sidebar collapsed={collapsed} orientation={dockMode ? 'horizontal' : 'vertical'} />
 
-      {/* WORKSPACE — the active surface (its own floating page card). */}
-      <div className="workspace relative">
-        {surface}
-      </div>
+            {/* WORKSPACE — the active surface (its own floating page card). */}
+            <div className="workspace relative">{surface}</div>
+          </AnimatedContent>
+        )}
+      </AnimatePresence>
 
       <CommandPalette />
 
