@@ -200,6 +200,11 @@ export function MemoryPanel({ onClose }: { onClose: () => void }): JSX.Element {
   // Share of total RAM attributable to live web decks (real per-deck sum / total).
   const webMB = liveWeb.reduce((sum, r) => sum + r.mb, 0)
   const webPct = total > 0 ? Math.min(100, (webMB / total) * 100) : 0
+  // Everything that ISN'T a deck renderer: Electron's main process, the app's own
+  // UI shell renderer, the GPU process, and the network/audio/storage helpers +
+  // the overlay window. This is the app's fixed baseline — it's where the rest of
+  // the total goes (the per-deck rows below only cover deck renderers).
+  const baselineMB = Math.max(0, total - webMB)
 
   const ddImg = (url: string): string => faviconFor(url)
 
@@ -225,7 +230,11 @@ export function MemoryPanel({ onClose }: { onClose: () => void }): JSX.Element {
             <div className="mem-legend">
               <span>
                 <i className="ld" style={{ background: 'var(--web)' }} />
-                {m?.liveRenderers ?? 0} live web deck{(m?.liveRenderers ?? 0) === 1 ? '' : 's'}
+                {m?.liveRenderers ?? 0} live web deck{(m?.liveRenderers ?? 0) === 1 ? '' : 's'} · {webMB} MB
+              </span>
+              <span>
+                <i className="ld" style={{ background: 'var(--elev-2)' }} />
+                App &amp; system · {baselineMB} MB
               </span>
               <span>
                 <i className="ld" style={{ background: 'var(--accent)' }} />
@@ -238,6 +247,16 @@ export function MemoryPanel({ onClose }: { onClose: () => void }): JSX.Element {
             Native decks render our own UI on the app&apos;s data — they spawn{' '}
             <b style={{ color: 'var(--t1)' }}>no browser engine</b>, so they cost almost nothing. Idle web
             decks are auto-discarded ({m?.discarded ?? 0} freed) and reload instantly when you return.
+          </div>
+
+          <div className="psec" style={{ paddingLeft: 2 }}>App &amp; system</div>
+          <div className="mem-row">
+            <span className="mi"><Ico d={I.chip} w={16} /></span>
+            <span className="mm">
+              <div className="l">Decks app &amp; Electron</div>
+              <div className="d">Main process, UI shell, GPU &amp; helper processes</div>
+            </span>
+            <span className="mv live">{baselineMB} MB</span>
           </div>
 
           {liveWeb.length > 0 && <div className="psec" style={{ paddingLeft: 2 }}>Live web decks</div>}
