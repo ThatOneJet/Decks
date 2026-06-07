@@ -15,6 +15,7 @@ import { useStore } from '../store'
 import { hostOf } from '../lib/favicon'
 import { modCombo } from '../lib/platform'
 import Logo from './Logo'
+import NotificationCenter from './NotificationCenter'
 
 /**
  * The current page as host + path (e.g. `instagram.com/reels`), not just the
@@ -62,6 +63,14 @@ function Header(): JSX.Element {
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed)
   const toggleSidebar = useStore((s) => s.toggleSidebar)
   const openFeedback = useStore((s) => s.openFeedback)
+  const workspaces = useStore((s) => s.workspaces)
+  const [notifOpen, setNotifOpen] = useState(false)
+
+  // Total unread across every deck — drives the bell's badge.
+  const totalUnread = workspaces.reduce(
+    (sum, w) => sum + w.panels.reduce((s, p) => s + (p.badge || 0), 0),
+    0
+  )
 
   // Live memory readout for the pill — real working-set RAM + live/idle counts.
   const [mem, setMem] = useState<{ ramMB: number; live: number; discarded: number } | null>(null)
@@ -223,6 +232,42 @@ function Header(): JSX.Element {
             )}
           </span>
         </button>
+
+        <button
+          className={`hbtn icon ${notifOpen ? 'on' : ''}`}
+          onClick={() => setNotifOpen((v) => !v)}
+          title="Notifications"
+          aria-label="Notifications"
+          style={{ position: 'relative' }}
+        >
+          <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+          </svg>
+          {totalUnread > 0 && (
+            <span
+              style={{
+                position: 'absolute',
+                top: -3,
+                right: -3,
+                minWidth: 15,
+                height: 15,
+                padding: '0 3px',
+                borderRadius: 999,
+                background: 'var(--accent)',
+                color: '#fff',
+                fontSize: 9,
+                fontWeight: 700,
+                display: 'grid',
+                placeItems: 'center',
+                lineHeight: 1
+              }}
+            >
+              {totalUnread > 99 ? '99+' : totalUnread}
+            </span>
+          )}
+        </button>
+        {notifOpen && <NotificationCenter onClose={() => setNotifOpen(false)} />}
 
         <button className="hbtn icon" onClick={openHelp} title="Help & shortcuts (?)" aria-label="Help">
           <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
