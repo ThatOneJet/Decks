@@ -11,7 +11,7 @@
  *
  * Reads/acts through the store (settings slice) and window.decks. No props.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../../store'
 import type { MetricsResult } from '@shared/ipc'
 import Accounts from './Accounts'
@@ -67,29 +67,48 @@ function MemoryReadout(): JSX.Element {
 /** A titled card wrapper matching the dark theme. */
 function Card({
   title,
+  id,
   children
 }: {
   title: string
+  id?: string
   children: React.ReactNode
 }): JSX.Element {
   return (
-    <section className="rounded-xl2 border border-line bg-bg-panel p-5">
+    <section data-toc={id} className="scroll-mt-4 rounded-xl2 border border-line bg-bg-panel p-5">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-txt-2">{title}</h2>
       {children}
     </section>
   )
 }
 
+/** The settings sections, in order — drives both the page and its jump-to TOC. */
+const SETTINGS_SECTIONS: Array<{ id: string; label: string }> = [
+  { id: 'accounts', label: 'Accounts & native decks' },
+  { id: 'memory', label: 'Memory' },
+  { id: 'appearance', label: 'Appearance' },
+  { id: 'help', label: 'Help & guide' },
+  { id: 'about', label: 'About' }
+]
+
 function SettingsDeck(): JSX.Element {
   const settings = useStore((s) => s.settings)
   const setSettings = useStore((s) => s.setSettings)
   const openTour = useStore((s) => s.openTour)
   const openHelp = useStore((s) => s.openHelp)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
 
   // Detach every panel view so this pure-renderer surface is fully visible.
   useEffect(() => {
     window.decks?.panel.hideAll()
   }, [])
+
+  const scrollToToc = (id: string): void => {
+    scrollRef.current?.querySelector(`[data-toc="${id}"]`)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start'
+    })
+  }
 
   const setDiscard = (minutes: number): void => {
     const clamped = Math.min(DISCARD_MAX, Math.max(DISCARD_MIN, Math.round(minutes)))
@@ -106,8 +125,26 @@ function SettingsDeck(): JSX.Element {
   return (
     <div className="page-area">
       <div className="page-card">
-        <div className="h-full w-full overflow-y-auto">
-          <div className="mx-auto w-full max-w-2xl px-8 py-10">
+        <div ref={scrollRef} className="h-full w-full overflow-y-auto">
+          <div className="mx-auto flex w-full max-w-4xl gap-6 px-8 py-10">
+            {/* Jump-to TOC — sticky beside the settings sections. */}
+            <aside className="sticky top-0 hidden h-max w-44 shrink-0 lg:block">
+              <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-txt-4">
+                Settings
+              </div>
+              {SETTINGS_SECTIONS.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => scrollToToc(s.id)}
+                  className="block w-full truncate rounded-md px-2 py-1.5 text-left text-xs text-txt-2 transition-colors hover:bg-bg-elevated hover:text-txt-1"
+                  title={s.label}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </aside>
+
+            <div className="min-w-0 flex-1">
         <header className="mb-8">
           <h1 className="font-display text-2xl font-semibold tracking-tight text-txt-1">Settings</h1>
           <p className="mt-1.5 text-sm leading-relaxed text-txt-3">
@@ -117,7 +154,7 @@ function SettingsDeck(): JSX.Element {
 
         <div className="flex flex-col gap-5">
           {/* ── Accounts & native decks ── */}
-          <Card title="Accounts & native decks">
+          <Card title="Accounts & native decks" id="accounts">
             <p className="-mt-2 mb-4 text-xs leading-relaxed text-txt-3">
               Connect a service to render your own feed on its data — no embedded site, no
               extra renderer process. Closed feeds (Instagram, TikTok, X, Reddit, YouTube) stay
@@ -127,7 +164,7 @@ function SettingsDeck(): JSX.Element {
           </Card>
 
           {/* ── Memory ── */}
-          <Card title="Memory">
+          <Card title="Memory" id="memory">
             <MemoryReadout />
 
             <div className="mt-6">
@@ -176,7 +213,7 @@ function SettingsDeck(): JSX.Element {
           </Card>
 
           {/* ── Appearance ── */}
-          <Card title="Appearance">
+          <Card title="Appearance" id="appearance">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-txt-1">Accent color</p>
@@ -206,7 +243,7 @@ function SettingsDeck(): JSX.Element {
           </Card>
 
           {/* ── Help & guide ── */}
-          <Card title="Help & guide">
+          <Card title="Help & guide" id="help">
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-txt-1">Guided tour</p>
@@ -240,7 +277,7 @@ function SettingsDeck(): JSX.Element {
           </Card>
 
           {/* ── About ── */}
-          <Card title="About">
+          <Card title="About" id="about">
             <div className="flex items-baseline justify-between">
               <div>
                 <p className="text-base font-semibold text-txt-1">Decks</p>
@@ -249,11 +286,12 @@ function SettingsDeck(): JSX.Element {
               <span className="text-xs tabular-nums text-txt-3">v0.1.0</span>
             </div>
           </Card>
+            </div>
+            </div>
           </div>
           </div>
         </div>
       </div>
-    </div>
   )
 }
 

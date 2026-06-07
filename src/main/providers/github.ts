@@ -190,7 +190,12 @@ export class GithubClient implements ProviderClient {
   }
 
   private async fetchRepos(token: string): Promise<unknown[]> {
-    const list = await this.api<GhRepo[]>(token, '/user/repos?sort=updated&per_page=30')
+    // affiliation=owner → the user's OWN repositories (not ones they only
+    // collaborate on), most-recently-updated first, including privates.
+    const list = await this.api<GhRepo[]>(
+      token,
+      '/user/repos?affiliation=owner&sort=updated&per_page=100'
+    )
     return list.map((r) => ({
       id: r.id,
       fullName: r.full_name ?? '',
