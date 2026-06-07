@@ -70,11 +70,26 @@ function signals(ws: Workspace): {
   return { unread, playing, discarded, isNative }
 }
 
+/** Service-specific noun for an unread count (GitHub → notifications, Discord →
+ *  mentions, etc.) so the dock reads naturally per the design. */
+function unreadLabel(ws: Workspace, n: number): string {
+  const key = (ws.panels[0]?.provider || ws.name || '').toLowerCase()
+  const s = n === 1 ? '' : 's'
+  if (key.includes('github')) return `${n} notification${s}`
+  if (key.includes('discord')) return `${n} mention${s}`
+  if (key.includes('mastodon') || key.includes('bluesky') || key.includes('twitter') || key.includes(' x'))
+    return `${n} notification${s}`
+  if (key.includes('gmail') || key.includes('mail') || key.includes('outlook')) return `${n} unread`
+  if (key.includes('follow')) return `${n} new · chronological`
+  if (key.includes('rss') || key.includes('feed')) return `${n} new`
+  return `${n} new`
+}
+
 /** The status line, in words, derived from real signals. */
 function statusText(ws: Workspace): { text: string; cls: '' | 'playing' | 'unread' | 'idle' } {
   const { unread, playing, discarded } = signals(ws)
   if (playing) return { text: 'Playing', cls: 'playing' }
-  if (unread > 0) return { text: `${unread} new`, cls: 'unread' }
+  if (unread > 0) return { text: unreadLabel(ws, unread), cls: 'unread' }
   if (discarded) return { text: 'Discarded', cls: 'idle' }
   if (ws.keepAlive) return { text: 'Kept alive', cls: '' }
   return { text: 'Idle', cls: 'idle' }
