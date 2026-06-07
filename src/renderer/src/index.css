@@ -14,12 +14,13 @@
      so a future theme designer can repaint the whole app. Dark by default;
      `[data-theme="light"]` flips the lightness scale. The app's older token
      NAMES are kept as aliases below so every existing component re-skins. */
-  --nh: 256; /* neutral hue */
+  --nh: 256; /* neutral hue (cool blue-grey, matches JetCore) */
   --nc: 0.016; /* neutral chroma (tint strength) */
-  --accent: #5b8cff; /* single highlight color */
+  --accent: #5b8cff; /* single highlight color — user-customizable */
   --accent-ink: #ffffff;
 
-  /* Dark lightness scale */
+  /* Dark lightness scale — kept for any consumer that still reads --l-*; the
+     surfaces below now use JetCore's exact base hexes rather than these. */
   --l-window: 0.155; /* outermost */
   --l-chrome: 0.176; /* sidebar + topbar (one continuous frame) */
   --l-card: 0.248; /* the floating page card (clearly lighter) */
@@ -27,24 +28,25 @@
   --l-elev-2: 0.335; /* hover / nested */
   --l-input: 0.214;
 
-  /* Derived neutral surfaces */
-  --window: oklch(var(--l-window) var(--nc) var(--nh));
-  --chrome-c: oklch(var(--l-chrome) var(--nc) var(--nh));
-  --card: oklch(var(--l-card) var(--nc) var(--nh));
-  --elev: oklch(var(--l-elev) var(--nc) var(--nh));
-  --elev-2: oklch(var(--l-elev-2) var(--nc) var(--nh));
-  --input: oklch(var(--l-input) var(--nc) var(--nh));
+  /* Neutral surfaces — re-based on JetCore's BASE palette (dark). Same cool
+     blue-grey hue family; accent stays themable above. */
+  --window: #04060a; /* JetCore --bg-outside / --bg-rail */
+  --chrome-c: #07090f; /* JetCore --bg-nav (rail + topbar frame) */
+  --card: #141925; /* JetCore --bg-card (floating page card) */
+  --elev: #1a2030; /* JetCore --bg-card-hi (rows/cards inside) */
+  --elev-2: #232b3e; /* one step above --bg-card-hi for hover/nested */
+  --input: #0a0d14; /* JetCore --bg-input / --bg-side */
 
-  /* Text scale */
-  --txt-1: oklch(0.965 0.006 var(--nh));
-  --txt-2: oklch(0.79 0.012 var(--nh));
-  --txt-3: oklch(0.63 0.016 var(--nh));
-  --txt-4: oklch(0.5 0.018 var(--nh));
+  /* Text scale — JetCore's exact text ramp (dark). */
+  --txt-1: #e6ecf5; /* JetCore --t-1 */
+  --txt-2: #aab4c5; /* JetCore --t-2 */
+  --txt-3: #6b7689; /* JetCore --t-3 */
+  --txt-4: #475061; /* JetCore --t-4 */
 
-  /* Lines */
-  --line: color-mix(in oklch, white 9%, transparent);
-  --line-2: color-mix(in oklch, white 15%, transparent);
-  --line-strong: color-mix(in oklch, white 22%, transparent);
+  /* Lines — JetCore's cool blue-grey hairlines. */
+  --line: rgba(140, 170, 220, 0.07); /* JetCore --hairline */
+  --line-2: rgba(140, 170, 220, 0.12); /* JetCore --hairline-2 */
+  --line-strong: rgba(140, 170, 220, 0.22); /* JetCore --hairline-3 */
 
   /* Accent derivations */
   --accent-soft: color-mix(in oklch, var(--accent) 16%, transparent);
@@ -124,14 +126,24 @@
   --l-elev-2: 0.965;
   --l-input: 0.975;
 
-  --txt-1: oklch(0.27 0.02 var(--nh));
-  --txt-2: oklch(0.42 0.022 var(--nh));
-  --txt-3: oklch(0.56 0.02 var(--nh));
-  --txt-4: oklch(0.68 0.016 var(--nh));
+  /* Light base derived in JetCore's cool blue-grey hue family (JetCore ships
+     no light palette). Frame is a soft blue-grey; the page card is the
+     brightest surface; text is the dark end of the same hue. */
+  --window: #e7ebf2; /* outermost — soft cool grey */
+  --chrome-c: #eef1f7; /* sidebar + topbar frame — slightly off-white */
+  --card: #ffffff; /* floating page card — brightest */
+  --elev: #f4f6fb; /* rows/cards inside the page */
+  --elev-2: #e9edf4; /* hover / nested */
+  --input: #f7f9fc; /* inputs */
 
-  --line: color-mix(in oklch, oklch(0.2 0.02 var(--nh)) 10%, transparent);
-  --line-2: color-mix(in oklch, oklch(0.2 0.02 var(--nh)) 16%, transparent);
-  --line-strong: color-mix(in oklch, oklch(0.2 0.02 var(--nh)) 26%, transparent);
+  --txt-1: #1a2230; /* dark end of JetCore's cool blue-grey hue */
+  --txt-2: #3d4a5e;
+  --txt-3: #66738a;
+  --txt-4: #8b96a8;
+
+  --line: rgba(40, 60, 95, 0.1);
+  --line-2: rgba(40, 60, 95, 0.16);
+  --line-strong: rgba(40, 60, 95, 0.26);
 
   --shadow-card:
     0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 14px 34px -20px rgba(20, 24, 40, 0.32),

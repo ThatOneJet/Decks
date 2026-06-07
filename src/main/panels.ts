@@ -1495,52 +1495,105 @@ export class PanelManager {
   }
 
   /**
-   * Click a transport button in the page (YouTube/Spotify), returning whether one
-   * was found. More reliable than keyboard shortcuts (which need the player to be
-   * focused). ⚠️ FRAGILE: depends on the sites' button selectors.
+   * Click a transport button in the page (Spotify), returning whether one was
+   * found. More reliable than keyboard shortcuts (which need the player focused).
+   * ⚠️ FRAGILE: depends on the site's button selectors. (YouTube next/prev is
+   * handled by `youTubeNext`/`miniPrevious`, which follow YouTube's OWN autoplay
+   * up-next queue rather than a player button that's disabled off-playlist.)
    */
   private clickTransport(dir: 'next' | 'prev'): Promise<boolean> {
     const wc = this.miniWc()
     if (!wc) return Promise.resolve(false)
     const sel =
       dir === 'next'
-        ? [
-            '.ytp-next-button',
-            '[data-testid="control-button-skip-forward"]',
-            'button[aria-label*="Next" i]'
-          ]
-        : [
-            '.ytp-prev-button',
-            '[data-testid="control-button-skip-back"]',
-            'button[aria-label*="Previous" i]'
-          ]
+        ? ['[data-testid="control-button-skip-forward"]', 'button[aria-label*="Next" i]']
+        : ['[data-testid="control-button-skip-back"]', 'button[aria-label*="Previous" i]']
     const js = `(()=>{var s=${JSON.stringify(sel)};for(var i=0;i<s.length;i++){var b=document.querySelector(s[i]);if(b){b.click();return true;}}return false;})()`
     return wc.executeJavaScript(js).catch(() => false) as Promise<boolean>
   }
 
-  /** Skip to the next track — clicks the player's Next button, falling back to
-   *  YouTube's Shift+N shortcut. */
+  /**
+   * Advance YouTube using its OWN autoplay / up-next queue (the "mix" it builds
+   * from related videos after a search), NOT a fresh search. Order of attempts,
+   * each tried in-page so it follows whatever YouTube actually exposes:
+   *   1. Click the player's Next button when it's ENABLED — on a watch page this
+   *      is wired to YouTube's autoplay up-next (the related mix).
+   *   2. Otherwise navigate to the up-next video YouTube advertises: the autoplay
+   *      endpoint / "Up next" entry, then the first related/recommended video.
+   * Returns whether it advanced. Driving the watch page like this means even a
+   * single video opened with no playlist context flows into YouTube's related mix.
+   */
+  private youTubeNext(): Promise<boolean> {
+    const wc = this.miniWc()
+    if (!wc) return Promise.resolve(false)
+    const js = `(() => {
+      // 1) Player Next button, but only if YouTube has ENABLED it (it disables
+      //    the button when there's genuinely nowhere to go).
+      var nb = document.querySelector('.ytp-next-button');
+      if (nb && nb.getAttribute('aria-disabled') !== 'true' && !nb.classList.contains('ytp-button-disabled')) {
+        var href = nb.getAttribute('href');
+        if (href) { location.href = href; return true; }
+        nb.click();
+        return true;
+      }
+      // 2) Navigate to the up-next video YouTube exposes in the sidebar. Prefer
+      //    the explicit autoplay/"Up next" renderer, then the first related video.
+      var sels = [
+        'ytd-compact-autoplay-renderer a#thumbnail',
+        'ytd-compact-autoplay-renderer a.yt-simple-endpoint',
+        'ytd-watch-next-secondary-results-renderer ytd-compact-video-renderer a#thumbnail',
+        '#related ytd-compact-video-renderer a#thumbnail',
+        'ytd-compact-video-renderer a#thumbnail'
+      ];
+      for (var i = 0; i < sels.length; i++) {
+        var a = document.querySelector(sels[i]);
+        if (a && a.href && /[?&]v=/.test(a.href)) { location.href = a.href; return true; }
+      }
+      return false;
+    })()`
+    return wc.executeJavaScript(js).catch(() => false) as Promise<boolean>
+  }
+
+  /** Skip to the next track. YouTube follows its OWN autoplay up-next queue (the
+   *  related mix it builds after a search); Spotify uses its transport button.
+   *  Falls back to YouTube's Shift+N shortcut only if neither path advanced. */
   miniNext(): void {
-    void this.clickTransport('next').then((ok) => {
-      if (ok) return
-      const wc = this.miniWc()
-      if (!wc) return
-      wc.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['shift'] })
-      wc.sendInputEvent({ type: 'char', keyCode: 'N', modifiers: ['shift'] })
-      wc.sendInputEvent({ type: 'keyUp', keyCode: 'N', modifiers: ['shift'] })
-    })
+    const entry = this.miniPanelId ? this.panels.get(this.miniPanelId) : null
+    if (entry && isYouTube(entry.url)) {
+      void this.youTubeNext().then((ok) => {
+        if (ok) return
+        // Last resort: the keyboard shortcut (needs the player focused).
+        const wc = this.miniWc()
+        if (!wc) return
+        wc.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['shift'] })
+        wc.sendInputEvent({ type: 'char', keyCode: 'N', modifiers: ['shift'] })
+        wc.sendInputEvent({ type: 'keyUp', keyCode: 'N', modifiers: ['shift'] })
+      })
+      return
+    }
+    // Non-YouTube (Spotify): use its transport button.
+    void this.clickTransport('next')
   }
 
   /** "Back": like a normal media player — if we're more than 3s in, restart the
-   *  current track; otherwise go to the previous track. This always does
-   *  something (a standalone video has no "previous", so restart is the sane
-   *  default), instead of relying on a Prev button that's disabled off-playlist. */
+   *  current track. Otherwise go to the PREVIOUS song in the same up-next queue:
+   *  for YouTube that's the deck's navigation history (each Next navigated us to
+   *  the up-next video, so Back is a history goBack); for Spotify it's the Prev
+   *  button. Always does something — a standalone video with no history restarts. */
   miniPrevious(): void {
     const wc = this.miniWc()
     if (!wc) return
     const t = this.miniPanelId ? this.panels.get(this.miniPanelId)?.meta?.currentTime ?? 0 : 0
     if (t > 3) {
       this.miniSeek(0)
+      return
+    }
+    const entry = this.miniPanelId ? this.panels.get(this.miniPanelId) : null
+    if (entry && isYouTube(entry.url)) {
+      // Go back through the queue we built by navigating forward into up-next
+      // videos. If there's nowhere back, restart the current track.
+      if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack()
+      else this.miniSeek(0)
       return
     }
     void this.clickTransport('prev').then((ok) => {
