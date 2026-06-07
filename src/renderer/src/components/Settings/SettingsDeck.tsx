@@ -128,7 +128,7 @@ function SettingsDeck(): JSX.Element {
         <div ref={scrollRef} className="h-full w-full overflow-y-auto">
           <div className="mx-auto flex w-full max-w-4xl gap-6 px-8 py-10">
             {/* Jump-to TOC — sticky beside the settings sections. */}
-            <aside className="sticky top-0 hidden h-max w-44 shrink-0 lg:block">
+            <aside className="sticky top-1/2 hidden h-max w-44 shrink-0 -translate-y-1/2 self-start lg:block">
               <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-txt-4">
                 Settings
               </div>

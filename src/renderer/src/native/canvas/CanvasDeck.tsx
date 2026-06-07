@@ -638,6 +638,36 @@ function setCourseColorOverride(courseId: string, hex: string | null): void {
   }
   courseColorListeners.forEach((fn) => fn())
 }
+
+// ── User-chosen class NICKNAMES ──────────────────────────────────────────────
+// Persisted display-name overrides keyed by courseId. Shown everywhere the course
+// name appears. Reuses the same listener set so one version hook re-renders both.
+const COURSE_NICK_LS = 'decks.canvasCourseNicknames'
+const courseNicknames = new Map<string, string>()
+try {
+  const raw = localStorage.getItem(COURSE_NICK_LS)
+  if (raw) for (const [k, v] of Object.entries(JSON.parse(raw) as Record<string, string>)) {
+    if (typeof v === 'string' && v.trim()) courseNicknames.set(k, v)
+  }
+} catch {
+  /* ignore malformed cache */
+}
+function setCourseNickname(courseId: string, nickname: string | null): void {
+  const n = nickname?.trim()
+  if (n) courseNicknames.set(courseId, n)
+  else courseNicknames.delete(courseId)
+  try {
+    localStorage.setItem(COURSE_NICK_LS, JSON.stringify(Object.fromEntries(courseNicknames)))
+  } catch {
+    /* keep the in-memory override anyway */
+  }
+  courseColorListeners.forEach((fn) => fn())
+}
+/** A course's nickname if set, else the given fallback name. */
+function nicknamed(courseId?: string, fallback?: string): string | undefined {
+  if (courseId && courseNicknames.has(courseId)) return courseNicknames.get(courseId)
+  return fallback
+}
 /** Re-render subscriber: bumps whenever any course color override changes. */
 function useCourseColorsVersion(): number {
   const [v, setV] = useState(0)
@@ -676,15 +706,15 @@ function courseColor(key?: string): CourseColor {
   return colorTokensFor(COURSE_HUES[Math.abs(hash) % COURSE_HUES.length])
 }
 
-/** Settings view: pick a color for each class. Persists via setCourseColorOverride. */
+/** Settings view: pick a color AND a nickname for each class. */
 function CourseColorsView({ courses }: { courses: CanvasCourse[] }): JSX.Element {
   useCourseColorsVersion()
   return (
     <div className="flex-1 overflow-auto px-4 py-4">
-      <SectionHeading count={courses.length || undefined}>Course colors</SectionHeading>
+      <SectionHeading count={courses.length || undefined}>Course colors &amp; nicknames</SectionHeading>
       <p className="mb-3 text-xs leading-relaxed text-txt-3">
-        Pick a color for each class — it’s used everywhere that course appears: dots, chips,
-        assignment accents, and the calendar overlay.
+        Pick a color and a nickname for each class — they’re used everywhere that course appears:
+        dots, chips, assignment accents, and the calendar overlay.
       </p>
       {courses.length === 0 ? (
         <p className="text-xs text-txt-4">No courses yet — refresh once your Canvas loads.</p>
@@ -693,37 +723,53 @@ function CourseColorsView({ courses }: { courses: CanvasCourse[] }): JSX.Element
           {courses.map((co, i) => {
             const id = co.id ?? co.name ?? `course-${i}`
             const c = courseColor(co.id ?? co.name)
-            const overridden = !!(co.id && courseColorOverrides.has(co.id))
+            const overridden = !!(co.id && (courseColorOverrides.has(co.id) || courseNicknames.has(co.id)))
+            const nick = (co.id && courseNicknames.get(co.id)) || ''
             return (
               <div
                 key={id}
-                className="flex items-center gap-3 rounded-lg border border-line bg-bg-elevated px-3 py-2.5"
+                className="rounded-lg border border-line bg-bg-elevated px-3 py-2.5"
                 style={{ borderLeft: `3px solid ${c.hue}` }}
               >
-                <span className="h-4 w-4 shrink-0 rounded-full" style={{ backgroundColor: c.hue }} />
-                <span className="min-w-0 flex-1 truncate text-sm text-txt-1">{co.name ?? 'Course'}</span>
-                {overridden && (
-                  <button
-                    type="button"
-                    onClick={() => co.id && setCourseColorOverride(co.id, null)}
-                    className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] text-txt-3 transition-colors hover:text-txt-1"
-                  >
-                    Reset
-                  </button>
-                )}
-                <label className="relative shrink-0 cursor-pointer" title="Pick a color">
-                  <span
-                    className="block h-7 w-7 rounded-md border border-line"
-                    style={{ backgroundColor: c.hue }}
-                  />
-                  <input
-                    type="color"
-                    value={c.hue}
-                    disabled={!co.id}
-                    onChange={(e) => co.id && setCourseColorOverride(co.id, e.target.value)}
-                    className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
-                  />
-                </label>
+                <div className="flex items-center gap-3">
+                  <span className="h-4 w-4 shrink-0 rounded-full" style={{ backgroundColor: c.hue }} />
+                  <span className="min-w-0 flex-1 truncate text-sm text-txt-1">{co.name ?? 'Course'}</span>
+                  {overridden && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (co.id) {
+                          setCourseColorOverride(co.id, null)
+                          setCourseNickname(co.id, null)
+                        }
+                      }}
+                      className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] text-txt-3 transition-colors hover:text-txt-1"
+                    >
+                      Reset
+                    </button>
+                  )}
+                  <label className="relative shrink-0 cursor-pointer" title="Pick a color">
+                    <span
+                      className="block h-7 w-7 rounded-md border border-line"
+                      style={{ backgroundColor: c.hue }}
+                    />
+                    <input
+                      type="color"
+                      value={c.hue}
+                      disabled={!co.id}
+                      onChange={(e) => co.id && setCourseColorOverride(co.id, e.target.value)}
+                      className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                    />
+                  </label>
+                </div>
+                <input
+                  type="text"
+                  value={nick}
+                  disabled={!co.id}
+                  placeholder="Nickname (e.g. “AP Bio”)"
+                  onChange={(e) => co.id && setCourseNickname(co.id, e.target.value)}
+                  className="mt-2 w-full rounded-md border border-line bg-bg px-2.5 py-1.5 text-xs text-txt-1 outline-none placeholder:text-txt-4 focus:border-accent disabled:opacity-50"
+                />
               </div>
             )
           })}
@@ -1054,7 +1100,10 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
   /** Resolve a course label from the dashboard course list, by id. */
   const courseName = useCallback(
     (courseId?: string): string | undefined => {
-      if (!courseId || !dash) return undefined
+      if (!courseId) return undefined
+      const nick = nicknamed(courseId)
+      if (nick) return nick
+      if (!dash) return undefined
       const c = dash.courses.find((x) => x.id === courseId)
       return c?.courseCode ?? c?.name
     },
@@ -2210,7 +2259,7 @@ function OverviewTab({
                       <AgendaAssignmentRow
                         key={a.id ?? `${a.name ?? 'a'}-${j}`}
                         a={a}
-                        label={a.courseName ?? courseName(a.courseId)}
+                        label={courseName(a.courseId) ?? a.courseName}
                         nav={assignmentNav(agendaOrder, a)}
                         onOpenAssignment={onOpenAssignment}
                       />

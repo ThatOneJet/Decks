@@ -148,9 +148,12 @@ function NotificationRow({ n }: { n: GhNotification }): JSX.Element {
   return inner
 }
 
-function RepoRow({ r }: { r: GhRepo }): JSX.Element {
-  const inner = (
-    <div className="rounded-lg border border-line bg-bg-elevated px-3 py-2.5 transition-colors hover:border-accent-ring">
+function RepoRow({ r, onOpen }: { r: GhRepo; onOpen: (fullName: string) => void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={() => r.fullName && onOpen(r.fullName)}
+      className="block w-full rounded-lg border border-line bg-bg-elevated px-3 py-2.5 text-left transition-colors hover:border-accent-ring">
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-sm font-medium text-txt-1">{r.fullName || 'Repository'}</span>
         {r.private && (
@@ -181,17 +184,185 @@ function RepoRow({ r }: { r: GhRepo }): JSX.Element {
           </span>
         )}
       </div>
+    </button>
+  )
+}
+
+/* ── Repo browser (in-app file tree + file viewer + README) ── */
+
+interface DirEntry {
+  name: string
+  path: string
+  type: 'dir' | 'file'
+  size: number
+}
+type RepoContents =
+  | { kind: 'dir'; path: string; entries: DirEntry[] }
+  | { kind: 'file'; name: string; path: string; text?: string; tooBig?: boolean; htmlUrl?: string }
+
+function FileIcon({ dir }: { dir: boolean }): JSX.Element {
+  return dir ? (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-accent" fill="currentColor">
+      <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-txt-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+    </svg>
+  )
+}
+
+function RepoView({
+  provider,
+  accountId,
+  fullName,
+  onBack
+}: {
+  provider: NativeDeckProps['provider']
+  accountId: string
+  fullName: string
+  onBack: () => void
+}): JSX.Element {
+  const [path, setPath] = useState('')
+  const [node, setNode] = useState<RepoContents | null>(null)
+  const [readme, setReadme] = useState<string>('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    setError('')
+    void (async () => {
+      try {
+        const res = (await window.decks?.provider.fetch({
+          provider,
+          accountId,
+          resource: 'repoContents',
+          params: { fullName, path }
+        })) as RepoContents | undefined
+        if (!alive) return
+        setNode(res ?? null)
+      } catch (e) {
+        if (alive) setError(e instanceof Error ? e.message : 'Failed to load repository.')
+      } finally {
+        if (alive) setLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [provider, accountId, fullName, path])
+
+  // README only for the repo root.
+  useEffect(() => {
+    if (path !== '') {
+      setReadme('')
+      return
+    }
+    let alive = true
+    void (async () => {
+      const r = (await window.decks?.provider
+        .fetch({ provider, accountId, resource: 'repoReadme', params: { fullName } })
+        .catch(() => null)) as { text?: string } | null
+      if (alive) setReadme(r?.text ?? '')
+    })()
+    return () => {
+      alive = false
+    }
+  }, [provider, accountId, fullName, path])
+
+  const crumbs = path ? path.split('/') : []
+
+  return (
+    <div className="flex h-full w-full flex-col bg-bg">
+      <header className="shrink-0 border-b border-line px-4 py-3">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onBack}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-line bg-bg-elevated text-txt-3 transition-colors hover:text-txt-1"
+            title="Back to repositories"
+            aria-label="Back"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-txt-1">{fullName}</h2>
+        </div>
+        {/* Breadcrumb */}
+        <div className="mt-2 flex flex-wrap items-center gap-1 text-xs">
+          <button onClick={() => setPath('')} className="text-accent hover:underline">
+            root
+          </button>
+          {crumbs.map((seg, i) => {
+            const to = crumbs.slice(0, i + 1).join('/')
+            return (
+              <span key={to} className="flex items-center gap-1">
+                <span className="text-txt-4">/</span>
+                <button onClick={() => setPath(to)} className="text-txt-2 hover:text-accent">
+                  {seg}
+                </button>
+              </span>
+            )
+          })}
+        </div>
+      </header>
+
+      <div className="flex-1 overflow-auto px-4 py-4">
+        {loading ? (
+          <div className="grid place-items-center py-10">
+            <Spinner />
+          </div>
+        ) : error ? (
+          <p className="text-xs text-err">{error}</p>
+        ) : node?.kind === 'file' ? (
+          node.tooBig ? (
+            <p className="text-xs text-txt-4">
+              This file is binary or too large to preview here.{' '}
+              {node.htmlUrl && (
+                <a href={node.htmlUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                  Open on GitHub
+                </a>
+              )}
+            </p>
+          ) : (
+            <pre className="overflow-auto rounded-lg border border-line bg-bg-elevated p-3 font-mono text-[11px] leading-relaxed text-txt-2">
+              {node.text}
+            </pre>
+          )
+        ) : node?.kind === 'dir' ? (
+          <>
+            <div className="flex flex-col gap-0.5">
+              {node.entries.map((e) => (
+                <button
+                  key={e.path}
+                  onClick={() => setPath(e.path)}
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-bg-elevated"
+                >
+                  <FileIcon dir={e.type === 'dir'} />
+                  <span className="min-w-0 flex-1 truncate text-xs text-txt-1">{e.name}</span>
+                </button>
+              ))}
+            </div>
+            {path === '' && readme && (
+              <div className="mt-5">
+                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-txt-4">
+                  README
+                </div>
+                <pre className="overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-bg-elevated p-3 text-[12px] leading-relaxed text-txt-2">
+                  {readme}
+                </pre>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="text-xs text-txt-4">Nothing here.</p>
+        )}
+      </div>
     </div>
   )
-
-  if (r.htmlUrl) {
-    return (
-      <a href={r.htmlUrl} target="_blank" rel="noreferrer" className="block">
-        {inner}
-      </a>
-    )
-  }
-  return inner
 }
 
 export default function GithubDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
@@ -200,6 +371,7 @@ export default function GithubDeck({ provider, accountId }: NativeDeckProps): JS
   const [data, setData] = useState<GithubDashboard | null>(null)
   const [error, setError] = useState<string>('')
   const [tab, setTab] = useState<Tab>('repos')
+  const [openRepo, setOpenRepo] = useState<string | null>(null)
 
   const load = useCallback(async (): Promise<void> => {
     setState('loading')
@@ -266,6 +438,17 @@ export default function GithubDeck({ provider, accountId }: NativeDeckProps): JS
           <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
         </svg>
       </CenterMessage>
+    )
+  }
+
+  if (openRepo) {
+    return (
+      <RepoView
+        provider={provider}
+        accountId={accountId}
+        fullName={openRepo}
+        onBack={() => setOpenRepo(null)}
+      />
     )
   }
 
@@ -340,7 +523,7 @@ export default function GithubDeck({ provider, accountId }: NativeDeckProps): JS
         ) : (
           <div className="flex flex-col gap-2">
             {dash.repos.map((r, i) => (
-              <RepoRow key={r.id ?? `${r.fullName ?? 'r'}-${i}`} r={r} />
+              <RepoRow key={r.id ?? `${r.fullName ?? 'r'}-${i}`} r={r} onOpen={setOpenRepo} />
             ))}
           </div>
         )}

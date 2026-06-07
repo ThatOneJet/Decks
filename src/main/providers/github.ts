@@ -58,6 +58,16 @@ interface GhIssue {
   updated_at?: string
   repository?: { full_name?: string }
 }
+/** An entry from the contents API — a dir listing item OR a single file blob. */
+interface GhContentEntry {
+  name?: string
+  path?: string
+  type?: string
+  size?: number
+  content?: string
+  encoding?: string
+  html_url?: string
+}
 
 export class GithubClient implements ProviderClient {
   readonly id: ProviderId = ID
@@ -165,6 +175,14 @@ export class GithubClient implements ProviderClient {
         return this.fetchRepos(token)
       case 'issues':
         return this.fetchIssues(token)
+      case 'repoContents':
+        return this.fetchRepoContents(
+          token,
+          String(_params?.fullName ?? ''),
+          String(_params?.path ?? '')
+        )
+      case 'repoReadme':
+        return this.fetchRepoReadme(token, String(_params?.fullName ?? ''))
       case 'dashboard':
       default: {
         const [notifications, repos] = await Promise.all([
@@ -206,6 +224,67 @@ export class GithubClient implements ProviderClient {
       updatedAt: r.updated_at ?? '',
       private: r.private ?? false
     }))
+  }
+
+  /**
+   * Browse a repo's contents at `path`. The GitHub contents API returns an ARRAY
+   * for a directory and an OBJECT (with base64 `content`) for a file — we
+   * normalize both into a tagged result the native deck can render in-app.
+   */
+  private async fetchRepoContents(
+    token: string,
+    fullName: string,
+    path: string
+  ): Promise<unknown> {
+    if (!fullName) throw new Error('Missing repository.')
+    const clean = path.replace(/^\/+/, '')
+    const raw = await this.api<unknown>(
+      token,
+      `/repos/${fullName}/contents/${clean.split('/').map(encodeURIComponent).join('/')}`
+    )
+    if (Array.isArray(raw)) {
+      const entries = (raw as GhContentEntry[])
+        .map((e) => ({
+          name: e.name ?? '',
+          path: e.path ?? '',
+          type: e.type === 'dir' ? 'dir' : 'file',
+          size: e.size ?? 0
+        }))
+        // Directories first, then files, each alphabetical.
+        .sort((a, b) =>
+          a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1
+        )
+      return { kind: 'dir', path: clean, entries }
+    }
+    const file = raw as GhContentEntry
+    const size = file.size ?? 0
+    // Don't try to render giant or binary blobs as text.
+    const isBinary = /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|mp4|mov|mp3|wav|woff2?|ttf|otf|exe|dll|bin)$/i.test(
+      file.name ?? ''
+    )
+    if (size > 400_000 || isBinary) {
+      return { kind: 'file', name: file.name ?? '', path: clean, tooBig: true, htmlUrl: file.html_url ?? '' }
+    }
+    const text =
+      file.content && file.encoding === 'base64'
+        ? Buffer.from(file.content, 'base64').toString('utf8')
+        : (file.content ?? '')
+    return { kind: 'file', name: file.name ?? '', path: clean, text, htmlUrl: file.html_url ?? '' }
+  }
+
+  /** A repo's README rendered to text (decoded from base64). '' when none. */
+  private async fetchRepoReadme(token: string, fullName: string): Promise<unknown> {
+    if (!fullName) throw new Error('Missing repository.')
+    try {
+      const r = await this.api<GhContentEntry>(token, `/repos/${fullName}/readme`)
+      const text =
+        r.content && r.encoding === 'base64'
+          ? Buffer.from(r.content, 'base64').toString('utf8')
+          : (r.content ?? '')
+      return { name: r.name ?? 'README', text }
+    } catch {
+      return { name: '', text: '' }
+    }
   }
 
   private async fetchIssues(token: string): Promise<unknown[]> {
