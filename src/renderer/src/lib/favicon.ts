@@ -15,7 +15,7 @@ export function hostOf(url: string): string {
   }
 }
 
-export function faviconFor(url: string, size = 64): string {
+export function faviconFor(url: string, size = 256): string {
   const host = hostOf(url)
   if (!host) return ''
   return `https://www.google.com/s2/favicons?domain=${host}&sz=${size}`
@@ -28,7 +28,7 @@ export function faviconFor(url: string, size = 64): string {
 export function logoFor(url: string): string {
   const host = hostOf(url)
   if (!host) return ''
-  return `https://logo.clearbit.com/${host}?size=128`
+  return `https://logo.clearbit.com/${host}?size=512`
 }
 
 /**
@@ -38,26 +38,25 @@ export function logoFor(url: string): string {
  * chosen/ordered so the sharpest square brand icon wins while 404s fall through
  * quickly to a source that always resolves:
  *
- *  1. Clearbit (size=128) — true square brand logos; 404s cleanly for unknowns.
- *  2. icon.horse — aggregates the best high-res icon a site exposes.
- *  3. unavatar (fallback=false) — aggregates logos/favicons; no generic filler.
- *  4. live page favicon — the real icon the page reported (often small).
- *  5. DuckDuckGo ip3 — frequently crisper than Google.
- *  6. Google s2 (sz=128) — last resort; always resolves something.
+ * Ordered HIGH-RES first so logos look crisp (the old order led with a tiny
+ * DuckDuckGo .ico, which is why tiles looked low-quality):
+ *  1. unavatar (fallback=false) — aggregates the sharpest brand logo a site has.
+ *  2. icon.horse — high-res icon aggregator.
+ *  3. Clearbit (size=512) — true square brand logos; 404s cleanly for unknowns.
+ *  4. Google s2 (sz=256) — crisp & square for major brands.
+ *  5. live page favicon — the real icon the page reported (often small).
+ *  6. DuckDuckGo ip3 — last-resort that always resolves something.
  */
 export function iconCandidates(url: string, liveFavicon?: string): string[] {
   const host = hostOf(url)
   if (!host) return liveFavicon ? [liveFavicon] : []
-  // Prefer the site's actual FAVICON (designed as a full-bleed app icon — fills
-  // the square, no letterboxing) over brand-logo services (Clearbit/unavatar
-  // often return padded/letterboxed images that show dark bars). DuckDuckGo and
-  // Google s2 @128 are crisp and square for major brands.
   return [
-    `https://icons.duckduckgo.com/ip3/${host}.ico`,
-    `https://www.google.com/s2/favicons?domain=${host}&sz=128`,
-    liveFavicon || '',
+    `https://unavatar.io/${host}?fallback=false`,
     `https://icon.horse/icon/${host}`,
-    `https://logo.clearbit.com/${host}?size=128`
+    `https://logo.clearbit.com/${host}?size=512`,
+    `https://www.google.com/s2/favicons?domain=${host}&sz=256`,
+    liveFavicon || '',
+    `https://icons.duckduckgo.com/ip3/${host}.ico`
   ].filter(Boolean)
 }
 

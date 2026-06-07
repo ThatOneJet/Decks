@@ -2267,8 +2267,12 @@ html.overlay-mode #root {
   background: var(--elev);
 }
 .drow.active {
-  /* No box/fill behind the row — the active state is just an accent ring around
-     the app ICON itself (see .drow.active .ico below). */
+  /* Expanded sidebar: highlight the whole ROW with an accent-tinted background
+     (the rail uses an icon ring instead — see .console.rail .drow.active .ico). */
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+.console.rail .drow.active {
   background: transparent;
   box-shadow: none;
 }
@@ -2306,8 +2310,9 @@ html.overlay-mode #root {
   place-items: center;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
-.drow.active .ico {
-  /* Crisp accent outline hugging the app icon (not the row). */
+.console.rail .drow.active .ico {
+  /* Collapsed rail only: a crisp accent outline hugging the app icon (the
+     expanded sidebar highlights the whole row background instead). */
   box-shadow: 0 0 0 2px var(--accent), 0 0 12px -3px var(--accent-glow);
 }
 .drow .ico svg,
@@ -2371,7 +2376,7 @@ html.overlay-mode #root {
   margin-top: 2px;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   color: var(--t3);
   white-space: nowrap;
 }
@@ -2380,6 +2385,31 @@ html.overlay-mode #root {
   height: 5px;
   border-radius: 50%;
   flex: none;
+}
+/* Trailing notification / playing bubble at the END of an expanded dock row. */
+.drow .drow-badge {
+  flex: none;
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.drow .drow-badge.play {
+  min-width: 18px;
+  width: 18px;
+  padding: 0;
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+.drow .drow-badge.play svg {
+  margin-left: 1px;
 }
 .drow .status.playing {
   color: var(--live);
@@ -2390,7 +2420,8 @@ html.overlay-mode #root {
 .drow .status.idle {
   color: var(--t4);
 }
-.drow .ico-wrap .corner {
+.drow .ico-wrap .corner,
+.drow .folderico .corner {
   position: absolute;
   top: -6px;
   right: -6px;
@@ -2411,11 +2442,17 @@ html.overlay-mode #root {
   place-items: center;
   font-variant-numeric: tabular-nums;
 }
-.drow .ico-wrap .corner.count {
-  background: var(--danger);
+.drow .ico-wrap .corner.count,
+.drow .folderico .corner.count {
+  background: var(--accent);
   color: #fff;
 }
-.drow .ico-wrap .corner.play {
+.drow .ico-wrap .corner.play,
+.drow .folderico .corner.play {
+  /* Bottom-right corner (the count uses top-right). */
+  top: auto;
+  bottom: -6px;
+  right: -6px;
   background: var(--live);
   box-shadow: 0 0 8px var(--live);
 }
@@ -2466,6 +2503,7 @@ html.overlay-mode #root {
   left: -7px;
 }
 .drow .folderico {
+  position: relative;
   width: 34px;
   height: 34px;
   border-radius: 10px;

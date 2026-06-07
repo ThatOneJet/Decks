@@ -109,6 +109,43 @@ function statusText(ws: Workspace): { text: string; cls: '' | 'playing' | 'unrea
 }
 
 /**
+ * Status text that marquees (auto-scrolls back and forth) when it overflows its
+ * row — mirrors the mini-player's title behavior. When `marquee` is false (or the
+ * text fits) it just truncates with an ellipsis. Reuses the `.mp-marquee` keyframes.
+ */
+function StatusText({ text, marquee }: { text: string; marquee: boolean }): JSX.Element {
+  const boxRef = useRef<HTMLSpanElement>(null)
+  const textRef = useRef<HTMLSpanElement>(null)
+  const [m, setM] = useState<{ shift: number; dur: number } | null>(null)
+  useEffect(() => {
+    if (!marquee) {
+      setM(null)
+      return
+    }
+    const box = boxRef.current
+    const t = textRef.current
+    if (!box || !t) return
+    const overflow = t.scrollWidth - box.clientWidth
+    setM(overflow > 4 ? { shift: -(overflow + 6), dur: Math.max(6, Math.round((overflow + 60) / 22)) } : null)
+  }, [text, marquee])
+  return (
+    <span ref={boxRef} style={{ overflow: 'hidden', flex: '0 1 auto', minWidth: 0 }}>
+      <span
+        ref={textRef}
+        className={m ? 'mp-marquee' : undefined}
+        style={
+          m
+            ? ({ '--mp-shift': `${m.shift}px`, '--mp-dur': `${m.dur}s` } as React.CSSProperties)
+            : { display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
+        }
+      >
+        {text}
+      </span>
+    </span>
+  )
+}
+
+/**
  * DockRow — one workspace rendered as a labeled row (logo + name + status), or,
  * in `rail` mode, an icon-only chip with unread/playing corner badges. Preserves
  * the full RailTile behavior set: click→activate, right-click→overlay menu, drag
@@ -244,10 +281,13 @@ function DockRow({
         <span className="ico">
           <TileIcon url={primary?.url} favicon={primary?.favicon} color={color} glyph={ws.glyph} name={ws.name} />
         </span>
+        {/* Collapsed rail: the unread count rides on the icon corner (no room for
+            a row end). Expanded mode puts the count at the END of the row instead.
+            The PLAY badge always rides on the icon corner (both modes). */}
         {rail && unread > 0 && (
           <span className="corner count">{unread > 99 ? '99+' : unread}</span>
         )}
-        {rail && playing && unread === 0 && (
+        {playing && unread === 0 && (
           <span className="corner play">
             <svg viewBox="0 0 24 24" width={8} height={8} fill="#fff"><path d="M8 5v14l11-7z" /></svg>
           </span>
@@ -272,9 +312,16 @@ function DockRow({
         <span className={`status ${status.cls}`}>
           {playing && <span className="sd" style={{ background: 'var(--live)' }} />}
           {!playing && unread > 0 && <span className="sd" style={{ background: 'var(--accent)' }} />}
-          {status.text}
+          {/* The now-playing title can be long — marquee it (like the mini-player)
+              instead of letting it run off the row. Other statuses just truncate. */}
+          <StatusText text={status.text} marquee={playing} />
         </span>
       </span>
+      {/* Expanded mode: the unread COUNT bubble sits at the END of the row (the
+          play badge stays on the icon corner). */}
+      {!rail && unread > 0 && (
+        <span className="drow-badge">{unread > 99 ? '99+' : unread}</span>
+      )}
       {onBeside && (
         <span
           className="openbeside"
