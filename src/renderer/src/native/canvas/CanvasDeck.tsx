@@ -250,6 +250,7 @@ type View =
   | { type: 'discussions'; courseId: string }
   | { type: 'discussion'; courseId: string; topicId: string }
   | { type: 'page'; courseId: string; pageUrl: string }
+  | { type: 'settings' }
 
 /**
  * Canvas-style sequential navigation context for a detail view: the ORDERED list
@@ -613,15 +614,45 @@ interface CourseColor {
   border: string
 }
 
-/** Deterministic, stable color for a course keyed by courseId (name fallback). */
-function courseColor(key?: string): CourseColor {
-  if (!key) {
-    return { hue: '#6d7689', soft: 'rgba(109,118,137,0.12)', border: 'rgba(109,118,137,0.30)' }
+// ── User-chosen course colors ────────────────────────────────────────────────
+// Persisted overrides keyed by courseId. Backed by localStorage + a tiny listener
+// set so the deck re-renders (via useCourseColorsVersion) when a color changes.
+const COURSE_COLOR_LS = 'decks.canvasCourseColors'
+const courseColorOverrides = new Map<string, string>()
+try {
+  const raw = localStorage.getItem(COURSE_COLOR_LS)
+  if (raw) for (const [k, v] of Object.entries(JSON.parse(raw) as Record<string, string>)) {
+    if (typeof v === 'string') courseColorOverrides.set(k, v)
   }
-  let hash = 0
-  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0
-  const hue = COURSE_HUES[Math.abs(hash) % COURSE_HUES.length]
-  // hue is a #rrggbb literal → build rgba() variants.
+} catch {
+  /* ignore malformed cache */
+}
+const courseColorListeners = new Set<() => void>()
+function setCourseColorOverride(courseId: string, hex: string | null): void {
+  if (hex) courseColorOverrides.set(courseId, hex)
+  else courseColorOverrides.delete(courseId)
+  try {
+    localStorage.setItem(COURSE_COLOR_LS, JSON.stringify(Object.fromEntries(courseColorOverrides)))
+  } catch {
+    /* storage full / unavailable — keep the in-memory override anyway */
+  }
+  courseColorListeners.forEach((fn) => fn())
+}
+/** Re-render subscriber: bumps whenever any course color override changes. */
+function useCourseColorsVersion(): number {
+  const [v, setV] = useState(0)
+  useEffect(() => {
+    const fn = (): void => setV((n) => n + 1)
+    courseColorListeners.add(fn)
+    return () => {
+      courseColorListeners.delete(fn)
+    }
+  }, [])
+  return v
+}
+
+/** Build CourseColor tokens from a #rrggbb hue. */
+function colorTokensFor(hue: string): CourseColor {
   const r = parseInt(hue.slice(1, 3), 16)
   const g = parseInt(hue.slice(3, 5), 16)
   const b = parseInt(hue.slice(5, 7), 16)
@@ -630,6 +661,76 @@ function courseColor(key?: string): CourseColor {
     soft: `rgba(${r},${g},${b},0.13)`,
     border: `rgba(${r},${g},${b},0.40)`
   }
+}
+
+/** Deterministic, stable color for a course keyed by courseId (name fallback),
+ *  unless the user has chosen an override for that courseId. */
+function courseColor(key?: string): CourseColor {
+  if (!key) {
+    return { hue: '#6d7689', soft: 'rgba(109,118,137,0.12)', border: 'rgba(109,118,137,0.30)' }
+  }
+  const override = courseColorOverrides.get(key)
+  if (override) return colorTokensFor(override)
+  let hash = 0
+  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0
+  return colorTokensFor(COURSE_HUES[Math.abs(hash) % COURSE_HUES.length])
+}
+
+/** Settings view: pick a color for each class. Persists via setCourseColorOverride. */
+function CourseColorsView({ courses }: { courses: CanvasCourse[] }): JSX.Element {
+  useCourseColorsVersion()
+  return (
+    <div className="flex-1 overflow-auto px-4 py-4">
+      <SectionHeading count={courses.length || undefined}>Course colors</SectionHeading>
+      <p className="mb-3 text-xs leading-relaxed text-txt-3">
+        Pick a color for each class — it’s used everywhere that course appears: dots, chips,
+        assignment accents, and the calendar overlay.
+      </p>
+      {courses.length === 0 ? (
+        <p className="text-xs text-txt-4">No courses yet — refresh once your Canvas loads.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {courses.map((co, i) => {
+            const id = co.id ?? co.name ?? `course-${i}`
+            const c = courseColor(co.id ?? co.name)
+            const overridden = !!(co.id && courseColorOverrides.has(co.id))
+            return (
+              <div
+                key={id}
+                className="flex items-center gap-3 rounded-lg border border-line bg-bg-elevated px-3 py-2.5"
+                style={{ borderLeft: `3px solid ${c.hue}` }}
+              >
+                <span className="h-4 w-4 shrink-0 rounded-full" style={{ backgroundColor: c.hue }} />
+                <span className="min-w-0 flex-1 truncate text-sm text-txt-1">{co.name ?? 'Course'}</span>
+                {overridden && (
+                  <button
+                    type="button"
+                    onClick={() => co.id && setCourseColorOverride(co.id, null)}
+                    className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] text-txt-3 transition-colors hover:text-txt-1"
+                  >
+                    Reset
+                  </button>
+                )}
+                <label className="relative shrink-0 cursor-pointer" title="Pick a color">
+                  <span
+                    className="block h-7 w-7 rounded-md border border-line"
+                    style={{ backgroundColor: c.hue }}
+                  />
+                  <input
+                    type="color"
+                    value={c.hue}
+                    disabled={!co.id}
+                    onChange={(e) => co.id && setCourseColorOverride(co.id, e.target.value)}
+                    className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                  />
+                </label>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 /* ── UI bits ── */
@@ -903,6 +1004,9 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
   const [account, setAccount] = useState<string | undefined>(undefined)
   const [tab, setTab] = useState<TabKey>('overview')
   const [view, setView] = useState<View>({ type: 'list' })
+  // Re-render the whole deck whenever a course-color override changes so every
+  // courseColor() call below picks up the new hue.
+  useCourseColorsVersion()
   // Canvas-style Prev/Next context for the active detail view (null = no list to
   // step through, e.g. opened from a course header or a single item).
   const [nav, setNav] = useState<NavContext | null>(null)
@@ -1693,6 +1797,25 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
               <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" />
             </svg>
           </button>
+          <button
+            onClick={() => setView({ type: 'settings' })}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-line bg-bg-elevated text-txt-3 transition-colors hover:text-txt-1"
+            aria-label="Course colors & settings"
+            title="Course colors"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
         </div>
 
         {/* Tab bar (hidden inside a detail view) */}
@@ -1774,6 +1897,8 @@ export default function CanvasDeck({ provider, accountId }: NativeDeckProps): JS
           courseId={view.courseId}
           courseName={courseName}
         />
+      ) : view.type === 'settings' ? (
+        <CourseColorsView courses={data.courses} />
       ) : (
         <div className="flex-1 overflow-auto px-4 py-4">
           {tab === 'overview' && (
