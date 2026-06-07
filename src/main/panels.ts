@@ -1282,20 +1282,22 @@ export class PanelManager {
    * window's position or size, so it works even while Decks is minimized.
    */
   private barRect(): PanelBounds {
-    const area = this.currentDisplay().workArea
-    // Collapsed: a slim tab, free-positioned (clamped) by miniPos.
     const w = this.miniCollapsed ? TAB_W : CARD_WIDTH
     const h = this.miniCollapsed ? TAB_H : CARD_HEIGHT
-    const minX = area.x
-    const minY = area.y
-    const maxX = area.x + Math.max(0, area.width - w)
-    const maxY = area.y + Math.max(0, area.height - h)
-    let x = area.x + Math.max(0, area.width - w - BAR_MARGIN) // default top-right
-    let y = area.y + BAR_MARGIN // top
-    if (this.miniPos) {
-      x = Math.min(Math.max(this.miniPos.x, minX), maxX)
-      y = Math.min(Math.max(this.miniPos.y, minY), maxY)
+    // Not yet dragged → default to the TOP-RIGHT of the app's current display.
+    if (!this.miniPos) {
+      const area = this.currentDisplay().workArea
+      const x = area.x + Math.max(0, area.width - w - BAR_MARGIN)
+      const y = area.y + BAR_MARGIN
+      return this.toIntBounds({ x, y, width: w, height: h })
     }
+    // Dragged → clamp to whichever display the card's CENTER currently sits over
+    // (MULTI-MONITOR aware), so it can be dragged freely onto any connected
+    // screen instead of being trapped on the app window's display.
+    const center = { x: Math.round(this.miniPos.x + w / 2), y: Math.round(this.miniPos.y + h / 2) }
+    const area = screen.getDisplayNearestPoint(center).workArea
+    const x = Math.min(Math.max(this.miniPos.x, area.x), area.x + Math.max(0, area.width - w))
+    const y = Math.min(Math.max(this.miniPos.y, area.y), area.y + Math.max(0, area.height - h))
     return this.toIntBounds({ x, y, width: w, height: h })
   }
 
