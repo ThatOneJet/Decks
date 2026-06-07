@@ -349,8 +349,9 @@ html.overlay-mode #root {
 }
 .tile-badge {
   position: absolute;
-  bottom: -3px;
-  right: 6px;
+  top: -5px;
+  right: -4px;
+  z-index: 3;
   min-width: 17px;
   height: 17px;
   padding: 0 4px;
@@ -366,10 +367,11 @@ html.overlay-mode #root {
 }
 .tile-playing {
   position: absolute;
-  bottom: -3px;
-  right: 6px;
-  width: 15px;
-  height: 15px;
+  top: -5px;
+  right: -4px;
+  z-index: 3;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: var(--live);
   border: 2.5px solid var(--bg-chrome);
@@ -380,8 +382,8 @@ html.overlay-mode #root {
 /* Pinned-to-top indicator on a portrait RailTile (top-right corner). */
 .tile-pin {
   position: absolute;
-  top: -2px;
-  right: 4px;
+  top: -4px;
+  left: -3px;
   width: 14px;
   height: 14px;
   border-radius: 50%;

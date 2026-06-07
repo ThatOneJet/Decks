@@ -3564,6 +3564,31 @@ function CourseDetailView({
   // Prev/Next steps through when one of them is opened from the course view.
   const courseAssignmentOrder = [...missing, ...upcoming, ...pastDone, ...noDate]
 
+  // ── Table of contents (jump-to-section side nav) ──
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const tocSlug = (s: string): string =>
+    'toc-' + s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  const scrollToToc = (id: string): void => {
+    scrollRef.current?.querySelector(`[data-toc="${id}"]`)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start'
+    })
+  }
+  const moduleList = modules?.data ?? []
+  const toc: Array<{ id: string; label: string }> = [
+    ...(missing.length ? [{ id: tocSlug('Missing'), label: 'Missing' }] : []),
+    ...(upcoming.length ? [{ id: tocSlug('Upcoming'), label: 'Upcoming' }] : []),
+    ...(pastDone.length ? [{ id: tocSlug('Past'), label: 'Past' }] : []),
+    ...(noDate.length ? [{ id: tocSlug('No due date'), label: 'No due date' }] : []),
+    { id: tocSlug('Announcements'), label: 'Announcements' },
+    { id: tocSlug('Discussions'), label: 'Discussions' },
+    ...moduleList.map((m, i) => ({
+      id: 'toc-module-' + (m.id ?? i),
+      label: m.name ?? `Module ${i + 1}`
+    })),
+    { id: tocSlug('Quizzes'), label: 'Quizzes' }
+  ]
+
   const section = (
     title: string,
     tone: 'err' | 'accent' | 'muted' | 'ok',
@@ -3571,7 +3596,7 @@ function CourseDetailView({
   ): JSX.Element | null => {
     if (rows.length === 0) return null
     return (
-      <section key={title} className="mt-4">
+      <section key={title} data-toc={tocSlug(title)} className="mt-4 scroll-mt-2">
         <SectionHeading count={rows.length} tone={tone}>
           {title}
         </SectionHeading>
@@ -3591,7 +3616,26 @@ function CourseDetailView({
   }
 
   return (
-    <div className="flex-1 overflow-auto px-4 py-4">
+    <div className="flex min-h-0 flex-1">
+      {/* Table of contents — jump to any section / module (course view can be a
+          huge wall of info; this makes navigation easy). Hidden on narrow widths. */}
+      <aside className="hidden w-44 shrink-0 overflow-y-auto border-r border-line p-2 md:block">
+        <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-txt-4">
+          Contents
+        </div>
+        {toc.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => scrollToToc(t.id)}
+            className="block w-full truncate rounded-md px-2 py-1.5 text-left text-xs text-txt-2 transition-colors hover:bg-bg-elevated hover:text-txt-1"
+            title={t.label}
+          >
+            {t.label}
+          </button>
+        ))}
+      </aside>
+
+      <div ref={scrollRef} className="flex-1 overflow-auto px-4 py-4">
       {/* Course header */}
       <div
         className="flex items-center gap-3 rounded-xl2 px-3 py-3"
@@ -3646,7 +3690,7 @@ function CourseDetailView({
       )}
 
       {/* This course's announcements */}
-      <section className="mt-5">
+      <section data-toc={tocSlug('Announcements')} className="mt-5 scroll-mt-2">
         <SectionHeading count={myAnnouncements.length || undefined}>Announcements</SectionHeading>
         {announcementsMeta.state === 'loading' || announcementsMeta.state === 'idle' ? (
           <TabStatus kind="loading" message="Loading announcements…" />
@@ -3664,14 +3708,16 @@ function CourseDetailView({
       </section>
 
       {/* Discussions */}
-      <CourseDiscussionsSection
-        courseId={courseId}
-        list={discussions}
-        onOpenDiscussions={onOpenDiscussions}
-        onOpenDiscussion={onOpenDiscussion}
-      />
+      <div data-toc={tocSlug('Discussions')} className="scroll-mt-2">
+        <CourseDiscussionsSection
+          courseId={courseId}
+          list={discussions}
+          onOpenDiscussions={onOpenDiscussions}
+          onOpenDiscussion={onOpenDiscussion}
+        />
+      </div>
 
-      {/* Modules (reading) */}
+      {/* Modules (reading) — each module is its own TOC anchor */}
       <CourseModulesSection
         courseId={courseId}
         modules={modules}
@@ -3681,7 +3727,10 @@ function CourseDetailView({
       />
 
       {/* Quizzes */}
-      <CourseQuizzesSection quizzes={quizzes} />
+      <div data-toc={tocSlug('Quizzes')} className="scroll-mt-2">
+        <CourseQuizzesSection quizzes={quizzes} />
+      </div>
+      </div>
     </div>
   )
 }
@@ -3777,7 +3826,11 @@ function CourseModulesSection({
       ) : (
         <div className="flex flex-col gap-3">
           {list.map((m, i) => (
-            <div key={m.id ?? `m-${i}`} className="rounded-lg border border-line bg-bg-elevated p-3">
+            <div
+              key={m.id ?? `m-${i}`}
+              data-toc={'toc-module-' + (m.id ?? i)}
+              className="scroll-mt-2 rounded-lg border border-line bg-bg-elevated p-3"
+            >
               <div className="mb-2 text-xs font-semibold text-txt-1">{m.name ?? 'Module'}</div>
               {(m.items ?? []).length === 0 ? (
                 <p className="text-[11px] text-txt-4">No items.</p>

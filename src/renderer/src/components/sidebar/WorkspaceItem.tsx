@@ -38,7 +38,6 @@ export default function RailTile({
   const unread = workspace.panels.reduce((sum, p) => sum + (p.badge || 0), 0)
   const playing = workspace.panels.some((p) => p.playing)
   const deckN = workspace.panels.filter((p) => p.id).length
-  const isNative = primary?.kind === 'native'
 
   const hoverDetails = [
     workspace.name,
@@ -130,10 +129,6 @@ export default function RailTile({
         title={hoverDetails}
         className={`tile ${dragging ? 'dragging' : ''}`}
       >
-        <span
-          className={`tile-kind ${isNative ? 'native' : 'web'}`}
-          title={isNative ? 'Native deck' : 'Web deck'}
-        />
         <TileIcon
           url={primary?.url}
           favicon={primary?.favicon}
