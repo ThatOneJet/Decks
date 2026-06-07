@@ -8,7 +8,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import * as electron from 'electron'
 import { join } from 'path'
-import { appendFileSync, watchFile } from 'fs'
+import { appendFileSync, watchFile, writeFile } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC } from '@shared/ipc'
 import type {
@@ -18,7 +18,9 @@ import type {
   PanelShowOnlyPayload,
   PanelTearOffPayload,
   MetricsResult,
-  FeedbackPayload
+  FeedbackPayload,
+  FileSavePayload,
+  FileSaveResult
 } from '@shared/ipc'
 import type {
   HoverShowPayload,
@@ -235,6 +237,26 @@ function registerIpc(): void {
 
   // ── In-app feedback (suggestion/bug → GitHub issue, or queued offline) ──
   ipcMain.handle(IPC.FeedbackSubmit, (_e, p: FeedbackPayload) => submitFeedback(p))
+
+  // ── Save a generated file to disk (e.g. a Notes HTML export) ──
+  ipcMain.handle(IPC.FileSave, async (_e, p: FileSavePayload): Promise<FileSaveResult> => {
+    if (!mainWindow) return { ok: false, error: 'No window' }
+    try {
+      const picked = await dialog.showSaveDialog(mainWindow, {
+        title: p.title ?? 'Save file',
+        defaultPath: p.defaultName,
+        filters: p.filters ?? [{ name: 'All files', extensions: ['*'] }]
+      })
+      if (picked.canceled || !picked.filePath) return { ok: false, canceled: true }
+      const target = picked.filePath
+      await new Promise<void>((resolve, reject) => {
+        writeFile(target, p.contents, 'utf-8', (err) => (err ? reject(err) : resolve()))
+      })
+      return { ok: true, path: target }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
 
   // ── Process metrics (renderer → main, invoke) ──
   ipcMain.handle(IPC.MetricsGet, (): MetricsResult => {

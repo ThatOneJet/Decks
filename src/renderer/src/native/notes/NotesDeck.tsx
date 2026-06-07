@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX, KeyboardEvent, ReactNode } from 'react'
 import type { NativeDeckProps } from '../types'
+import { pageToHtml, workspaceToHtml, safeFileName } from './notesExport'
 
 // ── Model (mirrors src/main/providers/notes.ts) ────────────────────────────
 
@@ -308,6 +309,42 @@ function NotesDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
     [mutatePages]
   )
 
+  // Export -----------------------------------------------------------------
+
+  const exportPage = useCallback(
+    async (page: Page): Promise<void> => {
+      const html = pageToHtml(page)
+      const name = `${safeFileName(page.title)}.html`
+      await window.decks?.file.save({
+        defaultName: name,
+        contents: html,
+        title: 'Export note',
+        filters: [{ name: 'HTML Document', extensions: ['html'] }]
+      })
+    },
+    []
+  )
+
+  const exportWorkspace = useCallback(async (): Promise<void> => {
+    // Export every page in document order (roots, each followed by its children).
+    const all = latest.current
+    const roots = all.filter((p) => !p.parentId)
+    const ordered: Page[] = []
+    for (const r of roots) {
+      ordered.push(r)
+      for (const c of all.filter((p) => p.parentId === r.id)) ordered.push(c)
+    }
+    // Include any orphans (parent missing) so nothing is silently dropped.
+    for (const p of all) if (!ordered.includes(p)) ordered.push(p)
+    const html = workspaceToHtml(ordered, 'Notes')
+    await window.decks?.file.save({
+      defaultName: 'notes-workspace.html',
+      contents: html,
+      title: 'Export all notes',
+      filters: [{ name: 'HTML Document', extensions: ['html'] }]
+    })
+  }, [])
+
   // Blocks -----------------------------------------------------------------
 
   const updateBlock = useCallback(
@@ -527,13 +564,28 @@ function NotesDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
           <span className="text-[11px] font-semibold uppercase tracking-wider text-txt-3">
             Pages
           </span>
-          <button
-            onClick={() => createPage(null)}
-            title="New page"
-            className="grid h-6 w-6 place-items-center rounded-lg border border-line text-txt-2 transition-colors hover:border-accent hover:text-accent"
-          >
-            +
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => void exportWorkspace()}
+              title="Export all pages to an HTML file"
+              disabled={pages.length === 0}
+              className="grid h-6 w-6 place-items-center rounded-lg border border-line text-txt-2 transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-40"
+            >
+              {/* download / export glyph */}
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </button>
+            <button
+              onClick={() => createPage(null)}
+              title="New page"
+              className="grid h-6 w-6 place-items-center rounded-lg border border-line text-txt-2 transition-colors hover:border-accent hover:text-accent"
+            >
+              +
+            </button>
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
@@ -582,10 +634,24 @@ function NotesDeck({ provider, accountId }: NativeDeckProps): JSX.Element {
 
       {/* ── Editor ── */}
       <main className="relative flex min-w-0 flex-1 flex-col">
-        {/* Save indicator */}
-        <div className="pointer-events-none absolute right-3 top-2 z-10 text-[11px] tabular-nums">
+        {/* Save indicator + per-page export */}
+        <div className="absolute right-3 top-2 z-10 flex items-center gap-2 text-[11px] tabular-nums">
           {saveState === 'pending' && <span className="text-txt-4">Saving…</span>}
           {saveState === 'saved' && <span className="text-ok">Saved</span>}
+          {activePage && (
+            <button
+              onClick={() => activePage && void exportPage(activePage)}
+              title="Export this page to an HTML file (opens identically in any browser)"
+              className="flex items-center gap-1 rounded-lg border border-line bg-bg-elevated px-2 py-1 text-[11px] font-medium text-txt-2 transition-colors hover:border-accent hover:text-accent"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Export
+            </button>
+          )}
         </div>
 
         {loading ? (

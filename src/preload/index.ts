@@ -30,7 +30,8 @@ import type {
   FocusPanelEvent,
   ProviderConnectPayload,
   ProviderFetchPayload,
-  FeedbackPayload
+  FeedbackPayload,
+  FileSavePayload
 } from '@shared/ipc'
 import type { PanelId, PersistedState, ProviderId } from '@shared/types'
 
@@ -69,6 +70,9 @@ const api: DecksApi = {
   },
   feedback: {
     submit: (p: FeedbackPayload) => ipcRenderer.invoke(IPC.FeedbackSubmit, p)
+  },
+  file: {
+    save: (p: FileSavePayload) => ipcRenderer.invoke(IPC.FileSave, p)
   },
   metrics: {
     get: () => ipcRenderer.invoke(IPC.MetricsGet),

@@ -65,6 +65,10 @@ export const IPC = {
   // ── In-app feedback (suggestions + bug reports → GitHub issue) ──
   FeedbackSubmit: 'feedback:submit',
 
+  // ── Save a generated file to disk (native save dialog) — renderer → main ──
+  /** Show a save dialog and write the given text to the chosen path. */
+  FileSave: 'file:save',
+
   // ── Process metrics — renderer → main (invoke) ──
   /** Total RAM + live/discarded panel counts for the sidebar readout. */
   MetricsGet: 'metrics:get',
@@ -244,6 +248,26 @@ export interface FeedbackPayload {
   description: string
   /** Optional screenshot as a data URL (data:image/...;base64,...). */
   imageDataUrl?: string
+}
+
+/** payload: FileSave (renderer → main). Write generated text to a user-chosen path. */
+export interface FileSavePayload {
+  /** Suggested file name (with extension) shown in the save dialog. */
+  defaultName: string
+  /** The file contents to write (UTF-8 text, e.g. a self-contained HTML doc). */
+  contents: string
+  /** Dialog title (e.g. "Export note"). */
+  title?: string
+  /** File-type filters for the save dialog. */
+  filters?: { name: string; extensions: string[] }[]
+}
+
+/** result: FileSave. `path` is set on success; `canceled` when the user dismissed. */
+export interface FileSaveResult {
+  ok: boolean
+  path?: string
+  canceled?: boolean
+  error?: string
 }
 
 /** result of FeedbackSubmit. `queued` = stored locally because the network/token failed. */
@@ -454,6 +478,10 @@ export interface DecksApi {
   feedback: {
     /** File an in-app suggestion/bug as a GitHub issue (or queue it offline). */
     submit(payload: FeedbackPayload): Promise<FeedbackResult>
+  }
+  file: {
+    /** Show a native save dialog and write the given text to the chosen path. */
+    save(payload: FileSavePayload): Promise<FileSaveResult>
   }
   metrics: {
     /** Total RAM + live/discarded panel counts for the sidebar readout. */
