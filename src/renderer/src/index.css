@@ -2341,15 +2341,22 @@ html.overlay-mode #root {
   color: var(--accent);
   opacity: 0.95;
 }
-/* Pin corner badge in collapsed-rail mode. */
-.drow .ico .corner.pin {
+/* The non-clipping wrapper that holds the icon + its corner badges. */
+.drow .ico-wrap {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+/* Pin corner badge in collapsed-rail mode → top-LEFT (count/play take top-right). */
+.drow .ico-wrap .corner.pin {
   background: var(--accent);
   min-width: 14px;
   width: 14px;
   height: 14px;
   bottom: auto;
-  top: -3px;
-  right: -3px;
+  top: -5px;
+  left: -5px;
+  right: auto;
   box-shadow: 0 0 8px -1px var(--accent-glow);
 }
 .drow .status {
@@ -2377,10 +2384,11 @@ html.overlay-mode #root {
 .drow .status.idle {
   color: var(--t4);
 }
-.drow .ico .corner {
+.drow .ico-wrap .corner {
   position: absolute;
-  bottom: -3px;
-  right: -3px;
+  top: -5px;
+  right: -5px;
+  z-index: 3;
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
@@ -2392,11 +2400,11 @@ html.overlay-mode #root {
   place-items: center;
   font-variant-numeric: tabular-nums;
 }
-.drow .ico .corner.count {
+.drow .ico-wrap .corner.count {
   background: var(--danger);
   color: #fff;
 }
-.drow .ico .corner.play {
+.drow .ico-wrap .corner.play {
   background: var(--live);
   width: 16px;
   box-shadow: 0 0 8px var(--live);

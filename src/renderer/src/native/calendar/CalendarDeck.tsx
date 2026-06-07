@@ -296,63 +296,6 @@ function layoutDay(events: CalEvent[], colorOf: (id: string) => string): Positio
   }))
 }
 
-/* ── A Canvas classwork deadline placed on the hourly grid ── */
-interface PositionedClass {
-  key: string
-  title: string
-  color: string
-  topPct: number
-  heightPct: number
-  laneIndex: number
-  laneCount: number
-  due: Date
-  assignmentId: string
-  courseId?: string
-}
-
-/**
- * Place each Canvas assignment as a read-only pill on the hourly grid at the
- * exact time it's DUE (e.g. an 11:59 PM deadline sits at the bottom of that
- * day's column). The pill's bottom edge is the deadline; it occupies a short
- * fixed block ABOVE that time so the due moment reads as the cut-off. Deadlines
- * at the same time fan out into lanes so none hide behind another.
- */
-function layoutClasswork(items: Classwork[], color: string): PositionedClass[] {
-  const BLOCK_MIN = 60 // pill spans from 1h before the due time → the due time
-  const blocks = items
-    .map((c) => ({ c, due: parseISO(c.due) }))
-    .filter((x) => !Number.isNaN(x.due.getTime()))
-    .map((x) => ({ ...x, dueMin: minutesOfDay(x.due) }))
-    .sort((a, b) => a.dueMin - b.dueMin)
-
-  const lanes: Array<{ end: number }> = []
-  const assigned = blocks.map((b) => {
-    const startMin = Math.max(0, b.dueMin - BLOCK_MIN)
-    const endMin = b.dueMin
-    let lane = lanes.findIndex((l) => l.end <= startMin)
-    if (lane === -1) {
-      lane = lanes.length
-      lanes.push({ end: endMin })
-    } else {
-      lanes[lane].end = endMin
-    }
-    return { b, startMin, lane }
-  })
-
-  const laneCount = Math.max(1, lanes.length)
-  return assigned.map((a) => ({
-    key: `cw_${a.b.c.id}`,
-    title: a.b.c.courseName ? `${a.b.c.title} · ${a.b.c.courseName}` : a.b.c.title,
-    color,
-    topPct: (a.startMin / 1440) * 100,
-    heightPct: (BLOCK_MIN / 1440) * 100,
-    laneIndex: a.lane,
-    laneCount,
-    due: a.b.due,
-    assignmentId: a.b.c.id,
-    courseId: a.b.c.courseId
-  }))
-}
 
 /* ── Event editor modal ── */
 
@@ -579,76 +522,108 @@ function useNow(intervalMs = 60_000): Date {
 function TimeGrid({
   days,
   positioned,
-  classByDay,
+  classworkByDay,
+  schoolColor,
   allDayByDay,
   now,
   onSlotClick,
   onEventClick,
-  onOpenClasswork
+  onOpenAssignment
 }: {
   days: Date[]
   positioned: Map<string, PositionedEvent[]>
-  classByDay: Map<string, PositionedClass[]>
+  classworkByDay: Map<string, Classwork[]>
+  schoolColor: string
   allDayByDay: Map<string, AllDayItem[]>
   now: Date
   onSlotClick: (day: Date, hour: number) => void
   onEventClick: (e: CalEvent) => void
-  onOpenClasswork: (c: PositionedClass) => void
+  onOpenAssignment: (courseId?: string, assignmentId?: string) => void
 }): JSX.Element {
   const today = new Date()
   const nowPct = (minutesOfDay(now) / 1440) * 100
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      {/* Column headers */}
-      <div className="flex shrink-0 border-b border-line">
-        <div className="w-12 shrink-0" />
-        {days.map((d) => {
-          const isToday = sameDay(d, today)
-          return (
-            <div
-              key={dayKey(d)}
-              className="flex-1 border-l border-line px-1 py-1.5 text-center"
-            >
-              <div className="text-[10px] font-medium uppercase tracking-wide text-txt-4">
-                {WEEKDAYS[d.getDay()]}
-              </div>
-              <div
-                className={`mx-auto mt-0.5 grid h-6 w-6 place-items-center rounded-full text-xs font-semibold tabular-nums ${
-                  isToday ? 'bg-accent text-black' : 'text-txt-1'
-                }`}
-              >
-                {d.getDate()}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* All-day row */}
-      <div className="flex shrink-0 border-b border-line bg-bg-elevated/40">
-        <div className="grid w-12 shrink-0 place-items-center text-[9px] text-txt-4">all-day</div>
-        {days.map((d) => {
-          const items = allDayByDay.get(dayKey(d)) ?? []
-          return (
-            <div key={dayKey(d)} className="min-h-[1.75rem] flex-1 space-y-0.5 border-l border-line p-0.5">
-              {items.map((it) => (
-                <button
-                  key={it.key}
-                  onClick={() => it.event && onEventClick(it.event)}
-                  className="block w-full truncate rounded px-1 py-0.5 text-left text-[10px] font-medium"
-                  style={{ backgroundColor: tint(it.color, 0.22), color: it.color }}
-                  title={it.title}
-                >
-                  {it.title}
-                </button>
-              ))}
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Scrollable hourly grid */}
+      {/* ONE scroll container holds the header + all-day + assignments rows (pinned
+          via sticky) AND the hour grid — so they share the same content width and
+          the vertical column lines stay aligned even when a scrollbar appears. */}
       <div className="flex-1 overflow-y-auto">
+        {/* Pinned top rows */}
+        <div className="sticky top-0 z-20 bg-bg">
+          {/* Column headers */}
+          <div className="flex border-b border-line">
+            <div className="w-12 shrink-0" />
+            {days.map((d) => {
+              const isToday = sameDay(d, today)
+              return (
+                <div key={dayKey(d)} className="flex-1 border-l border-line px-1 py-1.5 text-center">
+                  <div className="text-[10px] font-medium uppercase tracking-wide text-txt-4">
+                    {WEEKDAYS[d.getDay()]}
+                  </div>
+                  <div
+                    className={`mx-auto mt-0.5 grid h-6 w-6 place-items-center rounded-full text-xs font-semibold tabular-nums ${
+                      isToday ? 'bg-accent text-black' : 'text-txt-1'
+                    }`}
+                  >
+                    {d.getDate()}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* All-day row (events + holidays) */}
+          <div className="flex border-b border-line bg-bg-elevated/40">
+            <div className="grid w-12 shrink-0 place-items-center text-[9px] text-txt-4">all-day</div>
+            {days.map((d) => {
+              const items = allDayByDay.get(dayKey(d)) ?? []
+              return (
+                <div key={dayKey(d)} className="min-h-[1.75rem] flex-1 space-y-0.5 border-l border-line p-0.5">
+                  {items.map((it) => (
+                    <button
+                      key={it.key}
+                      onClick={() => it.event && onEventClick(it.event)}
+                      className="block w-full truncate rounded px-1 py-0.5 text-left text-[10px] font-medium"
+                      style={{ backgroundColor: tint(it.color, 0.22), color: it.color }}
+                      title={it.title}
+                    >
+                      {it.title}
+                    </button>
+                  ))}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Assignments row — Canvas classwork gets its OWN top section (like
+              all-day), per day, instead of being crammed at its due-time slot. */}
+          <div className="flex border-b border-line bg-bg-elevated/20">
+            <div className="grid w-12 shrink-0 place-items-center text-center text-[9px] leading-tight text-txt-4">
+              due
+            </div>
+            {days.map((d) => {
+              const items = classworkByDay.get(dayKey(d)) ?? []
+              return (
+                <div key={dayKey(d)} className="min-h-[1.75rem] flex-1 space-y-0.5 border-l border-line p-0.5">
+                  {items.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => onOpenAssignment(c.courseId, c.id)}
+                      disabled={!c.courseId}
+                      className="block w-full truncate rounded px-1 py-0.5 text-left text-[10px] font-medium transition-[filter] hover:brightness-125 disabled:cursor-default"
+                      style={{ backgroundColor: tint(schoolColor, 0.18), color: schoolColor }}
+                      title={`Due ${timeLabel(parseISO(c.due))} · ${c.title}${c.courseId ? ' · open in Canvas' : ''}`}
+                    >
+                      📌 {c.title}
+                    </button>
+                  ))}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Scrollable hourly grid */}
         <div className="flex" style={{ minHeight: '60rem' }}>
           {/* Hour gutter — each label is centered exactly on its hour gridline
               (the cell's TOP edge), so the times line up with the column rows. */}
@@ -714,35 +689,6 @@ function TimeGrid({
                     >
                       <div className="truncate font-semibold">{p.event.title}</div>
                       <div className="truncate opacity-80">{timeLabel(parseISO(p.event.start))}</div>
-                    </button>
-                  )
-                })}
-
-                {/* Canvas classwork — click to open the assignment in the Canvas deck */}
-                {(classByDay.get(dayKey(d)) ?? []).map((c) => {
-                  const widthPct = 100 / c.laneCount
-                  return (
-                    <button
-                      key={c.key}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onOpenClasswork(c)
-                      }}
-                      className="absolute overflow-hidden rounded-md border border-dashed px-1 py-0.5 text-left text-[10px] leading-tight transition-[filter] hover:brightness-125"
-                      style={{
-                        top: `${c.topPct}%`,
-                        height: `${c.heightPct}%`,
-                        left: `${c.laneIndex * widthPct}%`,
-                        width: `calc(${widthPct}% - 2px)`,
-                        backgroundColor: tint(c.color, 0.16),
-                        borderColor: tint(c.color, 0.6),
-                        color: c.color,
-                        cursor: c.courseId ? 'pointer' : 'default'
-                      }}
-                      title={`Due ${timeLabel(c.due)} · ${c.title}${c.courseId ? ' · open in Canvas' : ''}`}
-                    >
-                      <div className="truncate font-semibold">📌 {c.title}</div>
-                      <div className="truncate opacity-80">Due {timeLabel(c.due)}</div>
                     </button>
                   )
                 })}
@@ -1190,15 +1136,6 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
     return m
   }, [viewDays, allDayItemsFor])
 
-  /* Canvas classwork placed on the hourly grid at its exact due time. */
-  const classByDay = useMemo(() => {
-    const m = new Map<string, PositionedClass[]>()
-    for (const d of viewDays) {
-      const items = classworkByDay.get(dayKey(d)) ?? []
-      if (items.length) m.set(dayKey(d), layoutClasswork(items, schoolColor))
-    }
-    return m
-  }, [viewDays, classworkByDay, schoolColor])
 
   const monthChipsByDay = useMemo(() => {
     const m = new Map<string, AllDayItem[]>()
@@ -1332,10 +1269,6 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
     st.requestCanvasAssignment(courseId, assignmentId)
     st.activateWorkspace(canvasWs.id)
   }, [])
-  const openClasswork = useCallback(
-    (c: PositionedClass): void => openAssignmentInCanvas(c.courseId, c.assignmentId),
-    [openAssignmentInCanvas]
-  )
 
   /* ── Navigation ── */
   const navigate = useCallback(
@@ -1577,12 +1510,13 @@ export default function CalendarDeck({ provider, accountId }: NativeDeckProps): 
           <TimeGrid
             days={viewDays}
             positioned={positionedByDay}
-            classByDay={classByDay}
+            classworkByDay={classworkByDay}
+            schoolColor={schoolColor}
             allDayByDay={allDayByDay}
             now={now}
             onSlotClick={openNewAt}
             onEventClick={openEvent}
-            onOpenClasswork={openClasswork}
+            onOpenAssignment={openAssignmentInCanvas}
           />
         ) : mode === 'month' ? (
           <MonthGrid

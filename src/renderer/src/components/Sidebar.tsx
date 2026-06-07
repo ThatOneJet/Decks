@@ -130,7 +130,7 @@ function DockRow({
   const setGlobalDragging = useStore((s) => s.setDragging)
 
   const primary = ws.panels[0]
-  const { unread, playing, isNative } = signals(ws)
+  const { unread, playing } = signals(ws)
   const status = statusText(ws)
   const color = ws.color || '#45d6e8'
 
@@ -225,9 +225,12 @@ function DockRow({
       title={rail ? `${ws.name} · ${status.text}` : undefined}
     >
       <span className="marker" />
-      <span className="ico">
-        <span className={`tile-kind ${isNative ? 'native' : 'web'}`} title={isNative ? 'Native deck' : 'Web deck'} />
-        <TileIcon url={primary?.url} favicon={primary?.favicon} color={color} glyph={ws.glyph} name={ws.name} />
+      {/* icon + corner badges. The wrapper is sized to the icon and does NOT clip,
+          so the badges ride on TOP of the icon corner (the .ico clips the image). */}
+      <span className="ico-wrap">
+        <span className="ico">
+          <TileIcon url={primary?.url} favicon={primary?.favicon} color={color} glyph={ws.glyph} name={ws.name} />
+        </span>
         {rail && unread > 0 && (
           <span className="corner count">{unread > 99 ? '99+' : unread}</span>
         )}
